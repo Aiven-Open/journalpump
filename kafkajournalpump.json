@@ -1,0 +1,6 @@
+{
+    "kafka_topic": "testtopic",
+    "kafka_address": "localhost",
+    "match_key": "_MACHINE_ID",
+    "match_value": "97baf08d-62a5-47a6-9ce3-cd3b6685d3ec"
+}

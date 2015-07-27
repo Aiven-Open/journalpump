@@ -1,0 +1,12 @@
+Source: kafkajournalpump
+Maintainer: Hannu Valtonen <hannu.valtonen@ohmu.fi>
+Section: python
+Priority: optional
+Build-Depends: python-setuptools (>= 0.6b3), python-all (>= 2.6.6-3), debhelper (>= 7.4.3), dh-systemd (>= 1.2.2)
+Standards-Version: 3.9.1
+
+Package: kafkajournalpump
+Architecture: all
+Depends: ${misc:Depends}, ${python:Depends}, python3-kafka (>= 0.9.3-2), python3-systemd (>=215-17+deb8u1)
+Suggests: python-simplejson (>= 2.1.1-1)
+Description: kafkajournalpump provides a log msg pump for transferring log msgs from journald to Kafka.

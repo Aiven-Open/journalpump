@@ -1,0 +1,6 @@
+kafkajournalpump 1.0.0 (2015-07-27)
+===================================
+
+* Initial release
+* Support for pumping messages from a local journald to a Kafka server
+* Support for only sending matching messages
