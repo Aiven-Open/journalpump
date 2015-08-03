@@ -14,6 +14,7 @@ LOG_FORMAT = "%(asctime)s\t%(name)s\t%(levelname)s\t%(message)s"
 LOG_FORMAT_JOURNAL = "%(name)-20s  %(levelname)-8s  %(message)s"
 LOG_FORMAT_JOURNAL_MULTI_THREAD = "%(name)-20s  %(threadName)-15s %(levelname)-8s  %(message)s"
 
+
 @contextlib.contextmanager
 def AtomicCreateFile(file_path, *, binary=False, perm=None, uidgid=None):
     """Open a temporary file for writing, rename to final name when done"""
