@@ -1,3 +1,10 @@
+kafkajournalpump 1.0.1 (2015-08-03)
+===================================
+
+* Make the code pep8 compliant
+* Support py2.x again
+* bugfix for matching logic
+
 kafkajournalpump 1.0.0 (2015-07-27)
 ===================================
 

@@ -64,5 +64,8 @@ make test PYTHON=python2
 
 
 %changelog
+* Mon Aug 03 2015 Hannu Valtonen <hannu.valtonen@ohmu.fi> - 1.0.1
+- bugfix release
+
 * Mon Jul 27 2015 Hannu Valtonen <hannu.valtonen@ohmu.fi> - 1.0.0
 - Initial RPM package spec
