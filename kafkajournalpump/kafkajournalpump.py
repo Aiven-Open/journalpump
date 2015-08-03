@@ -214,7 +214,7 @@ class KafkaJournalPump(ServiceDaemon):
     def check_match(self, entry):
         if not self.config.get("match_key"):
             return True
-        elif entry[self.config["match_key"]] == self.config["match_value"]:
+        elif entry.get(self.config["match_key"]) == self.config["match_value"]:
             return True
         return False
 
