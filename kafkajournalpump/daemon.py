@@ -16,7 +16,7 @@ LOG_FORMAT_JOURNAL_MULTI_THREAD = "%(name)-20s  %(threadName)-15s %(levelname)-8
 
 
 @contextlib.contextmanager
-def AtomicCreateFile(file_path, *, binary=False, perm=None, uidgid=None):
+def AtomicCreateFile(file_path, binary=False, perm=None, uidgid=None):
     """Open a temporary file for writing, rename to final name when done"""
     tmp_file_path = file_path + "~"
     mode = "wb" if binary else "w"
@@ -47,7 +47,7 @@ def AtomicCreateFile(file_path, *, binary=False, perm=None, uidgid=None):
         raise
 
 
-def atomic_overwrite_file(file_path, contents, *, json=False, ini=False, binary=None, perm=None, uidgid=None):
+def atomic_overwrite_file(file_path, contents, json=False, ini=False, binary=None, perm=None, uidgid=None):
     """Overwrite a file with specified contents via atomic rename"""
     with AtomicCreateFile(file_path, binary=binary, perm=perm, uidgid=uidgid) as out_file:
         if json:
@@ -68,7 +68,7 @@ def atomic_overwrite_file(file_path, contents, *, json=False, ini=False, binary=
     return file_path
 
 
-def read_file(file_path, *, binary=False, json=False, default=None):
+def read_file(file_path, binary=False, json=False, default=None):
     """Read file contents, optionally decoding it from JSON"""
     mode = "rb" if binary else "r"
     try:
@@ -89,7 +89,7 @@ class ServiceDaemonError(Exception):
 
 
 class ServiceDaemon:
-    def __init__(self, *, config_path, pid_file=None, require_config=True, multi_threaded=False, log_level=logging.DEBUG):
+    def __init__(self, config_path, pid_file=None, require_config=True, multi_threaded=False, log_level=logging.DEBUG):
         assert isinstance(config_path, str)
         self.name = self.__class__.__name__.lower()
         self.configure_logging(multi_threaded=multi_threaded, level=log_level)
@@ -111,7 +111,7 @@ class ServiceDaemon:
 
         self.log.debug("Initialized with config_path: %r", config_path)
 
-    def configure_logging(self, *, multi_threaded, level):
+    def configure_logging(self, multi_threaded, level):
         if os.isatty(sys.stdout.fileno()):
             # stdout logging is only enabled for user tty sessions
             logging.basicConfig(level=level, format=LOG_FORMAT)

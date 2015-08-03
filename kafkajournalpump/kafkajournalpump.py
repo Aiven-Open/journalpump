@@ -70,7 +70,7 @@ def get_next(self, skip=1):
 # and we need to preserve the cursor position
 class KafkaSender(Thread):
     def __init__(self, config, msg_buffer, kafka_address, max_send_interval=0.3, snappy=True):
-        super().__init__()
+        Thread.__init__(self)
         self.log = logging.getLogger("KafkaSender")
         self.config = config
         if not isinstance(self.config["kafka_topic"], bytes):
@@ -182,7 +182,7 @@ class MsgBuffer:
 
 class KafkaJournalPump(ServiceDaemon):
     def __init__(self, config_path):
-        super().__init__(config_path=config_path, multi_threaded=True, log_level=logging.INFO)
+        ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         cursor = self.load_state()
         self.msg_buffer = MsgBuffer(cursor)
 
@@ -201,7 +201,7 @@ class KafkaJournalPump(ServiceDaemon):
     def sigterm(self, signum, frame):
         if self.sender:
             self.sender.running = False
-        super().sigterm(signum, frame)
+        ServiceDaemon.sigterm(self, signum, frame)
 
     def load_state(self):
         filepath = self.config.get("json_state_file_path", "kafkajournalpump_state.json")
@@ -234,6 +234,7 @@ class KafkaJournalPump(ServiceDaemon):
 
     def run(self):
         while self.running:
+            entry = None
             try:
                 if not self.initialize_sender():
                     self.log.warning("No kafka sender, sleeping")
