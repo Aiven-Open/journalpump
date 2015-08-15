@@ -3,8 +3,7 @@ language: python
 addons:
   apt:
     packages:
-    - python-systemd
-    - python3-systemd
+    - libsystemd-journal-dev
 
 python:
   - "2.7"
