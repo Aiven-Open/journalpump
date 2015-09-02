@@ -222,7 +222,7 @@ class KafkaJournalPump(ServiceDaemon):
         if not self.sender:
             kafka_address = self.config.get("kafka_address")
             if not kafka_address:
-                self.log.fatal("No kafka service_uri in configuration")
+                self.log.fatal("No kafka_address in configuration")
                 return False
             try:
                 self.sender = KafkaSender(self.config, self.msg_buffer,
@@ -237,8 +237,8 @@ class KafkaJournalPump(ServiceDaemon):
             entry = None
             try:
                 if not self.initialize_sender():
-                    self.log.warning("No kafka sender, sleeping")
-                    time.sleep(1.0)
+                    self.log.warning("No Kafka sender, sleeping")
+                    time.sleep(5.0)
                     continue
 
                 entry, cursor = next(self.journald_reader)
