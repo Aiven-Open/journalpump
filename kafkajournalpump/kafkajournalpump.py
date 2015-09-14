@@ -233,6 +233,7 @@ class KafkaJournalPump(ServiceDaemon):
         return True
 
     def run(self):
+        logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
         while self.running:
             entry = None
             try:
