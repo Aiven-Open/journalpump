@@ -60,7 +60,7 @@ make test PYTHON=python2
 %else
 %{python_sitelib}/*
 %endif
-%attr(0755, postgres, postgres) %{_localstatedir}/lib/kafkajournalpump
+%attr(0755, root, root) %{_localstatedir}/lib/kafkajournalpump
 
 
 %changelog
