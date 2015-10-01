@@ -1,8 +1,9 @@
+from . daemon import ServiceDaemon
 from kafka import KafkaClient, SimpleProducer
 from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
-from . daemon import ServiceDaemon
 from systemd.journal import Reader
 from threading import Thread, Lock
+import errno
 import json
 import kafka.common
 import logging
@@ -187,7 +188,17 @@ class KafkaJournalPump(ServiceDaemon):
         self.msg_buffer = MsgBuffer(cursor)
 
         if self.config.get("journal_path"):
-            self.journald_reader = Reader(path=self.config["journal_path"])
+            while True:
+                try:
+                    self.journald_reader = Reader(path=self.config["journal_path"])
+                    break
+                except IOError as ex:
+                    if ex.errno == errno.ENOENT:
+                        self.log.warning("journal not available yet, waiting: %s: %s",
+                                         ex.__class__.__name__, ex)
+                        time.sleep(5.0)
+                    else:
+                        raise
         else:
             self.journald_reader = Reader()
 
@@ -233,6 +244,7 @@ class KafkaJournalPump(ServiceDaemon):
         return True
 
     def run(self):
+        logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
         while self.running:
             entry = None
             try:
