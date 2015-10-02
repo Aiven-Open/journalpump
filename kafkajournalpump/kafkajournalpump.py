@@ -78,7 +78,13 @@ class KafkaSender(Thread):
             topic = self.config["kafka_topic"].encode("utf8")
         self.topic = topic
         self.cursor = None
-        self.kafka = KafkaClient(kafka_address)
+        self.kafka = KafkaClient(
+            kafka_address,
+            ssl=self.config.get("ssl", False),
+            certfile=self.config.get("certfile"),
+            keyfile=self.config.get("keyfile"),
+            ca=self.config.get("ca")
+        )
         self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
                                              if snappy else CODEC_NONE)
         self.last_send_time = time.time()

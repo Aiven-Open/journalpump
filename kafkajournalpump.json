@@ -1,4 +1,8 @@
 {
+    "ca": "path/to/ca/file",
+    "certfile": "path/to/cert",
+    "keyfile": "path/to/key",
+    "ssl": true,
     "kafka_topic": "testtopic",
     "kafka_address": "localhost",
     "match_key": "_MACHINE_ID",
