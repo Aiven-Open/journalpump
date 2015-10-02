@@ -30,8 +30,8 @@ rpm:
 	git archive --output=kafkajournalpump-rpm-src.tar.gz --prefix=kafkajournalpump/ HEAD
 	rpmbuild -bb kafkajournalpump.spec \
 		--define '_sourcedir $(shell pwd)' \
-		--define 'major_version $(short_ver)' \
-		--define 'minor_version $(subst -,.,$(subst $(short_ver)-,,$(long_ver)))'
+		--define 'major_version $(shell git describe --tags --abbrev=0 | cut -f1-)' \
+		--define 'minor_version $(subst -,.,$(shell git describe --tags --long | cut -f2- -d-))'
 	$(RM) kafkajournalpump-rpm-src.tar.gz
 
 build-dep-fed:
