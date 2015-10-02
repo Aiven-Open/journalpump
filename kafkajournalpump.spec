@@ -12,12 +12,11 @@ Summary:        Kafka journald pump -
 License:        ASL 2.0
 Source0:        kafkajournalpump-rpm-src.tar.gz
 Requires(pre):  shadow-utils
-Requires:       kafka-python
 %if %{use_python3}
-Requires:       kafka-python
+Requires:       python3-kafka, systemd-python3
 BuildRequires:  python3-pytest, python3-pylint
 %else
-Requires:       kafka-python
+Requires:       python-kafka, python-systemd
 BuildRequires:  pytest, pylint
 %endif
 BuildRequires:  %{requires}
