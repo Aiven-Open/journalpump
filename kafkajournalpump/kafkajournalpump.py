@@ -94,6 +94,7 @@ class KafkaSender(Thread):
         self.start_time = time.time()
         self.previous_state = None
         self.running = True
+        self.log.info("Initialized KafkaJournalPump")
 
     def run(self):
         while self.running:
