@@ -13,6 +13,12 @@ import time
 import types
 import uuid
 
+try:
+    import snappy
+except ImportError:
+    snappy = None
+
+
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
 MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2
 
@@ -70,7 +76,7 @@ def get_next(self, skip=1):
 # KafkaSender exists mostly because kafka-python's async handling is still broken (11.5.2015)
 # and we need to preserve the cursor position
 class KafkaSender(Thread):
-    def __init__(self, config, msg_buffer, kafka_address, max_send_interval=0.3, snappy=True):
+    def __init__(self, config, msg_buffer, kafka_address, max_send_interval=0.3):
         Thread.__init__(self)
         self.log = logging.getLogger("KafkaSender")
         self.config = config
@@ -78,15 +84,10 @@ class KafkaSender(Thread):
             topic = self.config["kafka_topic"].encode("utf8")
         self.topic = topic
         self.cursor = None
-        self.kafka = KafkaClient(
-            kafka_address,
-            ssl=self.config.get("ssl", False),
-            certfile=self.config.get("certfile"),
-            keyfile=self.config.get("keyfile"),
-            ca=self.config.get("ca")
-        )
-        self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
-                                             if snappy else CODEC_NONE)
+        self.kafka_address = kafka_address
+        self.kafka = None
+        self.kafka_producer = None
+        self._init_kafka()
         self.last_send_time = time.time()
         self.last_state_save_time = time.time()
         self.msg_buffer = msg_buffer
@@ -95,6 +96,31 @@ class KafkaSender(Thread):
         self.previous_state = None
         self.running = True
         self.log.info("Initialized KafkaJournalPump")
+
+    def _init_kafka(self):
+        self.log.info("Initializing Kafka client, address: %r", self.kafka_address)
+        try:
+            if self.kafka_producer:
+                self.kafka_producer.stop()
+            if self.kafka:
+                self.kafka.close()
+
+            self.kafka = KafkaClient(
+                self.kafka_address,
+                ssl=self.config.get("ssl", False),
+                certfile=self.config.get("certfile"),
+                keyfile=self.config.get("keyfile"),
+                ca=self.config.get("ca")
+            )
+            self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
+                                                 if snappy else CODEC_NONE)
+            self.log.info("Initialized Kafka Client, address: %r", self.kafka_address)
+        except (kafka.common.KafkaUnavailableError,
+                kafka.common.LeaderNotAvailableError,
+                kafka.common.UnknownError):
+            self.log.exception("Problem initializing Kafka")
+            self.kafka = None
+            self.kafka_producer = None
 
     def run(self):
         while self.running:
@@ -143,6 +169,7 @@ class KafkaSender(Thread):
                     time.sleep(0.5)
                 except:  # pylint: disable=bare-except
                     self.log.exception("Problem sending messages to kafka")
+                    self._init_kafka()
                     time.sleep(1.0)
             self.cursor = cursor
             self.log.debug("Sending %r / %d msgs, cursor: %r took %.4fs",
