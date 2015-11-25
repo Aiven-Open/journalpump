@@ -1,4 +1,4 @@
-short_ver = 1.0.0
+short_ver = 1.0.1
 long_ver = $(shell git describe --long 2>/dev/null || echo $(short_ver)-0-unknown-g`git describe --always`)
 
 all: py-egg
@@ -36,8 +36,9 @@ rpm:
 
 build-dep-fed:
 	sudo yum -y install \
-		python-kafka pytest python3-pytest pylint python3-pylint \
-		systemd-python3
+		python-kafka python3-kafka pytest python3-pytest \
+		pylint python3-pylint \
+		python-systemd python3-systemd
 
 build-dep-deb:
 	sudo apt-get install \

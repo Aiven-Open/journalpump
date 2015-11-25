@@ -8,12 +8,11 @@ Name:           kafkajournalpump
 Version:        %{major_version}
 Release:        %{minor_version}%{?dist}
 Url:            http://github.com/ohmu/kafkajournalpump
-Summary:        Kafka journald pump -
+Summary:        Pump messages from systemd journal to Kafka
 License:        ASL 2.0
 Source0:        kafkajournalpump-rpm-src.tar.gz
-Requires(pre):  shadow-utils
 %if %{use_python3}
-Requires:       python3-kafka, systemd-python3
+Requires:       python3-kafka, python3-systemd
 BuildRequires:  python3-pytest, python3-pylint
 %else
 Requires:       python-kafka, python-systemd
@@ -23,7 +22,7 @@ BuildRequires:  %{requires}
 BuildArch:      noarch
 
 %description
-kafkajournalpump is a daemon to pumo journald messages into a given kafka topic.
+kafkajournalpump is a daemon to pump journald messages into a given kafka topic.
 
 
 %prep
@@ -54,12 +53,12 @@ make test PYTHON=python2
 %doc LICENSE README.rst kafkajournalpump.json
 %{_bindir}/kafkajournalpump*
 %{_unitdir}/kafkajournalpump.service
+%{_localstatedir}/lib/kafkajournalpump
 %if %{use_python3}
 %{python3_sitelib}/*
 %else
 %{python_sitelib}/*
 %endif
-%attr(0755, root, root) %{_localstatedir}/lib/kafkajournalpump
 
 
 %changelog
