@@ -38,7 +38,7 @@ build-dep-fed:
 	sudo yum -y install \
 		python-kafka python3-kafka pytest python3-pytest \
 		pylint python3-pylint \
-		python-systemd python3-systemd
+		systemd-python systemd-python3
 
 build-dep-deb:
 	sudo apt-get install \
