@@ -99,28 +99,32 @@ class KafkaSender(Thread):
 
     def _init_kafka(self):
         self.log.info("Initializing Kafka client, address: %r", self.kafka_address)
-        try:
-            if self.kafka_producer:
-                self.kafka_producer.stop()
-            if self.kafka:
-                self.kafka.close()
+        while self.running:
+            try:
+                if self.kafka_producer:
+                    self.kafka_producer.stop()
+                if self.kafka:
+                    self.kafka.close()
 
-            self.kafka = KafkaClient(
-                self.kafka_address,
-                ssl=self.config.get("ssl", False),
-                certfile=self.config.get("certfile"),
-                keyfile=self.config.get("keyfile"),
-                ca=self.config.get("ca")
-            )
-            self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
-                                                 if snappy else CODEC_NONE)
-            self.log.info("Initialized Kafka Client, address: %r", self.kafka_address)
-        except (kafka.common.KafkaUnavailableError,
-                kafka.common.LeaderNotAvailableError,
-                kafka.common.UnknownError):
-            self.log.exception("Problem initializing Kafka")
+                self.kafka = KafkaClient(
+                    self.kafka_address,
+                    ssl=self.config.get("ssl", False),
+                    certfile=self.config.get("certfile"),
+                    keyfile=self.config.get("keyfile"),
+                    ca=self.config.get("ca")
+                )
+                self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
+                                                     if snappy else CODEC_NONE)
+                self.log.info("Initialized Kafka Client, address: %r", self.kafka_address)
+                break
+            except (kafka.common.KafkaUnavailableError,
+                    kafka.common.LeaderNotAvailableError):
+                self.log.warning("Problem initializing Kafka, sleeping")
+            except kafka.common.UnknownError:
+                self.log.exception("Problem initializing Kafka, sleeping")
             self.kafka = None
             self.kafka_producer = None
+            time.sleep(1.0)
 
     def run(self):
         while self.running:
@@ -170,7 +174,6 @@ class KafkaSender(Thread):
                 except:  # pylint: disable=bare-except
                     self.log.exception("Problem sending messages to kafka")
                     self._init_kafka()
-                    time.sleep(1.0)
             self.cursor = cursor
             self.log.debug("Sending %r / %d msgs, cursor: %r took %.4fs",
                            topic, len(messages), self.cursor, time.time() - start_time)
