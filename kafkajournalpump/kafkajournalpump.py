@@ -87,7 +87,6 @@ class KafkaSender(Thread):
         self.kafka_address = kafka_address
         self.kafka = None
         self.kafka_producer = None
-        self._init_kafka()
         self.last_send_time = time.time()
         self.last_state_save_time = time.time()
         self.msg_buffer = msg_buffer
@@ -95,6 +94,7 @@ class KafkaSender(Thread):
         self.start_time = time.time()
         self.previous_state = None
         self.running = True
+        self._init_kafka()
         self.log.info("Initialized KafkaJournalPump")
 
     def _init_kafka(self):
