@@ -106,7 +106,7 @@ class KafkaSender(Thread):
                 if self.kafka:
                     self.kafka.close()
 
-                self.kafka = KafkaClient(
+                self.kafka = KafkaClient(  # pylint: disable=unexpected-keyword-arg
                     self.kafka_address,
                     ssl=self.config.get("ssl", False),
                     certfile=self.config.get("certfile"),
