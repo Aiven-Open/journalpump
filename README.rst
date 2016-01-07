@@ -87,6 +87,16 @@ description of the current state of the kafkajournalpump.
 Configuration keys
 ==================
 
+``ca`` (default ``N/A``)
+
+Kafka Certificate Authority path, needed when you're using Kafka with SSL
+authentication.
+
+``certfile`` (default ``N/A``)
+
+Kafka client certificate path, needed when you're using Kafka with SSL
+authentication.
+
 ``kafka_topic`` (default ``N/A``)
 
 Which Kafka topic do you want the kafkajournalpump to write to.
@@ -94,6 +104,11 @@ Which Kafka topic do you want the kafkajournalpump to write to.
 ``kafka_address`` (default ``N/A``)
 
 The address of the kafka server which to write to.
+
+``keyfile`` (default ``N/A``)
+
+Kafka client key path, needed when you're using Kafka with SSL
+authentication.
 
 ``match_key`` (default ``N/A``)
 
@@ -114,6 +129,11 @@ default one.
 
 Location of a JSON state file which describes the state of the
 kafkajournalpump process.
+
+``units_to_match`` (default ``[]``)
+
+Require that the logs message matches only against certain
+_SYSTEMD_UNITs. If not set, we allow log events from all units.
 
 ``log_level`` (default ``"INFO"``)
 
