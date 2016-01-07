@@ -106,7 +106,7 @@ class KafkaSender(Thread):
                 if self.kafka:
                     self.kafka.close()
 
-                self.kafka = KafkaClient(
+                self.kafka = KafkaClient(  # pylint: disable=unexpected-keyword-arg
                     self.kafka_address,
                     ssl=self.config.get("ssl", False),
                     certfile=self.config.get("certfile"),
@@ -238,6 +238,9 @@ class KafkaJournalPump(ServiceDaemon):
                         raise
         else:
             self.journald_reader = Reader()
+
+        for unit_to_match in self.config.get("units_to_match", []):
+            self.journald_reader.add_match(_SYSTEMD_UNIT=unit_to_match)
 
         if cursor:
             self.journald_reader.seek_cursor(cursor)  # pylint: disable=no-member
