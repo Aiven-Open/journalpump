@@ -8,6 +8,7 @@ import json
 import kafka.common
 import logging
 import os
+import socket
 import systemd.journal
 import time
 import types
@@ -17,6 +18,12 @@ try:
     import snappy
 except ImportError:
     snappy = None
+
+
+KAFKA_CONN_ERRORS = tuple(kafka.common.RETRY_ERROR_TYPES) + (
+    kafka.common.UnknownError,
+    socket.timeout,
+)
 
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
@@ -117,11 +124,8 @@ class KafkaSender(Thread):
                                                      if snappy else CODEC_NONE)
                 self.log.info("Initialized Kafka Client, address: %r", self.kafka_address)
                 break
-            except (kafka.common.KafkaUnavailableError,
-                    kafka.common.LeaderNotAvailableError):
+            except KAFKA_CONN_ERRORS:
                 self.log.warning("Problem initializing Kafka, sleeping")
-            except kafka.common.UnknownError:
-                self.log.exception("Problem initializing Kafka, sleeping")
             self.kafka = None
             self.kafka_producer = None
             time.sleep(1.0)
