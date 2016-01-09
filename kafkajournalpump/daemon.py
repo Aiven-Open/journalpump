@@ -92,7 +92,10 @@ class ServiceDaemon:
     def __init__(self, config_path, pid_file=None, require_config=True, multi_threaded=False, log_level=logging.DEBUG):
         assert isinstance(config_path, str)
         self.name = self.__class__.__name__.lower()
-        self.configure_logging(multi_threaded=multi_threaded, level=log_level)
+        self.log_level = log_level
+        self.multi_threaded = multi_threaded
+        self.journal_handler = None
+        self.configure_logging()
         self.log = logging.getLogger(self.name)
         with open("/etc/machine-id") as fp:
             self.machine_id = fp.read().strip()
@@ -111,17 +114,18 @@ class ServiceDaemon:
 
         self.log.debug("Initialized with config_path: %r", config_path)
 
-    def configure_logging(self, multi_threaded, level):
+    def configure_logging(self):
         if os.isatty(sys.stdout.fileno()):
             # stdout logging is only enabled for user tty sessions
-            logging.basicConfig(level=level, format=LOG_FORMAT)
+            logging.basicConfig(level=self.log_level, format=LOG_FORMAT)
         else:
-            journal_handler = journal.JournalHandler(SYSLOG_IDENTIFIER=self.name)
-            journal_handler.setLevel(level)
-            journal_handler.setFormatter(logging.Formatter(
-                LOG_FORMAT_JOURNAL_MULTI_THREAD if multi_threaded else LOG_FORMAT_JOURNAL))
-            logging.root.addHandler(journal_handler)
-            logging.root.setLevel(level)
+            if not self.journal_handler:
+                self.journal_handler = journal.JournalHandler(SYSLOG_IDENTIFIER=self.name)
+                logging.root.addHandler(self.journal_handler)
+            self.journal_handler.setLevel(self.log_level)
+            self.journal_handler.setFormatter(logging.Formatter(
+                LOG_FORMAT_JOURNAL_MULTI_THREAD if self.multi_threaded else LOG_FORMAT_JOURNAL))
+            logging.root.setLevel(self.log_level)
 
     def sighup(self, signum, frame):  # pylint: disable=unused-argument
         self.log.info("Received SIGHUP, reloading config")
@@ -150,7 +154,8 @@ class ServiceDaemon:
             self.config_file_ctime = file_ctime
             self.config = read_file(self.config_path, json=True)
             self.log.info("new config: %r", self.config)
-            self.log.setLevel(self.config.get("log_level", logging.INFO))
+            self.log_level = self.config.get("log_level", logging.INFO)
+            self.configure_logging()
             self.handle_new_config()
             daemon.notify("READY=1")
 
