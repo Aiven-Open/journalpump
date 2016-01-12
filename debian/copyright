@@ -3,7 +3,7 @@ Upstream-Name: kafkajournalpump
 Source: https://github.com/ohmu/kafkajournalpump/
 
 Files: *
-Copyright: 2015, Ohmu Ltd <opensource@ohmu.fi>
+Copyright: 2015, Aiven <opensource@aiven.io>
 License: Apache-2.0
 
 License: Apache-2.0

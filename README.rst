@@ -1,8 +1,8 @@
 kafkajournalpump |BuildStatus|_
 ========================
 
-.. |BuildStatus| image:: https://travis-ci.org/ohmu/kafkajournalpump.png?branch=master
-.. _BuildStatus: https://travis-ci.org/ohmu/kafkajournalpump
+.. |BuildStatus| image:: https://travis-ci.org/aiven/kafkajournalpump.png?branch=master
+.. _BuildStatus: https://travis-ci.org/aiven/kafkajournalpump
 
 kafkajournalpump is a journald to Kafka msg pump. It reads messages from journald
 and optionally checks if they match a config rule and forwards them as JSON messages
@@ -149,17 +149,17 @@ text is available in the ``LICENSE`` file and at http://www.apache.org/licenses/
 Credits
 =======
 
-kafkajournalpump was created by Hannu Valtonen <hannu.valtonen@ohmu.fi>
-and is now maintained by Ohmu Ltd's hackers <opensource@ohmu.fi>.
+kafkajournalpump was created by Hannu Valtonen <hannu.valtonen@aiven.io>
+and is now maintained by Aiven hackers <opensource@aiven.io>.
 
 Recent contributors are listed on the GitHub project page,
-https://github.com/ohmu/kafkajournalpump/graphs/contributors
+https://github.com/aiven/kafkajournalpump/graphs/contributors
 
 
 Contact
 =======
 
 Bug reports and patches are very welcome, please post them as GitHub issues
-and pull requests at https://github.com/ohmu/kafkajournalpump .  Any possible
-vulnerabilities or other serious issues should be reported directly to the
-maintainers <opensource@ohmu.fi>.
+and pull requests at https://github.com/aiven/kafkajournalpump .  Any
+possible vulnerabilities or other serious issues should be reported directly
+to the maintainers <opensource@aiven.io>.

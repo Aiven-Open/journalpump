@@ -1,3 +1,8 @@
+# Copyright 2015, Aiven, https://aiven.io/
+#
+# This file is under the Apache License, Version 2.0.
+# See the file `LICENSE` for details.
+
 from . daemon import ServiceDaemon
 from kafka import KafkaClient, SimpleProducer
 from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
