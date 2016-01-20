@@ -129,8 +129,9 @@ class KafkaSender(Thread):
                                                      if snappy else CODEC_NONE)
                 self.log.info("Initialized Kafka Client, address: %r", self.kafka_address)
                 break
-            except KAFKA_CONN_ERRORS:
-                self.log.warning("Problem initializing Kafka, sleeping")
+            except KAFKA_CONN_ERRORS as ex:
+                self.log.warning("Retriable error during Kafka initialization: %s: %s, sleeping",
+                                 ex.__class__.__name__, ex)
             self.kafka = None
             self.kafka_producer = None
             time.sleep(1.0)
@@ -177,12 +178,15 @@ class KafkaSender(Thread):
                 try:
                     self.kafka_producer.send_messages(topic, *messages_batch)
                     messages = messages[index:]
-                except kafka.common.LeaderNotAvailableError:
-                    self.log.debug("Kafka leader not available, waiting")
+                except KAFKA_CONN_ERRORS as ex:
+                    self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
                     time.sleep(0.5)
-                except:  # pylint: disable=bare-except
-                    self.log.exception("Problem sending messages to kafka")
                     self._init_kafka()
+                except:  # pylint: disable=bare-except
+                    self.log.exception("Unexpected exception during send to kafka")
+                    time.sleep(5.0)
+                    self._init_kafka()
+
             self.cursor = cursor
             self.log.debug("Sending %r / %d msgs, cursor: %r took %.4fs",
                            topic, len(messages), self.cursor, time.time() - start_time)
@@ -325,7 +329,7 @@ class KafkaJournalPump(ServiceDaemon):
                 self.log.debug("No more journal entries to read, sleeping")
                 time.sleep(0.5)
             except:  # pylint: disable=bare-except
-                self.log.exception("Problem handling entry: %r", entry)
+                self.log.exception("Unexpected exception during handling entry: %r", entry)
                 time.sleep(0.5)
 
             self.ping_watchdog()
