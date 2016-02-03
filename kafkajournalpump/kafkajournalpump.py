@@ -6,6 +6,7 @@
 from . daemon import ServiceDaemon
 from kafka import KafkaClient, SimpleProducer
 from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
+from kafkajournalpump import statsd
 from systemd.journal import Reader
 from threading import Thread, Lock
 import errno
@@ -88,9 +89,10 @@ def get_next(self, skip=1):
 # KafkaSender exists mostly because kafka-python's async handling is still broken (11.5.2015)
 # and we need to preserve the cursor position
 class KafkaSender(Thread):
-    def __init__(self, config, msg_buffer, kafka_address, max_send_interval=0.3):
+    def __init__(self, config, msg_buffer, kafka_address, stats, max_send_interval=0.3):
         Thread.__init__(self)
         self.log = logging.getLogger("KafkaSender")
+        self.stats = stats
         self.config = config
         if not isinstance(self.config["kafka_topic"], bytes):
             topic = self.config["kafka_topic"].encode("utf8")
@@ -182,8 +184,9 @@ class KafkaSender(Thread):
                     self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
                     time.sleep(0.5)
                     self._init_kafka()
-                except:  # pylint: disable=bare-except
+                except Exception as ex:  # pylint: disable=broad-except
                     self.log.exception("Unexpected exception during send to kafka")
+                    self.stats.unexpected_exception(ex=ex, where="sender", tags={"app": "kafkajournalpump"})
                     time.sleep(5.0)
                     self._init_kafka()
 
@@ -233,6 +236,7 @@ class MsgBuffer:
 
 class KafkaJournalPump(ServiceDaemon):
     def __init__(self, config_path):
+        self.stats = None
         ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         cursor = self.load_state()
         self.msg_buffer = MsgBuffer(cursor)
@@ -262,6 +266,15 @@ class KafkaJournalPump(ServiceDaemon):
         self.journald_reader._convert_field = types.MethodType(_convert_field, self.journald_reader)  # pylint: disable=protected-access
         self.sender = None
 
+    def handle_new_config(self):
+        """Called by ServiceDaemon when config has changed"""
+        stats = self.config.get("statsd", {})
+        self.stats = statsd.StatsClient(
+            host=stats.get("host"),
+            port=stats.get("port"),
+            tags=stats.get("tags"),
+        )
+
     def sigterm(self, signum, frame):
         if self.sender:
             self.sender.running = False
@@ -289,8 +302,9 @@ class KafkaJournalPump(ServiceDaemon):
                 self.log.fatal("No kafka_address in configuration")
                 return False
             try:
-                self.sender = KafkaSender(self.config, self.msg_buffer,
-                                          kafka_address=kafka_address)
+                self.sender = KafkaSender(
+                    self.config, self.msg_buffer, kafka_address=kafka_address,
+                    stats=self.stats)
             except kafka.common.KafkaUnavailableError:
                 return False
             self.sender.start()
@@ -313,6 +327,7 @@ class KafkaJournalPump(ServiceDaemon):
                         continue
                     json_entry = json.dumps(entry).encode("utf8")
                     if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
+                        self.stats.increase("journal.error", tags={"error": "too_long"})
                         error = "too large message {} bytes vs maximum {} bytes".format(
                             len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
                         self.log.warning("%s: %s ...", error, json_entry[:1024])
@@ -321,6 +336,8 @@ class KafkaJournalPump(ServiceDaemon):
                             "partial_data": json_entry[:1024],
                         }
                         json_entry = json.dumps(entry).encode("utf8")
+                    self.stats.increase("journal.lines")
+                    self.stats.increase("journal.bytes", inc_value=len(json_entry))
                     self.msg_buffer.set_item(json_entry, cursor)
                 else:
                     self.log.debug("No more journal entries to read, sleeping")
@@ -328,8 +345,9 @@ class KafkaJournalPump(ServiceDaemon):
             except StopIteration:
                 self.log.debug("No more journal entries to read, sleeping")
                 time.sleep(0.5)
-            except:  # pylint: disable=bare-except
+            except Exception as ex:  # pylint: disable=broad-except
                 self.log.exception("Unexpected exception during handling entry: %r", entry)
+                self.stats.unexpected_exception(ex=ex, where="mainloop", tags={"app": "kafkajournalpump"})
                 time.sleep(0.5)
 
             self.ping_watchdog()

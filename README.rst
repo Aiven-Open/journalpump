@@ -139,6 +139,25 @@ _SYSTEMD_UNITs. If not set, we allow log events from all units.
 
 Determines log level of kafkajournalpump.
 
+``statsd`` (default: disabled)
+
+Enables metrics sending to a statsd daemon that supports the influxdb-statsd/telegraf
+syntax with tags.
+
+The value is a JSON object::
+
+  {
+      "host": "<statsd address>",
+      "port": "<statsd port>",
+      "tags": {
+          "<tag>": "<value>"
+      }
+  }
+
+The ``tags`` setting can be used to enter optional tag values for the metrics.
+
+Metrics sendindg follows the Telegraf spec: https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
+
 License
 =======
 
