@@ -210,6 +210,7 @@ class MsgBuffer:
         self.cursor = cursor
         self.entry_num = 0
         self.total_size = 0
+        self.last_journal_msg_time = time.monotonic()
         self.log.info("Initialized MsgBuffer with cursor: %r", cursor)
 
     def __len__(self):
@@ -225,6 +226,7 @@ class MsgBuffer:
 
     def set_cursor(self, cursor):
         self.cursor = cursor
+        self.last_journal_msg_time = time.monotonic()
 
     def set_item(self, item, cursor):
         with self.lock:
@@ -240,7 +242,11 @@ class KafkaJournalPump(ServiceDaemon):
         ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         cursor = self.load_state()
         self.msg_buffer = MsgBuffer(cursor)
+        self.journald_reader = None
+        self.sender = None
+        self.get_reader(cursor)
 
+    def get_reader(self, cursor):
         if self.config.get("journal_path"):
             while True:
                 try:
@@ -264,7 +270,6 @@ class KafkaJournalPump(ServiceDaemon):
 
         self.journald_reader.get_next = types.MethodType(get_next, self.journald_reader)
         self.journald_reader._convert_field = types.MethodType(_convert_field, self.journald_reader)  # pylint: disable=protected-access
-        self.sender = None
 
     def handle_new_config(self):
         """Called by ServiceDaemon when config has changed"""
@@ -341,6 +346,9 @@ class KafkaJournalPump(ServiceDaemon):
                     self.msg_buffer.set_item(json_entry, cursor)
                 else:
                     self.log.debug("No more journal entries to read, sleeping")
+                    if time.monotonic() - self.msg_buffer.last_journal_msg_time > 180 and self.msg_buffer.cursor:
+                        self.log.info("We haven't seen any msgs in 180s, reinitiate Reader() and seek to cursor")
+                        self.get_reader(self.msg_buffer.cursor)
                     time.sleep(0.5)
             except StopIteration:
                 self.log.debug("No more journal entries to read, sleeping")
