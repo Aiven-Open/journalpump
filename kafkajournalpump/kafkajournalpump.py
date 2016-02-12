@@ -232,6 +232,7 @@ class MsgBuffer:
         with self.lock:
             self.msg_buffer.append(item)
             self.cursor = cursor
+            self.last_journal_msg_time = time.monotonic()
         self.entry_num += 1
         self.total_size += len(item)
 
@@ -347,8 +348,10 @@ class KafkaJournalPump(ServiceDaemon):
                 else:
                     self.log.debug("No more journal entries to read, sleeping")
                     if time.monotonic() - self.msg_buffer.last_journal_msg_time > 180 and self.msg_buffer.cursor:
-                        self.log.info("We haven't seen any msgs in 180s, reinitiate Reader() and seek to cursor")
+                        self.log.info("We haven't seen any msgs in 180s, reinitiate Reader() and seek to: %r",
+                                      self.msg_buffer.cursor)
                         self.get_reader(self.msg_buffer.cursor)
+                        self.msg_buffer.last_journal_msg_time = time.monotonic()
                     time.sleep(0.5)
             except StopIteration:
                 self.log.debug("No more journal entries to read, sleeping")
