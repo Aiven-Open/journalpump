@@ -1,3 +1,6 @@
 *~
 *.pyc
-/rpm
+/build/
+/dist/
+/kafkajournalpump.egg-info/
+/rpm/

@@ -7,6 +7,7 @@ before_install:
 
 python:
   - "3.4"
+  - "3.5"
 
 install:
   - "pip install pylint pytest mock pep8 kafka-python coverage coveralls"
