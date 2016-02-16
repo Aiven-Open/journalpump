@@ -29,6 +29,10 @@ kafkajournalpump is a daemon to pump journald messages into a given kafka topic.
 %setup -q -n kafkajournalpump
 
 
+%build
+# Nothing to do, shut up rpmlint
+
+
 %install
 %if %{use_python3}
 python3 setup.py install --prefix=%{_prefix} --root=%{buildroot}
