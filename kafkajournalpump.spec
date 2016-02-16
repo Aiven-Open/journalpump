@@ -1,7 +1,7 @@
 Name:           kafkajournalpump
 Version:        %{major_version}
 Release:        %{minor_version}%{?dist}
-Url:            http://github.com/ohmu/kafkajournalpump
+Url:            http://github.com/aiven/kafkajournalpump
 Summary:        Pump messages from systemd journal to Kafka
 License:        ASL 2.0
 Source0:        kafkajournalpump-rpm-src.tar.gz
