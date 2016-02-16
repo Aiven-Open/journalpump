@@ -32,6 +32,8 @@ Python/Other::
 
 This will produce an egg file into a dist directory within the same folder.
 
+kafkajournalpump requires Python 3.4 or newer.
+
 Installation
 ============
 
@@ -55,7 +57,7 @@ and eventually after the setup section, you can just run::
 
 Python/Other::
 
-  easy_install dist/kafkajournalpump-1.0.0-py2.7.egg
+  easy_install dist/kafkajournalpump-1.0.1-py3.4.egg
 
 On Debian/Other systems it is recommended that you run kafkajournalpump within
 a supervisord (http://supervisord.org) Process control system.

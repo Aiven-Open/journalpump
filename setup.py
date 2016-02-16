@@ -11,5 +11,17 @@ setup(
     dependency_links=[],
     package_data={},
     data_files=[],
-    entry_points={'console_scripts': ["kafkajournalpump = kafkajournalpump.__main__:main"]}
+    entry_points={
+        "console_scripts": [
+            "kafkajournalpump = kafkajournalpump.__main__:main",
+        ],
+    },
+    classifiers=[
+        "Development Status :: 5 - Production/Stable",
+        "Intended Audience :: Developers",
+        "Topic :: System :: Logging",
+        "License :: OSI Approved :: Apache Software License",
+        "Programming Language :: Python :: 3.4",
+        "Programming Language :: Python :: 3.5",
+    ],
 )
