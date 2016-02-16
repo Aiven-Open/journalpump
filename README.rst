@@ -24,7 +24,7 @@ Fedora::
 
   make rpm
 
-This will produce a .rpm package usually into ~/rpmbuild/RPMS/noarch/ .
+This will produce an RPM in rpm/RPMS/noarch/.
 
 Python/Other::
 
@@ -43,7 +43,7 @@ Debian::
 
 Fedora::
 
-  rpm -Uvh ~/rpmbuild/RPMS/noarch/kafkajournalpump*
+  su -c 'dnf install rpm/RPMS/noarch/*'
 
 On Fedora it is recommended to simply run kafkajournalpump under systemd::
 

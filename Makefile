@@ -30,12 +30,13 @@ rpm:
 	git archive --output=kafkajournalpump-rpm-src.tar.gz --prefix=kafkajournalpump/ HEAD
 	rpmbuild -bb kafkajournalpump.spec \
 		--define '_sourcedir $(shell pwd)' \
+                --define '_topdir $(shell pwd)/rpm' \
 		--define 'major_version $(shell git describe --tags --abbrev=0 | cut -f1-)' \
 		--define 'minor_version $(subst -,.,$(shell git describe --tags --long | cut -f2- -d-))'
 	$(RM) kafkajournalpump-rpm-src.tar.gz
 
 build-dep-fed:
-	sudo yum -y install \
+	sudo dnf -y install \
 		python-kafka python3-kafka pytest python3-pytest \
 		pylint python3-pylint \
 		systemd-python systemd-python3
@@ -47,3 +48,5 @@ build-dep-deb:
 
 pep8:
 	$(PYTHON) -m pep8 --ignore=E501,E123 $(PYLINT_DIRS)
+
+.PHONY: rpm
