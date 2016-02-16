@@ -274,7 +274,7 @@ class KafkaJournalPump(ServiceDaemon):
 
     def handle_new_config(self):
         """Called by ServiceDaemon when config has changed"""
-        stats = self.config.get("statsd", {})
+        stats = self.config.get("statsd") or {}
         self.stats = statsd.StatsClient(
             host=stats.get("host"),
             port=stats.get("port"),

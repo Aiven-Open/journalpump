@@ -73,7 +73,7 @@ General notes
 
 If correctly installed, kafkajournalpump comes with a single executable,
 ``kafkajournalpump`` that takes as an argument the path to kafkajournalpump's
- JSON configuration file.
+JSON configuration file.
 
 ``kafkajournalpump`` is the main process that should be run under systemd or
 supervisord.
@@ -87,40 +87,40 @@ description of the current state of the kafkajournalpump.
 Configuration keys
 ==================
 
-``ca`` (default ``N/A``)
+``ca`` (default ``null``)
 
 Kafka Certificate Authority path, needed when you're using Kafka with SSL
 authentication.
 
-``certfile`` (default ``N/A``)
+``certfile`` (default ``null``)
 
 Kafka client certificate path, needed when you're using Kafka with SSL
 authentication.
 
-``kafka_topic`` (default ``N/A``)
+``kafka_topic`` (default ``null``)
 
 Which Kafka topic do you want the kafkajournalpump to write to.
 
-``kafka_address`` (default ``N/A``)
+``kafka_address`` (default ``null``)
 
 The address of the kafka server which to write to.
 
-``keyfile`` (default ``N/A``)
+``keyfile`` (default ``null``)
 
 Kafka client key path, needed when you're using Kafka with SSL
 authentication.
 
-``match_key`` (default ``N/A``)
+``match_key`` (default ``null``)
 
 If you want to match against a single journald field, this configuration key
 defines the key to match against.
 
-``match_value`` (default ``N/A``)
+``match_value`` (default ``null``)
 
 If you want to match against a single journald field, this configuration key
 defines the value to match against. Currently only equality is allowed.
 
-``journal_path`` (default ``N/A``)
+``journal_path`` (default ``null``)
 
 Path to the directory containing journal files if you want to override the
 default one.
@@ -139,7 +139,7 @@ _SYSTEMD_UNITs. If not set, we allow log events from all units.
 
 Determines log level of kafkajournalpump.
 
-``statsd`` (default: disabled)
+``statsd`` (default ``null``)
 
 Enables metrics sending to a statsd daemon that supports the influxdb-statsd/telegraf
 syntax with tags.
@@ -156,7 +156,7 @@ The value is a JSON object::
 
 The ``tags`` setting can be used to enter optional tag values for the metrics.
 
-Metrics sendindg follows the Telegraf spec: https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
+Metrics sending follows the Telegraf spec: https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
 
 License
 =======
