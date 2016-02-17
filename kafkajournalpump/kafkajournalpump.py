@@ -7,8 +7,10 @@ from . daemon import ServiceDaemon
 from kafka import KafkaClient, SimpleProducer
 from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
 from kafkajournalpump import statsd
+from requests import Session
 from systemd.journal import Reader
 from threading import Thread, Lock
+import datetime
 import errno
 import json
 import kafka.common
@@ -86,21 +88,13 @@ def get_next(self, skip=1):
     return dict(), None
 
 
-# KafkaSender exists mostly because kafka-python's async handling is still broken (11.5.2015)
-# and we need to preserve the cursor position
-class KafkaSender(Thread):
-    def __init__(self, config, msg_buffer, kafka_address, stats, max_send_interval=0.3):
+class LogSender(Thread):
+    def __init__(self, config, msg_buffer, stats, max_send_interval=0.3):
         Thread.__init__(self)
-        self.log = logging.getLogger("KafkaSender")
+        self.log = logging.getLogger("LogSender")
         self.stats = stats
         self.config = config
-        if not isinstance(self.config["kafka_topic"], bytes):
-            topic = self.config["kafka_topic"].encode("utf8")
-        self.topic = topic
         self.cursor = None
-        self.kafka_address = kafka_address
-        self.kafka = None
-        self.kafka_producer = None
         self.last_send_time = time.time()
         self.last_state_save_time = time.time()
         self.msg_buffer = msg_buffer
@@ -108,44 +102,45 @@ class KafkaSender(Thread):
         self.start_time = time.time()
         self.previous_state = None
         self.running = True
-        self._init_kafka()
-        self.log.info("Initialized KafkaJournalPump")
-
-    def _init_kafka(self):
-        self.log.info("Initializing Kafka client, address: %r", self.kafka_address)
-        while self.running:
-            try:
-                if self.kafka_producer:
-                    self.kafka_producer.stop()
-                if self.kafka:
-                    self.kafka.close()
-
-                self.kafka = KafkaClient(  # pylint: disable=unexpected-keyword-arg
-                    self.kafka_address,
-                    ssl=self.config.get("ssl", False),
-                    certfile=self.config.get("certfile"),
-                    keyfile=self.config.get("keyfile"),
-                    ca=self.config.get("ca")
-                )
-                self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
-                                                     if snappy else CODEC_NONE)
-                self.log.info("Initialized Kafka Client, address: %r", self.kafka_address)
-                break
-            except KAFKA_CONN_ERRORS as ex:
-                self.log.warning("Retriable error during Kafka initialization: %s: %s, sleeping",
-                                 ex.__class__.__name__, ex)
-            self.kafka = None
-            self.kafka_producer = None
-            time.sleep(1.0)
+        self.log.info("Initialized LogSender")
 
     def run(self):
         while self.running:
             if len(self.msg_buffer) > 100 or \
                time.time() - self.last_send_time > self.max_send_interval:
-                self.send_messages_to_kafka(self.topic)
+                self.get_and_send_messages()
             else:
                 time.sleep(0.1)
         self.log.info("Stopping")
+
+    def get_and_send_messages(self):
+        start_time = time.time()
+        try:
+            messages, cursor = self.msg_buffer.get_items()
+            while self.running and messages:
+                batch_size = len(messages[0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
+                index = 1
+                while index < len(messages):
+                    item_size = len(messages[index]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
+                    if batch_size + item_size >= MAX_KAFKA_MESSAGE_SIZE:
+                        break
+                    batch_size += item_size
+                    index += 1
+
+                messages_batch = messages[:index]
+                if self.send_messages(messages_batch):
+                    messages = messages[index:]
+
+            self.cursor = cursor
+            self.log.debug("Sending %d msgs, cursor: %r took %.4fs",
+                           len(messages), self.cursor, time.time() - start_time)
+
+            if time.time() - self.last_state_save_time > 1.0:
+                self.save_state()
+            self.last_send_time = time.time()
+        except:  # pylint: disable=bare-except
+            self.log.exception("Problem sending messages: %r", messages)
+            time.sleep(0.5)
 
     def save_state(self):
         state_to_save = {
@@ -163,43 +158,109 @@ class KafkaSender(Thread):
                 self.log.debug("Wrote state file: %r, %.2f entries/s processed", state_to_save,
                                self.msg_buffer.entry_num / (time.time() - self.start_time))
 
-    def send_messages_to_kafka(self, topic):
-        start_time = time.time()
+class KafkaSender(LogSender):
+    def __init__(self, config, msg_buffer, stats):
+        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats)
+        self.config = config
+        self.msg_buffer = msg_buffer
+        self.stats = stats
+
+        self.kafka = None
+        self.kafka_producer = None
+
+        if not isinstance(self.config["kafka_topic"], bytes):
+            topic = self.config["kafka_topic"].encode("utf8")
+        self.topic = topic
+
+    def _init_kafka(self):
+        self.log.info("Initializing Kafka client, address: %r", self.config.get("kafka_address"))
+        while self.running:
+            try:
+                if self.kafka_producer:
+                    self.kafka_producer.stop()
+                if self.kafka:
+                    self.kafka.close()
+
+                self.kafka = KafkaClient(  # pylint: disable=unexpected-keyword-arg
+                    self.config.get("kafka_address"),
+                    ssl=self.config.get("ssl", False),
+                    certfile=self.config.get("certfile"),
+                    keyfile=self.config.get("keyfile"),
+                    ca=self.config.get("ca")
+                )
+                self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
+                                                     if snappy else CODEC_NONE)
+                self.log.info("Initialized Kafka Client, address: %r", self.config.get("kafka_address"))
+                break
+            except KAFKA_CONN_ERRORS as ex:
+                self.log.warning("Retriable error during Kafka initialization: %s: %s, sleeping",
+                                 ex.__class__.__name__, ex)
+            self.kafka = None
+            self.kafka_producer = None
+            time.sleep(5.0)
+
+    def send_messages(self, messages_batch):
+        if not self.kafka:
+            self._init_kafka()
         try:
-            messages, cursor = self.msg_buffer.get_items()
-            while self.running and messages:
-                batch_size = len(messages[0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
-                index = 1
-                while index < len(messages):
-                    item_size = len(messages[index]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
-                    if batch_size + item_size >= MAX_KAFKA_MESSAGE_SIZE:
-                        break
-                    batch_size += item_size
-                    index += 1
-                messages_batch = messages[:index]
-                try:
-                    self.kafka_producer.send_messages(topic, *messages_batch)
-                    messages = messages[index:]
-                except KAFKA_CONN_ERRORS as ex:
-                    self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
-                    time.sleep(0.5)
-                    self._init_kafka()
-                except Exception as ex:  # pylint: disable=broad-except
-                    self.log.exception("Unexpected exception during send to kafka")
-                    self.stats.unexpected_exception(ex=ex, where="sender", tags={"app": "kafkajournalpump"})
-                    time.sleep(5.0)
-                    self._init_kafka()
-
-            self.cursor = cursor
-            self.log.debug("Sending %r / %d msgs, cursor: %r took %.4fs",
-                           topic, len(messages), self.cursor, time.time() - start_time)
-
-            if time.time() - self.last_state_save_time > 1.0:
-                self.save_state()
-            self.last_send_time = time.time()
-        except:  # pylint: disable=bare-except
-            self.log.exception("Problem sending messages: %r", messages)
+            self.kafka_producer.send_messages(self.topic, *messages_batch)
+            return True
+        except KAFKA_CONN_ERRORS as ex:
+            self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
             time.sleep(0.5)
+            self._init_kafka()
+        except Exception as ex:  # pylint: disable=broad-except
+            self.log.exception("Unexpected exception during send to kafka")
+            self.stats.unexpected_exception(ex=ex, where="sender", tags={"app": "kafkajournalpump"})
+            time.sleep(5.0)
+            self._init_kafka()
+
+
+class LogplexSender(LogSender):
+    def __init__(self, config, msg_buffer, stats):
+        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats)
+        self.config = config
+        self.msg_buffer = msg_buffer
+        self.stats = stats
+        self.logplex_input_url = self.config["logplex_log_input_url"]
+        self.request_timeout = self.config.get("logplex_request_timeout", 2)
+        self.logplex_token = self.config["logplex_token"]
+        self.session = Session()
+        self.msg_id = "-"
+        self.structured_data = "-"
+
+    def format_msg(self, msg):
+        # TODO: figure out a way to optionally get the entry without JSON
+        entry = json.loads(msg.decode("utf8"))
+        hostname = entry.get("_HOSTNAME", "localhost")
+        pid = entry.get("_PID", "localhost")
+        pkt = "<190>1 {} {} {} {} {} {}".format(
+            datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S+00:00 "),
+            hostname,
+            self.logplex_token,
+            pid,
+            self.msg_id,
+            self.structured_data)
+        pkt += entry["MESSAGE"]
+        pkt = pkt.encode("utf8")
+        return '{} {}'.format(len(pkt), pkt)
+
+    def send_messages(self, message_batch):
+        auth = ('token', self.config["logplex_token"])
+        msg_data = ''.join([self.format_msg(msg) for msg in message_batch])
+        msg_count = len(message_batch)
+        headers = {
+            "Content-Type": "application/logplex-1",
+            "Logplex-Msg-Count": msg_count,
+        }
+        self.session.post(
+            self.logplex_input_url,
+            auth=auth,
+            headers=headers,
+            data=msg_data,
+            timeout=self.request_timeout,
+            verify=False
+        )
 
 
 class MsgBuffer:
@@ -303,29 +364,25 @@ class KafkaJournalPump(ServiceDaemon):
 
     def initialize_sender(self):
         if not self.sender:
-            kafka_address = self.config.get("kafka_address")
-            if not kafka_address:
-                self.log.fatal("No kafka_address in configuration")
-                return False
-            try:
-                self.sender = KafkaSender(
-                    self.config, self.msg_buffer, kafka_address=kafka_address,
+            if self.config.get("kafka_address"):
+                sender = KafkaSender(
+                    config=self.config,
+                    msg_buffer=self.msg_buffer,
                     stats=self.stats)
-            except kafka.common.KafkaUnavailableError:
-                return False
+            else:
+                sender = LogplexSender(  # pylint: disable=redefined-variable-type
+                    config=self.config,
+                    msg_buffer=self.msg_buffer,
+                    stats=self.stats)
+            self.sender = sender
             self.sender.start()
-        return True
 
     def run(self):
         logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
         while self.running:
             entry = None
             try:
-                if not self.initialize_sender():
-                    self.log.warning("No Kafka sender, sleeping")
-                    time.sleep(5.0)
-                    continue
-
+                self.initialize_sender()
                 entry, cursor = next(self.journald_reader)
                 for key, value in entry:
                     if isinstance(value, bytes):
