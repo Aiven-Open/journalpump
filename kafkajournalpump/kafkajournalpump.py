@@ -327,6 +327,10 @@ class KafkaJournalPump(ServiceDaemon):
                     continue
 
                 entry, cursor = next(self.journald_reader)
+                for key, value in entry:
+                    if isinstance(value, bytes):
+                        entry[key] = repr(value)  # value may be bytes in any encoding
+
                 if cursor is not None:
                     if not self.check_match(entry):
                         self.msg_buffer.set_cursor(cursor)
