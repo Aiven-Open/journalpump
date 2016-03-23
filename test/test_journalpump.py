@@ -1,4 +1,4 @@
-from kafkajournalpump.kafkajournalpump import KafkaJournalPump, KafkaSender
+from journalpump.journalpump import JournalPump, KafkaSender
 import json
 
 def test_journalpump_init(tmpdir):
@@ -7,7 +7,7 @@ def test_journalpump_init(tmpdir):
     with open(journalpump_path, "w") as fp:
         fp.write(json.dumps(config))
 
-    a = KafkaJournalPump(journalpump_path)
+    a = JournalPump(journalpump_path)
     # Logplex sender
     a.initialize_sender()
     a.sender.running = False

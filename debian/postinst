@@ -1,1 +1,1 @@
-adduser --quiet --system --group --home /var/lib/kafkajournalpump kafkajournalpump
+adduser --quiet --system --group --home /var/lib/journalpump journalpump

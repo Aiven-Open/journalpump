@@ -6,7 +6,7 @@
 from . daemon import ServiceDaemon
 from kafka import KafkaClient, SimpleProducer
 from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
-from kafkajournalpump import statsd
+from . import statsd
 from requests import Session
 from systemd.journal import Reader
 from threading import Thread, Lock
@@ -152,7 +152,7 @@ class LogSender(Thread):
         }
 
         if state_to_save != self.previous_state:
-            with open(self.config.get("json_state_file_path", "kafkajournalpump_state.json"), "w") as fp:
+            with open(self.config.get("json_state_file_path", "journalpump_state.json"), "w") as fp:
                 json.dump(state_to_save, fp, indent=4, sort_keys=True)
                 self.previous_state = state_to_save
                 self.log.debug("Wrote state file: %r, %.2f entries/s processed", state_to_save,
@@ -211,7 +211,7 @@ class KafkaSender(LogSender):
             self._init_kafka()
         except Exception as ex:  # pylint: disable=broad-except
             self.log.exception("Unexpected exception during send to kafka")
-            self.stats.unexpected_exception(ex=ex, where="sender", tags={"app": "kafkajournalpump"})
+            self.stats.unexpected_exception(ex=ex, where="sender", tags={"app": "journalpump"})
             time.sleep(5.0)
             self._init_kafka()
 
@@ -298,7 +298,7 @@ class MsgBuffer:
         self.total_size += len(item)
 
 
-class KafkaJournalPump(ServiceDaemon):
+class JournalPump(ServiceDaemon):
     def __init__(self, config_path):
         self.stats = None
         ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
@@ -348,7 +348,7 @@ class KafkaJournalPump(ServiceDaemon):
         ServiceDaemon.sigterm(self, signum, frame)
 
     def load_state(self):
-        filepath = self.config.get("json_state_file_path", "kafkajournalpump_state.json")
+        filepath = self.config.get("json_state_file_path", "journalpump_state.json")
         if os.path.exists(filepath):
             with open(filepath, "r") as fp:
                 state_file = json.load(fp)
@@ -419,11 +419,11 @@ class KafkaJournalPump(ServiceDaemon):
                 time.sleep(0.5)
             except Exception as ex:  # pylint: disable=broad-except
                 self.log.exception("Unexpected exception during handling entry: %r", entry)
-                self.stats.unexpected_exception(ex=ex, where="mainloop", tags={"app": "kafkajournalpump"})
+                self.stats.unexpected_exception(ex=ex, where="mainloop", tags={"app": "journalpump"})
                 time.sleep(0.5)
 
             self.ping_watchdog()
 
 
 if __name__ == "__main__":
-    KafkaJournalPump.run_exit()
+    JournalPump.run_exit()

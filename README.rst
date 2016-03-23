@@ -1,18 +1,20 @@
-kafkajournalpump |BuildStatus|_
+journalpump |BuildStatus|_
 ========================
 
-.. |BuildStatus| image:: https://travis-ci.org/aiven/kafkajournalpump.png?branch=master
-.. _BuildStatus: https://travis-ci.org/aiven/kafkajournalpump
+.. |BuildStatus| image:: https://travis-ci.org/aiven/journalpump.png?branch=master
+.. _BuildStatus: https://travis-ci.org/aiven/journalpump
 
-kafkajournalpump is a journald to Kafka msg pump. It reads messages from journald
-and optionally checks if they match a config rule and forwards them as JSON messages
-to Kafka to the configured topic.
+journalpump is a daemon that takes log messages from journald and
+pumps them to a given output. Currently supported outputs are Kafka
+and logplex. It reads messages from journald and optionally checks if
+they match a config rule and forwards them as JSON messages
+to the desired output.
 
 Building
 ========
 
 To build an installation package for your distribution, go to the root
-directory of a kafkajournalpump Git checkout and then run:
+directory of a journalpump Git checkout and then run:
 
 Debian::
 
@@ -32,7 +34,7 @@ Python/Other::
 
 This will produce an egg file into a dist directory within the same folder.
 
-kafkajournalpump requires Python 3.4 or newer.
+journalpump requires Python 3.4 or newer.
 
 Installation
 ============
@@ -41,25 +43,25 @@ To install it run as root:
 
 Debian::
 
-  dpkg -i ../kafkajournalpump*.deb
+  dpkg -i ../journalpump*.deb
 
 Fedora::
 
   su -c 'dnf install rpm/RPMS/noarch/*'
 
-On Fedora it is recommended to simply run kafkajournalpump under systemd::
+On Fedora it is recommended to simply run journalpump under systemd::
 
-  systemctl enable kafkajournalpump.service
+  systemctl enable journalpump.service
 
 and eventually after the setup section, you can just run::
 
-  systemctl start kafkajournalpump.service
+  systemctl start journalpump.service
 
 Python/Other::
 
-  easy_install dist/kafkajournalpump-1.0.1-py3.4.egg
+  easy_install dist/journalpump-1.0.1-py3.4.egg
 
-On Debian/Other systems it is recommended that you run kafkajournalpump within
+On Debian/Other systems it is recommended that you run journalpump within
 a supervisord (http://supervisord.org) Process control system.
 
 
@@ -73,17 +75,17 @@ installation.
 General notes
 =============
 
-If correctly installed, kafkajournalpump comes with a single executable,
-``kafkajournalpump`` that takes as an argument the path to kafkajournalpump's
+If correctly installed, journalpump comes with a single executable,
+``journalpump`` that takes as an argument the path to journalpump's
 JSON configuration file.
 
-``kafkajournalpump`` is the main process that should be run under systemd or
+``journalpump`` is the main process that should be run under systemd or
 supervisord.
 
-While kafkajournalpump is running it may be useful to read the JSON state
-file that will be created  as ``kafkajournalpump_state.json`` to the current working
+While journalpump is running it may be useful to read the JSON state
+file that will be created  as ``journalpump_state.json`` to the current working
 directory.. The JSON state file is human readable and should give an understandable
-description of the current state of the kafkajournalpump.
+description of the current state of the journalpump.
 
 
 Configuration keys
@@ -101,7 +103,7 @@ authentication.
 
 ``kafka_topic`` (default ``null``)
 
-Which Kafka topic do you want the kafkajournalpump to write to.
+Which Kafka topic do you want the journalpump to write to.
 
 ``kafka_address`` (default ``null``)
 
@@ -127,10 +129,10 @@ defines the value to match against. Currently only equality is allowed.
 Path to the directory containing journal files if you want to override the
 default one.
 
-``json_state_file_path`` (default ``"kafkajournalpump_state.json"``)
+``json_state_file_path`` (default ``"journalpump_state.json"``)
 
 Location of a JSON state file which describes the state of the
-kafkajournalpump process.
+journalpump process.
 
 ``units_to_match`` (default ``[]``)
 
@@ -139,7 +141,7 @@ _SYSTEMD_UNITs. If not set, we allow log events from all units.
 
 ``log_level`` (default ``"INFO"``)
 
-Determines log level of kafkajournalpump.
+Determines log level of journalpump.
 
 ``statsd`` (default ``null``)
 
@@ -163,24 +165,24 @@ Metrics sending follows the Telegraf spec: https://github.com/influxdata/telegra
 License
 =======
 
-kafkajournalpump is licensed under the Apache License, Version 2.0. Full license
+journalpump is licensed under the Apache License, Version 2.0. Full license
 text is available in the ``LICENSE`` file and at http://www.apache.org/licenses/LICENSE-2.0.txt
 
 
 Credits
 =======
 
-kafkajournalpump was created by Hannu Valtonen <hannu.valtonen@aiven.io>
+journalpump was created by Hannu Valtonen <hannu.valtonen@aiven.io>
 and is now maintained by Aiven hackers <opensource@aiven.io>.
 
 Recent contributors are listed on the GitHub project page,
-https://github.com/aiven/kafkajournalpump/graphs/contributors
+https://github.com/aiven/journalpump/graphs/contributors
 
 
 Contact
 =======
 
 Bug reports and patches are very welcome, please post them as GitHub issues
-and pull requests at https://github.com/aiven/kafkajournalpump .  Any
+and pull requests at https://github.com/aiven/journalpump .  Any
 possible vulnerabilities or other serious issues should be reported directly
 to the maintainers <opensource@aiven.io>.

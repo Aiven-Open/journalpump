@@ -1,9 +1,9 @@
 from setuptools import setup, find_packages
-from kafkajournalpump import __version__
+from journalpump import __version__
 import os
 
 setup(
-    name="kafkajournalpump",
+    name="journalpump",
     version=os.getenv("VERSION") or __version__,
     zip_safe=False,
     packages=find_packages(exclude=["test"]),
@@ -13,7 +13,7 @@ setup(
     data_files=[],
     entry_points={
         "console_scripts": [
-            "kafkajournalpump = kafkajournalpump.__main__:main",
+            "journalpump = journalpump.__main__:main",
         ],
     },
     classifiers=[

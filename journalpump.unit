@@ -1,0 +1,14 @@
+[Unit]
+Description=Journal Pump
+
+[Service]
+User=root
+Group=root
+Type=notify
+Restart=always
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=/usr/bin/journalpump /var/lib/journalpump/journalpump.json
+WorkingDirectory=/var/lib/journalpump
+
+[Install]
+WantedBy=multi-user.target

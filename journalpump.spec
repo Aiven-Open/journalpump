@@ -1,21 +1,22 @@
-Name:           kafkajournalpump
+Name:           journalpump
 Version:        %{major_version}
 Release:        %{minor_version}%{?dist}
-Url:            http://github.com/aiven/kafkajournalpump
+Url:            http://github.com/aiven/journalpump
 Summary:        Pump messages from systemd journal to Kafka or Logplex
 License:        ASL 2.0
-Source0:        kafkajournalpump-rpm-src.tar.gz
+Source0:        journalpump-rpm-src.tar.gz
 Requires:       python3-kafka, systemd-python3, python3-requests
 BuildRequires:  %{requires}
 BuildRequires:  python3-devel, python3-pytest, python3-pylint
 BuildArch:      noarch
 
 %description
-kafkajournalpump is a daemon to pump journald messages into a given kafka topic.
+journalpump is a daemon to pump journald messages into a given kafka topic or to
+logplex.
 
 
 %prep
-%setup -q -n kafkajournalpump
+%setup -q -n journalpump
 
 
 %build
@@ -25,8 +26,8 @@ kafkajournalpump is a daemon to pump journald messages into a given kafka topic.
 %install
 python3 setup.py install --prefix=%{_prefix} --root=%{buildroot}
 sed -e "s@#!/bin/python@#!%{_bindir}/python@" -i %{buildroot}%{_bindir}/*
-%{__install} -Dm0644 kafkajournalpump.unit %{buildroot}%{_unitdir}/kafkajournalpump.service
-%{__mkdir_p} %{buildroot}%{_localstatedir}/lib/kafkajournalpump
+%{__install} -Dm0644 journalpump.unit %{buildroot}%{_unitdir}/journalpump.service
+%{__mkdir_p} %{buildroot}%{_localstatedir}/lib/journalpump
 
 
 %check
@@ -35,10 +36,10 @@ make test
 
 %files
 %defattr(-,root,root,-)
-%doc LICENSE README.rst kafkajournalpump.json
-%{_bindir}/kafkajournalpump*
-%{_unitdir}/kafkajournalpump.service
-%{_localstatedir}/lib/kafkajournalpump
+%doc LICENSE README.rst journalpump.json
+%{_bindir}/journalpump*
+%{_unitdir}/journalpump.service
+%{_localstatedir}/lib/journalpump
 %{python3_sitelib}/*
 
 

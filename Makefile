@@ -4,7 +4,7 @@ long_ver = $(shell git describe --long 2>/dev/null || echo $(short_ver)-0-unknow
 all: py-egg
 
 PYTHON ?= python3
-PYLINT_DIRS = kafkajournalpump/
+PYLINT_DIRS = journalpump/
 
 test: pylint unittest
 
@@ -15,11 +15,11 @@ pylint:
 	$(PYTHON) -m pylint.lint --rcfile .pylintrc $(PYLINT_DIRS)
 
 coverage:
-	$(PYTHON) -m pytest $(PYTEST_ARG) --cov-report term-missing --cov kafkajournalpump test/
+	$(PYTHON) -m pytest $(PYTEST_ARG) --cov-report term-missing --cov journalpump test/
 
 clean:
 	$(RM) -r *.egg-info/ build/ dist/
-	$(RM) ../kafkajournalpump_* test-*.xml
+	$(RM) ../journalpump_* test-*.xml
 
 deb:
 	cp debian/changelog.in debian/changelog
@@ -27,13 +27,13 @@ deb:
 	dpkg-buildpackage -A -uc -us
 
 rpm:
-	git archive --output=kafkajournalpump-rpm-src.tar.gz --prefix=kafkajournalpump/ HEAD
-	rpmbuild -bb kafkajournalpump.spec \
+	git archive --output=journalpump-rpm-src.tar.gz --prefix=journalpump/ HEAD
+	rpmbuild -bb journalpump.spec \
 		--define '_sourcedir $(shell pwd)' \
                 --define '_topdir $(shell pwd)/rpm' \
 		--define 'major_version $(shell git describe --tags --abbrev=0 | cut -f1-)' \
 		--define 'minor_version $(subst -,.,$(shell git describe --tags --long | cut -f2- -d-))'
-	$(RM) kafkajournalpump-rpm-src.tar.gz
+	$(RM) journalpump-rpm-src.tar.gz
 
 build-dep-fed:
 	sudo dnf -y install \
