@@ -231,7 +231,7 @@ class ElasticsearchSender(LogSender):
         self.stats = stats
         self.elasticsearch_url = self.config.get("elasticsearch_url")
         self.request_timeout = self.config.get("elasticsearch_timeout", 10.0)
-        self.index_name = self.config["elasticsearch_index_prefix"]
+        self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
         self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
 
     def send_messages(self, message_batch):
