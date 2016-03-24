@@ -7,6 +7,6 @@ Standards-Version: 3.9.1
 
 Package: journalpump
 Architecture: all
-Depends: ${misc:Depends}, ${python:Depends}, python3-kafka (>= 0.9.3-2), python3-systemd (>=215-17+deb8u1)
+Depends: ${misc:Depends}, ${python:Depends}, python3-kafka (>= 0.9.3-2), python3-systemd (>=215-17+deb8u1), python3-elasticsearch (>=1.2.0-1)
 Suggests: python-simplejson (>= 2.1.1-1)
-Description: journalpump provides a log msg pump for transferring log msgs from journald to the desired output. (currently Kafka or Logplex)
+Description: journalpump provides a log msg pump for transferring log msgs from journald to the desired output. (currently Elasticsearch, Kafka or Logplex)

@@ -5,10 +5,10 @@ journalpump |BuildStatus|_
 .. _BuildStatus: https://travis-ci.org/aiven/journalpump
 
 journalpump is a daemon that takes log messages from journald and
-pumps them to a given output. Currently supported outputs are Kafka
-and logplex. It reads messages from journald and optionally checks if
-they match a config rule and forwards them as JSON messages
-to the desired output.
+pumps them to a given output. Currently supported outputs are
+Elasticsearch, Kafka and logplex. It reads messages from journald
+and optionally checks if they match a config rule and forwards them as
+JSON messages to the desired output.
 
 Building
 ========
@@ -101,13 +101,38 @@ authentication.
 Kafka client certificate path, needed when you're using Kafka with SSL
 authentication.
 
+``elasticsearch_index_days_max`` (default ``3``)
+
+Maximum number of days of logs to keep in Elasticsearch. Relevant
+when using output_type ``elasticsearch``.
+
+``elasticsearch_index_prefix`` (default ``journalpump``)
+
+Elasticsearch index name to use when Maximum number of days of logs to
+keep in Elasticsearch. Relevant when using output_type ``elasticsearch``.
+
+``elasticsearch_timeout`` (default ``10.0``)
+
+Elasticsearch request timeout limit. The default should work for most
+people but you might need to increase it in case you have a large
+latency to server or the server is very congested.
+Required when using output_type ``elasticsearch``.
+
+``elasticsearch_url`` (default ``null``)
+
+Fully qualified elasticsearch url of the form
+``https://username:password@hostname.com:port``.
+Required when using output_type ``elasticsearch``.
+
 ``kafka_topic`` (default ``null``)
 
 Which Kafka topic do you want the journalpump to write to.
+Required when using output_type ``kafka``.
 
 ``kafka_address`` (default ``null``)
 
 The address of the kafka server which to write to.
+Required when using output_type ``kafka``.
 
 ``keyfile`` (default ``null``)
 
@@ -142,6 +167,11 @@ _SYSTEMD_UNITs. If not set, we allow log events from all units.
 ``log_level`` (default ``"INFO"``)
 
 Determines log level of journalpump.
+
+``output_type`` (default ``null``)
+
+Output to write journal events to. Options are elasticsearch, kafka
+and logplex.
 
 ``statsd`` (default ``null``)
 
