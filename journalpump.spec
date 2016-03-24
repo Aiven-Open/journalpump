@@ -2,7 +2,7 @@ Name:           journalpump
 Version:        %{major_version}
 Release:        %{minor_version}%{?dist}
 Url:            http://github.com/aiven/journalpump
-Summary:        Pump messages from systemd journal to Kafka or Logplex
+Summary:        Pump messages from systemd journal to Elasticsearch, Kafka or Logplex
 License:        ASL 2.0
 Source0:        journalpump-rpm-src.tar.gz
 Requires:       python3-kafka, systemd-python3, python3-requests, python3-elasticsearch
@@ -11,7 +11,7 @@ BuildRequires:  python3-devel, python3-pytest, python3-pylint
 BuildArch:      noarch
 
 %description
-journalpump is a daemon to pump journald messages into a given kafka topic or to
+journalpump is a daemon to pump journald messages into Elasticsearch, a given Kafka topic or to
 logplex.
 
 
