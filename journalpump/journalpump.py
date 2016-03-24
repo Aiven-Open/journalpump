@@ -1,4 +1,4 @@
-# Copyright 2015, Aiven, https://aiven.io/
+# Copyright 2016, Aiven, https://aiven.io/
 #
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
@@ -114,6 +114,9 @@ class LogSender(Thread):
         self.running = True
         self.log.info("Initialized LogSender")
 
+    def send_messages(self, message_batch):
+        pass
+
     def maintenance_operations(self):
         # This can be overridden in the classes that inherit this
         pass
@@ -173,6 +176,7 @@ class LogSender(Thread):
                 self.log.debug("Wrote state file: %r, %.2f entries/s processed", state_to_save,
                                self.msg_buffer.entry_num / (time.time() - self.start_time))
 
+
 class KafkaSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
         LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats,
@@ -215,11 +219,11 @@ class KafkaSender(LogSender):
             self.kafka_producer = None
             time.sleep(5.0)
 
-    def send_messages(self, messages_batch):
+    def send_messages(self, message_batch):
         if not self.kafka:
             self._init_kafka()
         try:
-            self.kafka_producer.send_messages(self.topic, *messages_batch)
+            self.kafka_producer.send_messages(self.topic, *message_batch)
             return True
         except KAFKA_CONN_ERRORS as ex:
             self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
