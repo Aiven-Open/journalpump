@@ -109,8 +109,13 @@ class LogSender(Thread):
         self.running = True
         self.log.info("Initialized LogSender")
 
+    def maintenance_operations(self):
+        # This can be overridden in the classes that inherit this
+        pass
+
     def run(self):
         while self.running:
+            self.maintenance_operations()
             if len(self.msg_buffer) > 100 or \
                time.time() - self.last_send_time > self.max_send_interval:
                 self.get_and_send_messages()
@@ -230,9 +235,27 @@ class ElasticsearchSender(LogSender):
         self.msg_buffer = msg_buffer
         self.stats = stats
         self.elasticsearch_url = self.config.get("elasticsearch_url")
+        self.last_index_check_time = 0
         self.request_timeout = self.config.get("elasticsearch_timeout", 10.0)
+        self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
         self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
+
+    def check_indices(self):
+        indices = sorted(key for key in self.es.indices.get_aliases().keys() if key.startswith(self.index_name))
+        if len(indices) > self.index_days_max:
+            index_to_delete = indices[0]
+            self.log.info("Deleting index: %r since we only keep %d days worth of indices",
+                          index_to_delete, self.index_days_max)
+            try:
+                self.es.indices.delete(index_to_delete)
+            except:   # pylint: disable=bare-except
+                self.log.exception("Problem deleting index: %r", index_to_delete)
+
+    def maintenance_operations(self):
+        if time.monotonic() - self.last_index_check_time > 3600:
+            self.last_index_check_time = time.monotonic()
+            self.check_indices()
 
     def send_messages(self, message_batch):
         start_time = time.monotonic()
