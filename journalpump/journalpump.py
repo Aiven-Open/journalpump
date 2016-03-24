@@ -193,7 +193,7 @@ class KafkaSender(LogSender):
         self.topic = topic
 
     def _init_kafka(self):
-        self.log.info("Initializing Kafka client, address: %r", self.config.get("kafka_address"))
+        self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
         while self.running:
             try:
                 if self.kafka_producer:
@@ -202,7 +202,7 @@ class KafkaSender(LogSender):
                     self.kafka.close()
 
                 self.kafka = KafkaClient(  # pylint: disable=unexpected-keyword-arg
-                    self.config.get("kafka_address"),
+                    self.config["kafka_address"],
                     ssl=self.config.get("ssl", False),
                     certfile=self.config.get("certfile"),
                     keyfile=self.config.get("keyfile"),
@@ -210,7 +210,7 @@ class KafkaSender(LogSender):
                 )
                 self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
                                                      if snappy else CODEC_NONE)
-                self.log.info("Initialized Kafka Client, address: %r", self.config.get("kafka_address"))
+                self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
                 break
             except KAFKA_CONN_ERRORS as ex:
                 self.log.warning("Retriable error during Kafka initialization: %s: %s, sleeping",
