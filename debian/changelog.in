@@ -1,3 +1,9 @@
+journalpump (2.0.0) unstable; urgency=low
+
+  * 2.0.0 new major version
+
+ -- Hannu Valtonen <hannu.valtonen@ohmu.fi>  Mon, 23 Mar 2016 23:24:40 +0200
+
 kafkajournalpump (1.0.1) unstable; urgency=low
 
   * 1.0.1 bugfix release

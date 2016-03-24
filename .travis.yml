@@ -10,7 +10,7 @@ python:
   - "3.5"
 
 install:
-  - "pip install pylint pytest mock pep8 kafka-python coverage coveralls"
+  - "pip install pylint pytest mock pep8 kafka-python coverage coveralls elasticsearch"
   - "pip install https://github.com/systemd/python-systemd/zipball/master"
 
 script:

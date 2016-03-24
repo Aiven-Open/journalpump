@@ -3,5 +3,5 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 
-"""kafkajournalpump"""
-__version__ = '1.0.1'
+from . import journalpump
+journalpump.JournalPump.run_exit()

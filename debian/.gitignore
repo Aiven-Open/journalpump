@@ -1,8 +1,8 @@
 /changelog
 /files
-/kafkajournalpump/
-/kafkajournalpump.debhelper.log
-/kafkajournalpump.install
-/kafkajournalpump.postinst.debhelper
-/kafkajournalpump.prerm.debhelper
-/kafkajournalpump.substvars
+/journalpump/
+/journalpump.debhelper.log
+/journalpump.install
+/journalpump.postinst.debhelper
+/journalpump.prerm.debhelper
+/journalpump.substvars
