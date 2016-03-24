@@ -1,4 +1,7 @@
 {
+    "output_type": "elasticsearch",
+    "elasticsearch_url": "https://u9r6z9e8:er57mbtcgsxn4lya@machinedomain.com:18195",
+    "elasticsearch_index_prefix": "journalpump",
     "ca": "path/to/ca/file",
     "certfile": "path/to/cert",
     "keyfile": "path/to/key",

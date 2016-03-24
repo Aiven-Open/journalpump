@@ -1,8 +1,10 @@
-journalpump 2.0 (2016-xx-xx)
+journalpump 2.0.0 (2016-xx-xx)
 ============================
 
-* rename kafkajournalpump to just journalpump
-* add logplex sender as an output
+* Rename kafkajournalpump to just journalpump
+* Refactor journalpump to be able to support other outputs than Kafka
+* Add Logplex sender as an output
+* Add Elasticsearch sender as an ouput
 
 kafkajournalpump 1.0.1 (2015-08-03)
 ===================================

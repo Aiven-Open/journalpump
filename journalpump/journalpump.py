@@ -4,9 +4,10 @@
 # See the file `LICENSE` for details.
 
 from . daemon import ServiceDaemon
+from . import statsd
+from elasticsearch import Elasticsearch, helpers
 from kafka import KafkaClient, SimpleProducer
 from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
-from . import statsd
 from requests import Session
 from systemd.journal import Reader
 from threading import Thread, Lock
@@ -36,6 +37,10 @@ KAFKA_CONN_ERRORS = tuple(kafka.common.RETRY_ERROR_TYPES) + (
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
 MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2
+
+
+logging.getLogger("elasticsearch").setLevel(logging.ERROR)
+logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
 
 
 def _convert_uuid(s):
@@ -89,7 +94,7 @@ def get_next(self, skip=1):
 
 
 class LogSender(Thread):
-    def __init__(self, config, msg_buffer, stats, max_send_interval=0.3):
+    def __init__(self, config, msg_buffer, stats, max_send_interval):
         Thread.__init__(self)
         self.log = logging.getLogger("LogSender")
         self.stats = stats
@@ -160,7 +165,8 @@ class LogSender(Thread):
 
 class KafkaSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
-        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats)
+        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats,
+                           max_send_interval=config.get("max_send_interval", 0.3))
         self.config = config
         self.msg_buffer = msg_buffer
         self.stats = stats
@@ -216,9 +222,50 @@ class KafkaSender(LogSender):
             self._init_kafka()
 
 
+class ElasticsearchSender(LogSender):
+    def __init__(self, config, msg_buffer, stats):
+        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats,
+                           max_send_interval=config.get("max_send_interval", 0.3))
+        self.config = config
+        self.msg_buffer = msg_buffer
+        self.stats = stats
+        self.elasticsearch_url = self.config.get("elasticsearch_url")
+        self.request_timeout = self.config.get("elasticsearch_timeout", 10.0)
+        self.index_name = self.config["elasticsearch_index_prefix"]
+        self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
+
+    def send_messages(self, message_batch):
+        start_time = time.monotonic()
+        try:
+            actions = []
+            for msg in message_batch:
+                message = json.loads(msg.decode("utf8"))
+                timestamp = message.get("timestamp")
+                if "__REALTIME_TIMESTAMP" in message:
+                    timestamp = datetime.datetime.utcfromtimestamp(message["__REALTIME_TIMESTAMP"])
+                else:
+                    timestamp = datetime.datetime.utcnow()
+
+                message["timestamp"] = timestamp
+                actions.append({
+                    "_index": "{}-{}".format(self.index_name, datetime.datetime.date(timestamp)),
+                    "_type": "journal_msg",
+                    "_source": message,
+                })
+            if actions:
+                helpers.bulk(self.es, actions)
+                self.log.info("Sent %d metrics to ES, took: %.2fs",
+                              len(message_batch), time.monotonic() - start_time)
+        except Exception as ex:  # pylint: disable=broad-except
+            self.log.warning("Problem sending logs to ES: %r", ex)
+            return False
+        return True
+
+
 class LogplexSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
-        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats)
+        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats,
+                           max_send_interval=config.get("max_send_interval", 5.0))
         self.config = config
         self.msg_buffer = msg_buffer
         self.stats = stats
@@ -364,21 +411,16 @@ class JournalPump(ServiceDaemon):
 
     def initialize_sender(self):
         if not self.sender:
-            if self.config.get("kafka_address"):
-                sender = KafkaSender(
-                    config=self.config,
-                    msg_buffer=self.msg_buffer,
-                    stats=self.stats)
-            else:
-                sender = LogplexSender(  # pylint: disable=redefined-variable-type
-                    config=self.config,
-                    msg_buffer=self.msg_buffer,
-                    stats=self.stats)
-            self.sender = sender
+            senders = {
+                "elasticsearch": ElasticsearchSender,
+                "kafka": KafkaSender,
+                "logplex": LogplexSender,
+            }
+            class_name = senders.get(self.config["output_type"])
+            self.sender = class_name(config=self.config, msg_buffer=self.msg_buffer, stats=self.stats)
             self.sender.start()
 
     def run(self):
-        logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
         while self.running:
             entry = None
             try:
