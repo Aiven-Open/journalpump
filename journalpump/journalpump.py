@@ -81,6 +81,12 @@ def _convert_field(self, key, value):
             return value
 
 
+class JournalObject:
+    def __init__(self, cursor=None, entry=None):
+        self.cursor = cursor
+        self.entry = entry or {}
+
+
 def get_next(self, skip=1):
     """Own get_next implementation that doesn't store the cursor
        since we don't want it"""
@@ -88,9 +94,8 @@ def get_next(self, skip=1):
         entry = super(Reader, self)._get_all()  # pylint: disable=protected-access
         if entry:
             entry["__REALTIME_TIMESTAMP"] = self._get_realtime()  # pylint: disable=protected-access
-            cursor = self._get_cursor()  # pylint: disable=protected-access
-            return self._convert_entry(entry), cursor  # pylint: disable=protected-access
-    return dict(), None
+            return JournalObject(cursor=self._get_cursor(), entry=self._convert_entry(entry))  # pylint: disable=protected-access
+    return JournalObject()
 
 
 class LogSender(Thread):
@@ -448,16 +453,16 @@ class JournalPump(ServiceDaemon):
             entry = None
             try:
                 self.initialize_sender()
-                entry, cursor = next(self.journald_reader)
-                for key, value in entry:
+                jobject = next(self.journald_reader)
+                for key, value in jobject.entry.items():
                     if isinstance(value, bytes):
-                        entry[key] = repr(value)  # value may be bytes in any encoding
+                        jobject.entry[key] = repr(value)  # value may be bytes in any encoding
 
-                if cursor is not None:
-                    if not self.check_match(entry):
-                        self.msg_buffer.set_cursor(cursor)
+                if jobject.cursor is not None:
+                    if not self.check_match(jobject.entry):
+                        self.msg_buffer.set_cursor(jobject.cursor)
                         continue
-                    json_entry = json.dumps(entry).encode("utf8")
+                    json_entry = json.dumps(jobject.entry).encode("utf8")
                     if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
                         self.stats.increase("journal.error", tags={"error": "too_long"})
                         error = "too large message {} bytes vs maximum {} bytes".format(
@@ -470,7 +475,7 @@ class JournalPump(ServiceDaemon):
                         json_entry = json.dumps(entry).encode("utf8")
                     self.stats.increase("journal.lines")
                     self.stats.increase("journal.bytes", inc_value=len(json_entry))
-                    self.msg_buffer.set_item(json_entry, cursor)
+                    self.msg_buffer.set_item(json_entry, jobject.cursor)
                 else:
                     self.log.debug("No more journal entries to read, sleeping")
                     if time.monotonic() - self.msg_buffer.last_journal_msg_time > 180 and self.msg_buffer.cursor:
@@ -483,7 +488,7 @@ class JournalPump(ServiceDaemon):
                 self.log.debug("No more journal entries to read, sleeping")
                 time.sleep(0.5)
             except Exception as ex:  # pylint: disable=broad-except
-                self.log.exception("Unexpected exception during handling entry: %r", entry)
+                self.log.exception("Unexpected exception during handling entry: %r", jobject)
                 self.stats.unexpected_exception(ex=ex, where="mainloop", tags={"app": "journalpump"})
                 time.sleep(0.5)
 
