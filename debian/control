@@ -2,11 +2,20 @@ Source: journalpump
 Maintainer: Hannu Valtonen <hannu.valtonen@ohmu.fi>
 Section: python
 Priority: optional
-Build-Depends: python-setuptools (>= 0.6b3), python-all (>= 2.6.6-3), debhelper (>= 7.4.3), dh-systemd (>= 1.2.2)
-Standards-Version: 3.9.1
+Build-Depends: debhelper (>= 8), dh-python, dh-systemd,
+ python3-all (>= 3.4), python3-setuptools,
+ python3-requests, python3-systemd
+X-Python3-Version: >= 3.4
+Standards-Version: 3.9.4
+Homepage: https://github.com/aiven/journalpump
 
 Package: journalpump
 Architecture: all
-Depends: ${misc:Depends}, ${python:Depends}, python3-kafka (>= 0.9.3-2), python3-systemd (>=215-17+deb8u1), python3-elasticsearch (>=1.2.0-1)
-Suggests: python-simplejson (>= 2.1.1-1)
-Description: journalpump provides a log msg pump for transferring log msgs from journald to the desired output. (currently Elasticsearch, Kafka or Logplex)
+Depends: ${misc:Depends}, ${python3:Depends},
+ python3-elasticsearch, python3-kafka,
+ python3-requests, python3-systemd
+Description: journalpump is a daemon that takes log messages from journald and pumps them
+ to a given output.  Currently supported outputs are Elasticsearch, Kafka and
+ logplex.  It reads messages from journald and optionally checks if they
+ match a config rule and forwards them as JSON messages to the desired
+ output.

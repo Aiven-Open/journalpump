@@ -9,10 +9,14 @@ Requires:       python3-kafka, systemd-python3, python3-requests, python3-elasti
 BuildRequires:  %{requires}
 BuildRequires:  python3-devel, python3-pytest, python3-pylint
 BuildArch:      noarch
+Obsoletes:      kafkajournalpump
 
 %description
-journalpump is a daemon to pump journald messages into Elasticsearch, a given Kafka topic or to
-logplex.
+journalpump is a daemon that takes log messages from journald and pumps them
+to a given output.  Currently supported outputs are Elasticsearch, Kafka and
+logplex.  It reads messages from journald and optionally checks if they
+match a config rule and forwards them as JSON messages to the desired
+output.
 
 
 %prep
@@ -44,11 +48,9 @@ make test
 
 
 %changelog
-* Tue Feb 16 2016 Oskari Saarenmaa <os@aiven.io> - 1.0.1
+* Fri Mar 25 2016 Oskari Saarenmaa <os@aiven.io> - 1.0.1
+- Renamed to journalpump
 - We're Python 3 only now
-
-* Mon Aug 03 2015 Hannu Valtonen <hannu.valtonen@ohmu.fi> - 1.0.1
-- bugfix release
 
 * Mon Jul 27 2015 Hannu Valtonen <hannu.valtonen@ohmu.fi> - 1.0.0
 - Initial RPM package spec

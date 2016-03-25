@@ -5,6 +5,9 @@ journalpump 2.0.0 (2016-xx-xx)
 * Refactor journalpump to be able to support other outputs than Kafka
 * Add Logplex sender as an output
 * Add Elasticsearch sender as an ouput
+* telegraf statsd support
+* Require Python 3.4 or newer
+* Various robustness improvements
 
 kafkajournalpump 1.0.1 (2015-08-03)
 ===================================

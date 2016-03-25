@@ -4,11 +4,12 @@ journalpump |BuildStatus|_
 .. |BuildStatus| image:: https://travis-ci.org/aiven/journalpump.png?branch=master
 .. _BuildStatus: https://travis-ci.org/aiven/journalpump
 
-journalpump is a daemon that takes log messages from journald and
-pumps them to a given output. Currently supported outputs are
-Elasticsearch, Kafka and logplex. It reads messages from journald
-and optionally checks if they match a config rule and forwards them as
-JSON messages to the desired output.
+journalpump is a daemon that takes log messages from journald and pumps them
+to a given output.  Currently supported outputs are Elasticsearch, Kafka and
+logplex.  It reads messages from journald and optionally checks if they
+match a config rule and forwards them as JSON messages to the desired
+output.
+
 
 Building
 ========
@@ -20,7 +21,8 @@ Debian::
 
   make deb
 
-This will produce a .deb package into the parent directory of the Git checkout.
+This will produce a .deb package into the parent directory of the Git
+checkout.
 
 Fedora::
 
@@ -28,13 +30,14 @@ Fedora::
 
 This will produce an RPM in rpm/RPMS/noarch/.
 
-Python/Other::
+Other::
 
-  python setup.py bdist_egg
+  python3 setup.py bdist_egg
 
 This will produce an egg file into a dist directory within the same folder.
 
 journalpump requires Python 3.4 or newer.
+
 
 Installation
 ============
@@ -57,35 +60,37 @@ and eventually after the setup section, you can just run::
 
   systemctl start journalpump.service
 
-Python/Other::
+Other::
 
-  easy_install dist/journalpump-1.0.1-py3.4.egg
+  python3 setup.py install
 
-On Debian/Other systems it is recommended that you run journalpump within
-a supervisord (http://supervisord.org) Process control system.
+On systems without systemd it is recommended that you run journalpump within
+supervisord_ or similar process control system.
+
+.. _supervisord : http://supervisord.org
 
 
 Setup
 =====
 
-After this you need to create a suitable JSON configuration file for your
-installation.
+After installation you need to create a suitable JSON configuration file for
+your installation.
 
 
 General notes
 =============
 
 If correctly installed, journalpump comes with a single executable,
-``journalpump`` that takes as an argument the path to journalpump's
-JSON configuration file.
+``journalpump`` that takes as an argument the path to journalpump's JSON
+configuration file.
 
 ``journalpump`` is the main process that should be run under systemd or
 supervisord.
 
-While journalpump is running it may be useful to read the JSON state
-file that will be created  as ``journalpump_state.json`` to the current working
-directory.. The JSON state file is human readable and should give an understandable
-description of the current state of the journalpump.
+While journalpump is running it may be useful to read the JSON state file
+that will be created as ``journalpump_state.json`` to the current working
+directory.  The JSON state file is human readable and should give an
+understandable description of the current state of the journalpump.
 
 
 Configuration keys
@@ -103,20 +108,20 @@ authentication.
 
 ``elasticsearch_index_days_max`` (default ``3``)
 
-Maximum number of days of logs to keep in Elasticsearch. Relevant
-when using output_type ``elasticsearch``.
+Maximum number of days of logs to keep in Elasticsearch.  Relevant when
+using output_type ``elasticsearch``.
 
 ``elasticsearch_index_prefix`` (default ``journalpump``)
 
-Elasticsearch index name to use when Maximum number of days of logs to
-keep in Elasticsearch. Relevant when using output_type ``elasticsearch``.
+Elasticsearch index name to use when Maximum number of days of logs to keep
+in Elasticsearch.  Relevant when using output_type ``elasticsearch``.
 
 ``elasticsearch_timeout`` (default ``10.0``)
 
-Elasticsearch request timeout limit. The default should work for most
-people but you might need to increase it in case you have a large
-latency to server or the server is very congested.
-Required when using output_type ``elasticsearch``.
+Elasticsearch request timeout limit.  The default should work for most
+people but you might need to increase it in case you have a large latency to
+server or the server is very congested.  Required when using output_type
+``elasticsearch``.
 
 ``elasticsearch_url`` (default ``null``)
 
@@ -147,7 +152,7 @@ defines the key to match against.
 ``match_value`` (default ``null``)
 
 If you want to match against a single journald field, this configuration key
-defines the value to match against. Currently only equality is allowed.
+defines the value to match against.  Currently only equality is allowed.
 
 ``journal_path`` (default ``null``)
 
@@ -161,8 +166,8 @@ journalpump process.
 
 ``units_to_match`` (default ``[]``)
 
-Require that the logs message matches only against certain
-_SYSTEMD_UNITs. If not set, we allow log events from all units.
+Require that the logs message matches only against certain _SYSTEMD_UNITs.
+If not set, we allow log events from all units.
 
 ``log_level`` (default ``"INFO"``)
 
@@ -170,13 +175,13 @@ Determines log level of journalpump.
 
 ``output_type`` (default ``null``)
 
-Output to write journal events to. Options are elasticsearch, kafka
-and logplex.
+Output to write journal events to.  Options are elasticsearch, kafka and
+logplex.
 
 ``statsd`` (default ``null``)
 
-Enables metrics sending to a statsd daemon that supports the influxdb-statsd/telegraf
-syntax with tags.
+Enables metrics sending to a statsd daemon that supports the influxdb-statsd
+/ telegraf syntax with tags.
 
 The value is a JSON object::
 
@@ -188,15 +193,20 @@ The value is a JSON object::
       }
   }
 
-The ``tags`` setting can be used to enter optional tag values for the metrics.
+The ``tags`` setting can be used to enter optional tag values for the
+metrics.
 
-Metrics sending follows the Telegraf spec: https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
+Metrics sending follows the `Telegraf spec`_.
+
+.. _`Telegraf spec`: https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
+
 
 License
 =======
 
-journalpump is licensed under the Apache License, Version 2.0. Full license
-text is available in the ``LICENSE`` file and at http://www.apache.org/licenses/LICENSE-2.0.txt
+journalpump is licensed under the Apache License, Version 2.0.
+Full license text is available in the ``LICENSE`` file and at
+http://www.apache.org/licenses/LICENSE-2.0.txt
 
 
 Credits
@@ -205,8 +215,9 @@ Credits
 journalpump was created by Hannu Valtonen <hannu.valtonen@aiven.io>
 and is now maintained by Aiven hackers <opensource@aiven.io>.
 
-Recent contributors are listed on the GitHub project page,
-https://github.com/aiven/journalpump/graphs/contributors
+Recent contributors are listed on the project's GitHub `contributors page`_.
+
+.. _`contributors page`: https://github.com/aiven/journalpump/graphs/contributors
 
 
 Contact
