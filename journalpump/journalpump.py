@@ -136,6 +136,7 @@ class LogSender(Thread):
         start_time = time.time()
         try:
             messages, cursor = self.msg_buffer.get_items()
+            self.log.debug("Got %d items from msg_buffer, cursor: %r", len(messages), cursor)
             while self.running and messages:
                 batch_size = len(messages[0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
                 index = 1
@@ -260,6 +261,7 @@ class ElasticsearchSender(LogSender):
                     "journal_msg": {
                         "properties": {
                             "_SYSTEMD_SESSION": {"type": "string"},
+                            "SESSION_ID": {"type": "string"},
                         }
                     }
                 }
@@ -270,6 +272,7 @@ class ElasticsearchSender(LogSender):
 
     def check_indices(self):
         indices = sorted(key for key in self.es.indices.get_aliases().keys() if key.startswith(self.index_name))
+        self.log.info("Checking indices, currently: %r are available", indices)
         while len(indices) > self.index_days_max:
             index_to_delete = indices.pop(0)
             self.log.info("Deleting index: %r since we only keep %d days worth of indices",
@@ -309,8 +312,8 @@ class ElasticsearchSender(LogSender):
                 })
             if actions:
                 helpers.bulk(self.es, actions)
-                self.log.info("Sent %d metrics to ES, took: %.2fs",
-                              len(message_batch), time.monotonic() - start_time)
+                self.log.debug("Sent %d log events to ES, took: %.2fs",
+                               len(message_batch), time.monotonic() - start_time)
         except Exception as ex:  # pylint: disable=broad-except
             self.log.warning("Problem sending logs to ES: %r", ex)
             return False
@@ -480,6 +483,12 @@ class JournalPump(ServiceDaemon):
             entry = None
             try:
                 self.initialize_sender()
+                msg_buffer_length = len(self.msg_buffer)
+                if msg_buffer_length > 50000:
+                    self.log.debug("%d entries in msg buffer, slowing down a bit by sleeping",
+                                   msg_buffer_length)
+                    time.sleep(1.0)
+
                 jobject = next(self.journald_reader)
                 for key, value in jobject.entry.items():
                     if isinstance(value, bytes):
