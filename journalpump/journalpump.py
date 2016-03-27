@@ -6,6 +6,7 @@
 from . daemon import ServiceDaemon
 from . import statsd
 from elasticsearch import Elasticsearch, helpers
+from elasticsearch import exceptions
 from kafka import KafkaClient, SimpleProducer
 from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
 from requests import Session
@@ -249,15 +250,33 @@ class ElasticsearchSender(LogSender):
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
         self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
+        self.indices = dict((key, 1) for key in self.es.indices.get_aliases().keys())
+
+    def create_index_and_mappings(self, index_name):
+        try:
+            self.log.info("Creating index: %r", index_name)
+            self.es.indices.create(index_name, {
+                "mappings": {
+                    "journal_msg": {
+                        "properties": {
+                            "_SYSTEMD_SESSION": {"type": "string"},
+                        }
+                    }
+                }
+            })
+            self.indices[index_name] = 1
+        except exceptions.RequestError as ex:
+            self.log.exception("Problem creating index: %r %r", index_name, ex)
 
     def check_indices(self):
         indices = sorted(key for key in self.es.indices.get_aliases().keys() if key.startswith(self.index_name))
-        if len(indices) > self.index_days_max:
-            index_to_delete = indices[0]
+        while len(indices) > self.index_days_max:
+            index_to_delete = indices.pop(0)
             self.log.info("Deleting index: %r since we only keep %d days worth of indices",
                           index_to_delete, self.index_days_max)
             try:
                 self.es.indices.delete(index_to_delete)
+                self.indices.pop(index_to_delete)
             except:   # pylint: disable=bare-except
                 self.log.exception("Problem deleting index: %r", index_to_delete)
 
@@ -279,8 +298,12 @@ class ElasticsearchSender(LogSender):
                     timestamp = datetime.datetime.utcnow()
 
                 message["timestamp"] = timestamp
+                index_name = "{}-{}".format(self.index_name, datetime.datetime.date(timestamp))
+                if index_name not in self.indices:
+                    self.create_index_and_mappings(index_name)
+
                 actions.append({
-                    "_index": "{}-{}".format(self.index_name, datetime.datetime.date(timestamp)),
+                    "_index": index_name,
                     "_type": "journal_msg",
                     "_source": message,
                 })
