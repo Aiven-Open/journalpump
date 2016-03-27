@@ -125,7 +125,7 @@ class LogSender(Thread):
     def run(self):
         while self.running:
             self.maintenance_operations()
-            if len(self.msg_buffer) > 100 or \
+            if len(self.msg_buffer) > 1000 or \
                time.time() - self.last_send_time > self.max_send_interval:
                 self.get_and_send_messages()
             else:
@@ -240,7 +240,7 @@ class KafkaSender(LogSender):
 class ElasticsearchSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
         LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats,
-                           max_send_interval=config.get("max_send_interval", 0.3))
+                           max_send_interval=config.get("max_send_interval", 10.0))
         self.config = config
         self.msg_buffer = msg_buffer
         self.stats = stats
