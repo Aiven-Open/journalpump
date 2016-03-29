@@ -251,7 +251,7 @@ class ElasticsearchSender(LogSender):
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
         self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
-        self.indices = dict((key, 1) for key in self.es.indices.get_aliases().keys())
+        self.indices = set(self.es.indices.get_aliases())
 
     def create_index_and_mappings(self, index_name):
         try:
@@ -266,7 +266,7 @@ class ElasticsearchSender(LogSender):
                     }
                 }
             })
-            self.indices[index_name] = 1
+            self.indices.add(index_name)
         except exceptions.RequestError as ex:
             self.log.exception("Problem creating index: %r %r", index_name, ex)
 
@@ -279,7 +279,7 @@ class ElasticsearchSender(LogSender):
                           index_to_delete, self.index_days_max)
             try:
                 self.es.indices.delete(index_to_delete)
-                self.indices.pop(index_to_delete)
+                self.indices.discard(index_to_delete)
             except:   # pylint: disable=bare-except
                 self.log.exception("Problem deleting index: %r", index_to_delete)
 
@@ -485,6 +485,7 @@ class JournalPump(ServiceDaemon):
                 self.initialize_sender()
                 msg_buffer_length = len(self.msg_buffer)
                 if msg_buffer_length > 50000:
+                    # This makes the self.msg_buffer grow by one journal msg a second at most
                     self.log.debug("%d entries in msg buffer, slowing down a bit by sleeping",
                                    msg_buffer_length)
                     time.sleep(1.0)
