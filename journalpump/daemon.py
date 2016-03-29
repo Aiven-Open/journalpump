@@ -102,9 +102,6 @@ class ServiceDaemon:
         self.journal_handler = None
         self.configure_logging()
         self.log = logging.getLogger(self.name)
-        with open("/etc/machine-id") as fp:
-            self.machine_id = fp.read().strip()
-        self.lessee_id = "{}_{}".format(self.name, self.machine_id)
         self.config_path = config_path
         self.config_file_ctime = None
         self.config = None

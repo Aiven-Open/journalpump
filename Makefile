@@ -4,15 +4,18 @@ long_ver = $(shell git describe --long 2>/dev/null || echo $(short_ver)-0-unknow
 all: py-egg
 
 PYTHON ?= python3
-PYLINT_DIRS = journalpump/
+PYLINT_DIRS = journalpump/ test/
 
-test: pylint unittest
+test: pylint unittest flake8
 
 unittest:
 	$(PYTHON) -m pytest -vv test/
 
 pylint:
 	$(PYTHON) -m pylint.lint --rcfile .pylintrc $(PYLINT_DIRS)
+
+flake8:
+	$(PYTHON) -m flake8.main --max-line-length=125 $(PYLINT_DIRS)
 
 coverage:
 	$(PYTHON) -m pytest $(PYTEST_ARG) --cov-report term-missing --cov journalpump test/
@@ -37,16 +40,13 @@ rpm:
 
 build-dep-fed:
 	sudo dnf -y install \
-		python-kafka python3-kafka pytest python3-pytest \
-		pylint python3-pylint \
-		systemd-python systemd-python3
+		python3-flake8 python3-kafka python3-pytest python3-pylint \
+		python3-requests systemd-python3
 
 build-dep-deb:
 	sudo apt-get install \
 		build-essential devscripts dh-systemd \
 		python-all python-setuptools python3-systemd python3-kafka
 
-pep8:
-	$(PYTHON) -m pep8 --ignore=E501,E123 $(PYLINT_DIRS)
 
 .PHONY: rpm

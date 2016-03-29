@@ -1,14 +1,9 @@
-journalpump (2.0.0) unstable; urgency=low
+journalpump (1.0.1) unstable; urgency=low
 
-  * 2.0.0 new major version
+  * Rename to journalpump
+  * Require Python 3
 
- -- Hannu Valtonen <hannu.valtonen@ohmu.fi>  Mon, 23 Mar 2016 23:24:40 +0200
-
-kafkajournalpump (1.0.1) unstable; urgency=low
-
-  * 1.0.1 bugfix release
-
- -- Hannu Valtonen <hannu.valtonen@ohmu.fi>  Mon, 03 Aug 2015 17:17:10 +0200
+ -- Oskari Saarenmaa <os@aivenio>  Fri, 25 Mar 2016 11:50:01 +0200
 
 kafkajournalpump (1.0.0) unstable; urgency=low
 
