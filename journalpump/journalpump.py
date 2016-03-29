@@ -6,6 +6,7 @@
 from . daemon import ServiceDaemon
 from . import statsd
 from elasticsearch import Elasticsearch, helpers
+from elasticsearch import exceptions
 from kafka import KafkaClient, SimpleProducer
 from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
 from requests import Session
@@ -124,7 +125,7 @@ class LogSender(Thread):
     def run(self):
         while self.running:
             self.maintenance_operations()
-            if len(self.msg_buffer) > 100 or \
+            if len(self.msg_buffer) > 1000 or \
                time.time() - self.last_send_time > self.max_send_interval:
                 self.get_and_send_messages()
             else:
@@ -135,6 +136,7 @@ class LogSender(Thread):
         start_time = time.time()
         try:
             messages, cursor = self.msg_buffer.get_items()
+            self.log.debug("Got %d items from msg_buffer, cursor: %r", len(messages), cursor)
             while self.running and messages:
                 batch_size = len(messages[0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
                 index = 1
@@ -239,7 +241,7 @@ class KafkaSender(LogSender):
 class ElasticsearchSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
         LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats,
-                           max_send_interval=config.get("max_send_interval", 0.3))
+                           max_send_interval=config.get("max_send_interval", 10.0))
         self.config = config
         self.msg_buffer = msg_buffer
         self.stats = stats
@@ -249,15 +251,35 @@ class ElasticsearchSender(LogSender):
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
         self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
+        self.indices = set(self.es.indices.get_aliases())
+
+    def create_index_and_mappings(self, index_name):
+        try:
+            self.log.info("Creating index: %r", index_name)
+            self.es.indices.create(index_name, {
+                "mappings": {
+                    "journal_msg": {
+                        "properties": {
+                            "_SYSTEMD_SESSION": {"type": "string"},
+                            "SESSION_ID": {"type": "string"},
+                        }
+                    }
+                }
+            })
+            self.indices.add(index_name)
+        except exceptions.RequestError as ex:
+            self.log.exception("Problem creating index: %r %r", index_name, ex)
 
     def check_indices(self):
         indices = sorted(key for key in self.es.indices.get_aliases().keys() if key.startswith(self.index_name))
-        if len(indices) > self.index_days_max:
-            index_to_delete = indices[0]
+        self.log.info("Checking indices, currently: %r are available", indices)
+        while len(indices) > self.index_days_max:
+            index_to_delete = indices.pop(0)
             self.log.info("Deleting index: %r since we only keep %d days worth of indices",
                           index_to_delete, self.index_days_max)
             try:
                 self.es.indices.delete(index_to_delete)
+                self.indices.discard(index_to_delete)
             except:   # pylint: disable=bare-except
                 self.log.exception("Problem deleting index: %r", index_to_delete)
 
@@ -279,15 +301,19 @@ class ElasticsearchSender(LogSender):
                     timestamp = datetime.datetime.utcnow()
 
                 message["timestamp"] = timestamp
+                index_name = "{}-{}".format(self.index_name, datetime.datetime.date(timestamp))
+                if index_name not in self.indices:
+                    self.create_index_and_mappings(index_name)
+
                 actions.append({
-                    "_index": "{}-{}".format(self.index_name, datetime.datetime.date(timestamp)),
+                    "_index": index_name,
                     "_type": "journal_msg",
                     "_source": message,
                 })
             if actions:
                 helpers.bulk(self.es, actions)
-                self.log.info("Sent %d metrics to ES, took: %.2fs",
-                              len(message_batch), time.monotonic() - start_time)
+                self.log.debug("Sent %d log events to ES, took: %.2fs",
+                               len(message_batch), time.monotonic() - start_time)
         except Exception as ex:  # pylint: disable=broad-except
             self.log.warning("Problem sending logs to ES: %r", ex)
             return False
@@ -457,6 +483,13 @@ class JournalPump(ServiceDaemon):
             entry = None
             try:
                 self.initialize_sender()
+                msg_buffer_length = len(self.msg_buffer)
+                if msg_buffer_length > 50000:
+                    # This makes the self.msg_buffer grow by one journal msg a second at most
+                    self.log.debug("%d entries in msg buffer, slowing down a bit by sleeping",
+                                   msg_buffer_length)
+                    time.sleep(1.0)
+
                 jobject = next(self.journald_reader)
                 for key, value in jobject.entry.items():
                     if isinstance(value, bytes):
