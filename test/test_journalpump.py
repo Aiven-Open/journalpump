@@ -33,7 +33,7 @@ def test_journalpump_init(tmpdir):
     # Elasticsearch sender
     config = {
         "output_type": "elasticsearch",
-        "elasticsearch_url": "https://aiven.io",
+        "elasticsearch_url": "https://foo.aiven.io",
         "elasticsearch_index_prefix": "fooprefix",
     }
     with open(journalpump_path, "w") as fp:

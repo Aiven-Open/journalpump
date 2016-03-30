@@ -250,8 +250,21 @@ class ElasticsearchSender(LogSender):
         self.request_timeout = self.config.get("elasticsearch_timeout", 10.0)
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
-        self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
-        self.indices = set(self.es.indices.get_aliases())
+        self.es = None
+        self.indices = set()
+
+    def _init_es(self):
+        while self.es is None and self.running is True:
+            try:
+                self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
+                self.indices = set(self.es.indices.get_aliases())
+                break
+            except exceptions.ConnectionError:   # pylint: disable=bare-except
+                self.es = None
+                self.log.warning("Could not initialize Elasticsearch, %r", self.elasticsearch_url)
+                time.sleep(1.0)
+        if self.es:
+            return True
 
     def create_index_and_mappings(self, index_name):
         try:
@@ -271,6 +284,8 @@ class ElasticsearchSender(LogSender):
             self.log.exception("Problem creating index: %r %r", index_name, ex)
 
     def check_indices(self):
+        if not self._init_es():
+            return
         indices = sorted(key for key in self.es.indices.get_aliases().keys() if key.startswith(self.index_name))
         self.log.info("Checking indices, currently: %r are available", indices)
         while len(indices) > self.index_days_max:
@@ -289,6 +304,8 @@ class ElasticsearchSender(LogSender):
             self.check_indices()
 
     def send_messages(self, message_batch):
+        if not self._init_es():
+            return
         start_time = time.monotonic()
         try:
             actions = []
