@@ -136,7 +136,8 @@ class LogSender(Thread):
         start_time = time.time()
         try:
             messages, cursor = self.msg_buffer.get_items()
-            self.log.debug("Got %d items from msg_buffer, cursor: %r", len(messages), cursor)
+            msg_count = len(messages)
+            self.log.debug("Got %d items from msg_buffer, cursor: %r", msg_count, cursor)
             while self.running and messages:
                 batch_size = len(messages[0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
                 index = 1
@@ -153,7 +154,7 @@ class LogSender(Thread):
 
             self.cursor = cursor
             self.log.debug("Sending %d msgs, cursor: %r took %.4fs",
-                           len(messages), self.cursor, time.time() - start_time)
+                           msg_count, self.cursor, time.time() - start_time)
 
             if time.time() - self.last_state_save_time > 1.0:
                 self.save_state()
