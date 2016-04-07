@@ -502,11 +502,12 @@ class JournalPump(ServiceDaemon):
             try:
                 self.initialize_sender()
                 msg_buffer_length = len(self.msg_buffer)
-                if msg_buffer_length > 50000:
-                    # This makes the self.msg_buffer grow by one journal msg a second at most
+                if msg_buffer_length > self.config.get("msg_buffer_max_length", 50000):
+                    # This makes the self.msg_buffer grow to at most msg_buffer_max_length entries
                     self.log.debug("%d entries in msg buffer, slowing down a bit by sleeping",
                                    msg_buffer_length)
                     time.sleep(1.0)
+                    continue
 
                 jobject = next(self.journald_reader)
                 for key, value in jobject.entry.items():

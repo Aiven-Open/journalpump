@@ -154,6 +154,11 @@ defines the key to match against.
 If you want to match against a single journald field, this configuration key
 defines the value to match against.  Currently only equality is allowed.
 
+``msg_buffer_max_length`` (default ``50000``)
+
+How many journal entries to read at most into a memory buffer from
+which the journalpump feeds the configured logsender.
+
 ``journal_path`` (default ``null``)
 
 Path to the directory containing journal files if you want to override the
