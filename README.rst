@@ -129,6 +129,10 @@ Fully qualified elasticsearch url of the form
 ``https://username:password@hostname.com:port``.
 Required when using output_type ``elasticsearch``.
 
+``kafka_api_version`` (default ``0.9``)
+
+Which Kafka server API version to use.
+
 ``kafka_topic`` (default ``null``)
 
 Which Kafka topic do you want the journalpump to write to.

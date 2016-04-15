@@ -7,8 +7,7 @@ from . daemon import ServiceDaemon
 from . import statsd
 from elasticsearch import Elasticsearch, helpers
 from elasticsearch import exceptions
-from kafka import KafkaClient, SimpleProducer
-from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
+from kafka import KafkaProducer
 from requests import Session
 from systemd.journal import Reader
 from threading import Thread, Lock
@@ -185,46 +184,40 @@ class KafkaSender(LogSender):
         self.config = config
         self.msg_buffer = msg_buffer
         self.stats = stats
-
-        self.kafka = None
         self.kafka_producer = None
-
-        if not isinstance(self.config["kafka_topic"], bytes):
-            topic = self.config["kafka_topic"].encode("utf8")
-        self.topic = topic
+        self.topic = self.config.get("kafka_topic")
 
     def _init_kafka(self):
         self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
         while self.running:
             try:
                 if self.kafka_producer:
-                    self.kafka_producer.stop()
-                if self.kafka:
-                    self.kafka.close()
+                    self.kafka_producer.close()
 
-                self.kafka = KafkaClient(  # pylint: disable=unexpected-keyword-arg
-                    self.config["kafka_address"],
-                    ssl=self.config.get("ssl", False),
-                    certfile=self.config.get("certfile"),
-                    keyfile=self.config.get("keyfile"),
-                    ca=self.config.get("ca")
+                self.kafka_producer = KafkaProducer(
+                    api_version=self.config.get("kafka_api_version", "0.9"),
+                    bootstrap_servers=self.config.get("kafka_address"),
+                    compression_type="snappy" if snappy else "gzip",
+                    security_protocol="SSL" if self.config.get("ssl") is True else "PLAINTEXT",
+                    ssl_cafile=self.config.get("ca"),
+                    ssl_certfile=self.config.get("certfile"),
+                    ssl_keyfile=self.config.get("keyfile"),
                 )
-                self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
-                                                     if snappy else CODEC_NONE)
                 self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
                 break
             except KAFKA_CONN_ERRORS as ex:
                 self.log.warning("Retriable error during Kafka initialization: %s: %s, sleeping",
                                  ex.__class__.__name__, ex)
-            self.kafka = None
             self.kafka_producer = None
             time.sleep(5.0)
 
     def send_messages(self, message_batch):
-        if not self.kafka:
+        if not self.kafka_producer:
             self._init_kafka()
         try:
-            self.kafka_producer.send_messages(self.topic, *message_batch)
+            for msg in message_batch:
+                self.kafka_producer.send(topic=self.topic, value=msg)
+            self.kafka_producer.flush()
             return True
         except KAFKA_CONN_ERRORS as ex:
             self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
