@@ -20,7 +20,6 @@ import os
 import socket
 import systemd.journal
 import time
-import types
 import uuid
 
 try:
@@ -69,33 +68,33 @@ converters = {
 systemd.journal.DEFAULT_CONVERTERS.update(converters)
 
 
-def _convert_field(self, key, value):
-    convert = self.converters.get(key, bytes.decode)
-    try:
-        return convert(value)
-    except ValueError:
-        # Leave in default bytes
-        try:
-            return bytes.decode(value)
-        except:  # pylint: disable=bare-except
-            return value
-
-
 class JournalObject:
     def __init__(self, cursor=None, entry=None):
         self.cursor = cursor
         self.entry = entry or {}
 
 
-def get_next(self, skip=1):
-    """Own get_next implementation that doesn't store the cursor
-       since we don't want it"""
-    if super(Reader, self)._next(skip):  # pylint: disable=protected-access
-        entry = super(Reader, self)._get_all()  # pylint: disable=protected-access
-        if entry:
-            entry["__REALTIME_TIMESTAMP"] = self._get_realtime()  # pylint: disable=protected-access
-            return JournalObject(cursor=self._get_cursor(), entry=self._convert_entry(entry))  # pylint: disable=protected-access
-    return JournalObject()
+class PumpReader(Reader):
+    def _convert_field(self, key, value):
+        try:
+            convert = self.converters[key]
+            return convert(value)
+        except (KeyError, ValueError):
+            # Leave in default bytes
+            try:
+                return bytes.decode(value)
+            except:  # pylint: disable=bare-except
+                return value
+
+    def get_next(self, skip=1):
+        # pylint: disable=no-member, protected-access
+        """Private get_next implementation that doesn't store the cursor since we don't want it"""
+        if super()._next(skip):
+            entry = super()._get_all()
+            if entry:
+                entry["__REALTIME_TIMESTAMP"] = self._get_realtime()
+                return JournalObject(cursor=self._get_cursor(), entry=self._convert_entry(entry))
+        return JournalObject()
 
 
 class LogSender(Thread):
@@ -434,23 +433,20 @@ class JournalPump(ServiceDaemon):
         if self.config.get("journal_path"):
             while True:
                 try:
-                    self.journald_reader = Reader(path=self.config["journal_path"])
+                    self.journald_reader = PumpReader(path=self.config["journal_path"])
                     break
                 except FileNotFoundError as ex:
                     self.log.warning("journal not available yet, waiting: %s: %s",
                                      ex.__class__.__name__, ex)
                     time.sleep(5.0)
         else:
-            self.journald_reader = Reader()
+            self.journald_reader = PumpReader()
 
         for unit_to_match in self.config.get("units_to_match", []):
             self.journald_reader.add_match(_SYSTEMD_UNIT=unit_to_match)
 
         if cursor:
             self.journald_reader.seek_cursor(cursor)  # pylint: disable=no-member
-
-        self.journald_reader.get_next = types.MethodType(get_next, self.journald_reader)
-        self.journald_reader._convert_field = types.MethodType(_convert_field, self.journald_reader)  # pylint: disable=protected-access
 
     def handle_new_config(self):
         """Called by ServiceDaemon when config has changed"""
@@ -531,7 +527,7 @@ class JournalPump(ServiceDaemon):
                 else:
                     self.log.debug("No more journal entries to read, sleeping")
                     if time.monotonic() - self.msg_buffer.last_journal_msg_time > 180 and self.msg_buffer.cursor:
-                        self.log.info("We haven't seen any msgs in 180s, reinitiate Reader() and seek to: %r",
+                        self.log.info("We haven't seen any msgs in 180s, reinitiate PumpReader() and seek to: %r",
                                       self.msg_buffer.cursor)
                         self.get_reader(self.msg_buffer.cursor)
                         self.msg_buffer.last_journal_msg_time = time.monotonic()
