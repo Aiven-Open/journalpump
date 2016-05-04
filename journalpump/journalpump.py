@@ -423,15 +423,18 @@ class JournalPump(ServiceDaemon):
     def __init__(self, config_path):
         self.stats = None  # required by handle_new_config()
         super().__init__(config_path=config_path, multi_threaded=True, log_level=logging.INFO)
-        cursor = self.load_state()
-        self.msg_buffer = MsgBuffer(cursor)
         self.journald_reader = None
+        self.msg_buffer = MsgBuffer(self.load_state())
         self.sender = None
-        self.get_reader(cursor)
+        self.init_reader()
 
-    def get_reader(self, cursor):
+    def init_reader(self):
+        if self.journald_reader:
+            self.journald_reader.close()  # pylint: disable=no-member
+            self.journald_reader = None
+
         if self.config.get("journal_path"):
-            while True:
+            while self.running:
                 try:
                     self.journald_reader = PumpReader(path=self.config["journal_path"])
                     break
@@ -445,8 +448,8 @@ class JournalPump(ServiceDaemon):
         for unit_to_match in self.config.get("units_to_match", []):
             self.journald_reader.add_match(_SYSTEMD_UNIT=unit_to_match)
 
-        if cursor:
-            self.journald_reader.seek_cursor(cursor)  # pylint: disable=no-member
+        if self.msg_buffer.cursor:
+            self.journald_reader.seek_cursor(self.msg_buffer.cursor)  # pylint: disable=no-member
 
     def handle_new_config(self):
         """Called by ServiceDaemon when config has changed"""
@@ -529,7 +532,7 @@ class JournalPump(ServiceDaemon):
                     if time.monotonic() - self.msg_buffer.last_journal_msg_time > 180 and self.msg_buffer.cursor:
                         self.log.info("We haven't seen any msgs in 180s, reinitiate PumpReader() and seek to: %r",
                                       self.msg_buffer.cursor)
-                        self.get_reader(self.msg_buffer.cursor)
+                        self.init_reader()
                         self.msg_buffer.last_journal_msg_time = time.monotonic()
                     time.sleep(0.5)
             except StopIteration:
