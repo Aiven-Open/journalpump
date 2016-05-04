@@ -13,7 +13,6 @@ from requests import Session
 from systemd.journal import Reader
 from threading import Thread, Lock
 import datetime
-import errno
 import json
 import kafka.common
 import logging
@@ -21,7 +20,6 @@ import os
 import socket
 import systemd.journal
 import time
-import types
 import uuid
 
 try:
@@ -70,38 +68,38 @@ converters = {
 systemd.journal.DEFAULT_CONVERTERS.update(converters)
 
 
-def _convert_field(self, key, value):
-    convert = self.converters.get(key, bytes.decode)
-    try:
-        return convert(value)
-    except ValueError:
-        # Leave in default bytes
-        try:
-            return bytes.decode(value)
-        except:  # pylint: disable=bare-except
-            return value
-
-
 class JournalObject:
     def __init__(self, cursor=None, entry=None):
         self.cursor = cursor
         self.entry = entry or {}
 
 
-def get_next(self, skip=1):
-    """Own get_next implementation that doesn't store the cursor
-       since we don't want it"""
-    if super(Reader, self)._next(skip):  # pylint: disable=protected-access
-        entry = super(Reader, self)._get_all()  # pylint: disable=protected-access
-        if entry:
-            entry["__REALTIME_TIMESTAMP"] = self._get_realtime()  # pylint: disable=protected-access
-            return JournalObject(cursor=self._get_cursor(), entry=self._convert_entry(entry))  # pylint: disable=protected-access
-    return JournalObject()
+class PumpReader(Reader):
+    def _convert_field(self, key, value):
+        try:
+            convert = self.converters[key]
+            return convert(value)
+        except (KeyError, ValueError):
+            # Leave in default bytes
+            try:
+                return bytes.decode(value)
+            except:  # pylint: disable=bare-except
+                return value
+
+    def get_next(self, skip=1):
+        # pylint: disable=no-member, protected-access
+        """Private get_next implementation that doesn't store the cursor since we don't want it"""
+        if super()._next(skip):
+            entry = super()._get_all()
+            if entry:
+                entry["__REALTIME_TIMESTAMP"] = self._get_realtime()
+                return JournalObject(cursor=self._get_cursor(), entry=self._convert_entry(entry))
+        return JournalObject()
 
 
 class LogSender(Thread):
     def __init__(self, config, msg_buffer, stats, max_send_interval):
-        Thread.__init__(self)
+        super().__init__()
         self.log = logging.getLogger("LogSender")
         self.stats = stats
         self.config = config
@@ -182,8 +180,8 @@ class LogSender(Thread):
 
 class KafkaSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
-        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats,
-                           max_send_interval=config.get("max_send_interval", 0.3))
+        super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
+                         max_send_interval=config.get("max_send_interval", 0.3))
         self.config = config
         self.msg_buffer = msg_buffer
         self.stats = stats
@@ -241,8 +239,8 @@ class KafkaSender(LogSender):
 
 class ElasticsearchSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
-        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats,
-                           max_send_interval=config.get("max_send_interval", 10.0))
+        super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
+                         max_send_interval=config.get("max_send_interval", 10.0))
         self.config = config
         self.msg_buffer = msg_buffer
         self.stats = stats
@@ -340,8 +338,8 @@ class ElasticsearchSender(LogSender):
 
 class LogplexSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
-        LogSender.__init__(self, config=config, msg_buffer=msg_buffer, stats=stats,
-                           max_send_interval=config.get("max_send_interval", 5.0))
+        super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
+                         max_send_interval=config.get("max_send_interval", 5.0))
         self.config = config
         self.msg_buffer = msg_buffer
         self.stats = stats
@@ -423,38 +421,35 @@ class MsgBuffer:
 
 class JournalPump(ServiceDaemon):
     def __init__(self, config_path):
-        self.stats = None
-        ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
-        cursor = self.load_state()
-        self.msg_buffer = MsgBuffer(cursor)
+        self.stats = None  # required by handle_new_config()
+        super().__init__(config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         self.journald_reader = None
+        self.msg_buffer = MsgBuffer(self.load_state())
         self.sender = None
-        self.get_reader(cursor)
+        self.init_reader()
 
-    def get_reader(self, cursor):
+    def init_reader(self):
+        if self.journald_reader:
+            self.journald_reader.close()  # pylint: disable=no-member
+            self.journald_reader = None
+
         if self.config.get("journal_path"):
-            while True:
+            while self.running:
                 try:
-                    self.journald_reader = Reader(path=self.config["journal_path"])
+                    self.journald_reader = PumpReader(path=self.config["journal_path"])
                     break
-                except IOError as ex:
-                    if ex.errno == errno.ENOENT:
-                        self.log.warning("journal not available yet, waiting: %s: %s",
-                                         ex.__class__.__name__, ex)
-                        time.sleep(5.0)
-                    else:
-                        raise
+                except FileNotFoundError as ex:
+                    self.log.warning("journal not available yet, waiting: %s: %s",
+                                     ex.__class__.__name__, ex)
+                    time.sleep(5.0)
         else:
-            self.journald_reader = Reader()
+            self.journald_reader = PumpReader()
 
         for unit_to_match in self.config.get("units_to_match", []):
             self.journald_reader.add_match(_SYSTEMD_UNIT=unit_to_match)
 
-        if cursor:
-            self.journald_reader.seek_cursor(cursor)  # pylint: disable=no-member
-
-        self.journald_reader.get_next = types.MethodType(get_next, self.journald_reader)
-        self.journald_reader._convert_field = types.MethodType(_convert_field, self.journald_reader)  # pylint: disable=protected-access
+        if self.msg_buffer.cursor:
+            self.journald_reader.seek_cursor(self.msg_buffer.cursor)  # pylint: disable=no-member
 
     def handle_new_config(self):
         """Called by ServiceDaemon when config has changed"""
@@ -468,7 +463,7 @@ class JournalPump(ServiceDaemon):
     def sigterm(self, signum, frame):
         if self.sender:
             self.sender.running = False
-        ServiceDaemon.sigterm(self, signum, frame)
+        super().sigterm(signum, frame)
 
     def load_state(self):
         filepath = self.config.get("json_state_file_path", "journalpump_state.json")
@@ -535,9 +530,9 @@ class JournalPump(ServiceDaemon):
                 else:
                     self.log.debug("No more journal entries to read, sleeping")
                     if time.monotonic() - self.msg_buffer.last_journal_msg_time > 180 and self.msg_buffer.cursor:
-                        self.log.info("We haven't seen any msgs in 180s, reinitiate Reader() and seek to: %r",
+                        self.log.info("We haven't seen any msgs in 180s, reinitiate PumpReader() and seek to: %r",
                                       self.msg_buffer.cursor)
-                        self.get_reader(self.msg_buffer.cursor)
+                        self.init_reader()
                         self.msg_buffer.last_journal_msg_time = time.monotonic()
                     time.sleep(0.5)
             except StopIteration:
