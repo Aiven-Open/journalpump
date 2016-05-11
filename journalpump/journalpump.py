@@ -7,8 +7,7 @@ from . daemon import ServiceDaemon
 from . import statsd
 from elasticsearch import Elasticsearch, helpers
 from elasticsearch import exceptions
-from kafka import KafkaClient, SimpleProducer
-from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
+from kafka import KafkaProducer
 from requests import Session
 from systemd.journal import Reader
 from threading import Thread, Lock
@@ -128,6 +127,7 @@ class LogSender(Thread):
                 self.get_and_send_messages()
             else:
                 time.sleep(0.1)
+        self._cleanup()
         self.log.info("Stopping")
 
     def get_and_send_messages(self):
@@ -177,6 +177,9 @@ class LogSender(Thread):
                 self.log.debug("Wrote state file: %r, %.2f entries/s processed", state_to_save,
                                self.msg_buffer.entry_num / (time.time() - self.start_time))
 
+    def _cleanup(self):
+        self.log.debug("No cleanup method implemented.")
+
 
 class KafkaSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
@@ -186,45 +189,46 @@ class KafkaSender(LogSender):
         self.msg_buffer = msg_buffer
         self.stats = stats
 
-        self.kafka = None
         self.kafka_producer = None
 
-        if not isinstance(self.config["kafka_topic"], bytes):
-            topic = self.config["kafka_topic"].encode("utf8")
+        topic = self.config["kafka_topic"]
+        if isinstance(self.config["kafka_topic"], bytes):
+            topic = topic.decode("utf8")
         self.topic = topic
 
     def _init_kafka(self):
-        self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
+        self.log.info("Initializing Kafka producer, address: %r", self.config["kafka_address"])
         while self.running:
             try:
                 if self.kafka_producer:
-                    self.kafka_producer.stop()
-                if self.kafka:
-                    self.kafka.close()
+                    self.kafka_producer = self.kafka_producer.close()
+                    self.kafka_producer = None
 
-                self.kafka = KafkaClient(  # pylint: disable=unexpected-keyword-arg
-                    self.config["kafka_address"],
-                    ssl=self.config.get("ssl", False),
-                    certfile=self.config.get("certfile"),
-                    keyfile=self.config.get("keyfile"),
-                    ca=self.config.get("ca")
-                )
-                self.kafka_producer = SimpleProducer(self.kafka, codec=CODEC_SNAPPY
-                                                     if snappy else CODEC_NONE)
-                self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
+                producer_config = {"bootstrap_servers": self.config["kafka_address"],
+                                   "security_protocol": "SSL" if self.config.get("ssl") else "PLAINTEXT",
+                                   "ssl_certfile": self.config.get("certfile"),
+                                   "ssl_keyfile": self.config.get("keyfile"),
+                                   "ssl_cafile": self.config.get("ca"),
+                                   "compression_type": "snappy" if snappy else None}
+
+                self.kafka_producer = KafkaProducer(**producer_config)
+
+                self.log.info("Initialized Kafka producer, address: %r", self.config["kafka_address"])
                 break
             except KAFKA_CONN_ERRORS as ex:
                 self.log.warning("Retriable error during Kafka initialization: %s: %s, sleeping",
                                  ex.__class__.__name__, ex)
-            self.kafka = None
+
+            self.kafka_producer.close()
             self.kafka_producer = None
             time.sleep(5.0)
 
     def send_messages(self, message_batch):
-        if not self.kafka:
+        if not self.kafka_producer:
             self._init_kafka()
         try:
-            self.kafka_producer.send_messages(self.topic, *message_batch)
+            for message in message_batch:
+                self.kafka_producer.send(self.topic, message)
             return True
         except KAFKA_CONN_ERRORS as ex:
             self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
@@ -235,6 +239,10 @@ class KafkaSender(LogSender):
             self.stats.unexpected_exception(ex=ex, where="sender", tags={"app": "journalpump"})
             time.sleep(5.0)
             self._init_kafka()
+
+    def _cleanup(self):
+        if self.kafka_producer:
+            self.kafka_producer.close()
 
 
 class ElasticsearchSender(LogSender):

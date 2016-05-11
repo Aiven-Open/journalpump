@@ -2,12 +2,16 @@ from setuptools import setup, find_packages
 from journalpump import __version__
 import os
 
+with open("requirements.txt") as fp:
+    reqs = fp.read().splitlines()
+
 setup(
     name="journalpump",
     version=os.getenv("VERSION") or __version__,
     zip_safe=False,
     packages=find_packages(exclude=["test"]),
     extras_require={},
+    install_requires=reqs,
     dependency_links=[],
     package_data={},
     data_files=[],

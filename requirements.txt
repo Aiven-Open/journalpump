@@ -1,0 +1,3 @@
+elasticsearch
+kafka-python==1.1.1
+requests
