@@ -191,8 +191,9 @@ class KafkaSender(LogSender):
 
         self.kafka_producer = None
 
-        if not isinstance(self.config["kafka_topic"], bytes):
-            topic = self.config["kafka_topic"].encode("utf8")
+        topic = self.config["kafka_topic"]
+        if isinstance(self.config["kafka_topic"], bytes):
+            topic = topic.decode("utf8")
         self.topic = topic
 
     def _init_kafka(self):
