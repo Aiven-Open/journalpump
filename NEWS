@@ -8,6 +8,7 @@ journalpump 2.0.0 (2016-xx-xx)
 * telegraf statsd support
 * Require Python 3.4 or newer
 * Various robustness improvements
+* Update journalpump to support kafka-python 1.x.x+
 
 kafkajournalpump 1.0.1 (2015-08-03)
 ===================================
