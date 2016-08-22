@@ -272,7 +272,7 @@ class ElasticsearchSender(LogSender):
                 "mappings": {
                     "journal_msg": {
                         "properties": {
-                            "_SYSTEMD_SESSION": {"type": "string"},
+                            "SYSTEMD_SESSION": {"type": "string"},
                             "SESSION_ID": {"type": "string"},
                         }
                     }
@@ -505,15 +505,18 @@ class JournalPump(ServiceDaemon):
                     continue
 
                 jobject = next(self.journald_reader)
+                new_entry = {}
                 for key, value in jobject.entry.items():
                     if isinstance(value, bytes):
-                        jobject.entry[key] = repr(value)  # value may be bytes in any encoding
+                        new_entry[key.lstrip("_")] = repr(value)  # value may be bytes in any encoding
+                    else:
+                        new_entry[key.lstrip("_")] = value
 
                 if jobject.cursor is not None:
-                    if not self.check_match(jobject.entry):
+                    if not self.check_match(new_entry):
                         self.msg_buffer.set_cursor(jobject.cursor)
                         continue
-                    json_entry = json.dumps(jobject.entry).encode("utf8")
+                    json_entry = json.dumps(new_entry).encode("utf8")
                     if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
                         self.stats.increase("journal.error", tags={"error": "too_long"})
                         error = "too large message {} bytes vs maximum {} bytes".format(
