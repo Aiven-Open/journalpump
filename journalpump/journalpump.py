@@ -12,11 +12,13 @@ from kafka.protocol import CODEC_SNAPPY, CODEC_NONE
 from requests import Session
 from systemd.journal import Reader
 from threading import Thread, Lock
+import copy
 import datetime
 import json
 import kafka.common
 import logging
 import os
+import re
 import socket
 import systemd.journal
 import time
@@ -436,6 +438,7 @@ class MsgBuffer:
 class JournalPump(ServiceDaemon):
     def __init__(self, config_path):
         self.stats = None  # required by handle_new_config()
+        self.searches = []
         super().__init__(config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         self.journald_reader = None
         self.msg_buffer = MsgBuffer(self.load_state())
@@ -465,6 +468,14 @@ class JournalPump(ServiceDaemon):
         if self.msg_buffer.cursor:
             self.journald_reader.seek_cursor(self.msg_buffer.cursor)  # pylint: disable=no-member
 
+    def _build_searches(self):
+        # {"name": "service_stop", "tags": {"foo": "bar"}, "search": {"MESSAGE": "Stopped target (?P<target>.+)\\."}}
+        for search in self.config.get("searches", []):
+            output = copy.deepcopy(search)
+            for name, pattern in output.get("fields", {}).items():
+                output["fields"][name] = re.compile(pattern)
+            yield output
+
     def handle_new_config(self):
         """Called by ServiceDaemon when config has changed"""
         stats = self.config.get("statsd") or {}
@@ -473,6 +484,7 @@ class JournalPump(ServiceDaemon):
             port=stats.get("port"),
             tags=stats.get("tags"),
         )
+        self.searches = list(self._build_searches())
 
     def sigterm(self, signum, frame):
         if self.sender:
@@ -506,7 +518,27 @@ class JournalPump(ServiceDaemon):
             self.sender = class_name(config=self.config, msg_buffer=self.msg_buffer, stats=self.stats)
             self.sender.start()
 
+    def perform_searches(self, jobject):
+        entry = jobject.entry
+        for search in self.searches:
+            all_match = True
+            tags = search.get("tags", {}).copy()
+            for field, regex in search["fields"].items():
+                match = regex.search(entry.get(field, ""))
+                if not match:
+                    all_match = False
+                    break
+                else:
+                    for tag, value in match.groupdict().items():
+                        if not tag.startswith("_"):
+                            tags[tag] = value
+
+            if all_match:
+                self.stats.increase(search["name"], tags=tags)
+                search["hits"] = search.get("hits", 0) + 1
+
     def run(self):
+        last_stats_time = 0
         while self.running:
             entry = None
             try:
@@ -527,6 +559,7 @@ class JournalPump(ServiceDaemon):
                     else:
                         new_entry[key.lstrip("_")] = value
 
+                self.perform_searches(jobject)
                 if jobject.cursor is not None:
                     if not self.check_match(new_entry):
                         self.msg_buffer.set_cursor(jobject.cursor)
@@ -560,6 +593,11 @@ class JournalPump(ServiceDaemon):
                 self.log.exception("Unexpected exception during handling entry: %r", jobject)
                 self.stats.unexpected_exception(ex=ex, where="mainloop", tags={"app": "journalpump"})
                 time.sleep(0.5)
+
+            if self.searches and time.monotonic() - last_stats_time > 60.0:
+                self.log.info("search hits stats: %s",
+                              ", ".join("{}={}".format(s["name"], s.get("hits", 0)) for s in self.searches))
+                last_stats_time = time.monotonic()
 
             self.ping_watchdog()
 
