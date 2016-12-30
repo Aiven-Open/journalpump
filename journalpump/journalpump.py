@@ -237,6 +237,19 @@ class KafkaSender(LogSender):
             self._init_kafka()
 
 
+class FileSender(LogSender):
+    def __init__(self, config, msg_buffer, stats):
+        super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
+                         max_send_interval=config.get("max_send_interval", 0.3))
+        self.config = config
+        self.output = open(config["file_output"], "ab")
+
+    def send_messages(self, message_batch):
+        for msg in message_batch:
+            self.output.write(msg + b"\n")
+        return True
+
+
 class ElasticsearchSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
         super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
@@ -487,6 +500,7 @@ class JournalPump(ServiceDaemon):
                 "elasticsearch": ElasticsearchSender,
                 "kafka": KafkaSender,
                 "logplex": LogplexSender,
+                "file": FileSender,
             }
             class_name = senders.get(self.config["output_type"])
             self.sender = class_name(config=self.config, msg_buffer=self.msg_buffer, stats=self.stats)
