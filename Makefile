@@ -15,7 +15,7 @@ pylint:
 	$(PYTHON) -m pylint.lint --rcfile .pylintrc $(PYLINT_DIRS)
 
 flake8:
-	$(PYTHON) -m flake8.main --max-line-length=125 $(PYLINT_DIRS)
+	$(PYTHON) -m flake8 --max-line-length=125 $(PYLINT_DIRS)
 
 coverage:
 	$(PYTHON) -m pytest $(PYTEST_ARG) --cov-report term-missing --cov journalpump test/
