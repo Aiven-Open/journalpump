@@ -276,7 +276,7 @@ class ElasticsearchSender(LogSender):
         while self.es is None and self.running is True:
             try:
                 self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
-                self.indices = set(self.es.indices.get_aliases())
+                self.indices = set(self.es.indices.get_aliases())  # pylint: disable=no-member
                 break
             except exceptions.ConnectionError:   # pylint: disable=bare-except
                 self.es = None
@@ -305,7 +305,8 @@ class ElasticsearchSender(LogSender):
     def check_indices(self):
         if not self._init_es():
             return
-        indices = sorted(key for key in self.es.indices.get_aliases().keys() if key.startswith(self.index_name))
+        indices = sorted(key for key in self.es.indices.get_aliases().keys()  # pylint: disable=no-member
+                         if key.startswith(self.index_name))
         self.log.info("Checking indices, currently: %r are available", indices)
         while len(indices) > self.index_days_max:
             index_to_delete = indices.pop(0)
@@ -518,8 +519,11 @@ class JournalPump(ServiceDaemon):
                         raise Exception("Unknown tag function {!r} in {!r}".format(func_name, value))
 
                     args = match.groupdict()["args"].split(",")  # pylint: disable=unused-variable
-                    value = lambda tags, f=f, args=args: f(tags, args)
-                    output["tags"][tag] = value
+
+                    def value_func(tags, f=f, args=args):  # pylint: disable=undefined-variable
+                        return f(tags, args)
+
+                    output["tags"][tag] = value_func
 
             yield output
 
