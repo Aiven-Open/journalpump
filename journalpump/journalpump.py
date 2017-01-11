@@ -324,7 +324,7 @@ class ElasticsearchSender(LogSender):
                 self.log.debug("Sent %d log events to ES, took: %.2fs",
                                len(message_batch), time.monotonic() - start_time)
         except Exception as ex:  # pylint: disable=broad-except
-            self.log.warning("Problem sending logs to ES: %r", ex)
+            self.log.warning("Problem sending logs to ES: %s", ex.__class__.__name__)
             return False
         return True
 
