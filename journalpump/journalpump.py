@@ -579,7 +579,20 @@ class JournalPump(ServiceDaemon):
             all_match = True
             tags = {}
             for field, regex in search["fields"].items():
-                match = regex.search(entry.get(field, ""))
+                line = entry.get(field, "")
+                if not line:
+                    all_match = False
+                    break
+
+                if isinstance(line, bytes):
+                    try:
+                        line = line.decode("utf-8")
+                    except UnicodeDecodeError:
+                        # best-effort decode failed
+                        all_match = False
+                        break
+
+                match = regex.search(line)
                 if not match:
                     all_match = False
                     break
