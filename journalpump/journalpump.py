@@ -4,18 +4,20 @@
 # See the file `LICENSE` for details.
 
 from . daemon import ServiceDaemon
-from . import statsd
+from . import geohash, statsd
 from elasticsearch import Elasticsearch, helpers
 from elasticsearch import exceptions
 from kafka import KafkaProducer
 from requests import Session
 from systemd.journal import Reader
 from threading import Thread, Lock
+import copy
 import datetime
 import json
 import kafka.common
 import logging
 import os
+import re
 import socket
 import systemd.journal
 import time
@@ -25,6 +27,11 @@ try:
     import snappy
 except ImportError:
     snappy = None
+
+try:
+    from geoip2.database import Reader as GeoIPReader
+except ImportError:
+    GeoIPReader = None
 
 
 KAFKA_CONN_ERRORS = tuple(kafka.common.RETRY_ERROR_TYPES) + (
@@ -230,6 +237,19 @@ class KafkaSender(LogSender):
             self._init_kafka()
 
 
+class FileSender(LogSender):
+    def __init__(self, config, msg_buffer, stats):
+        super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
+                         max_send_interval=config.get("max_send_interval", 0.3))
+        self.config = config
+        self.output = open(config["file_output"], "ab")
+
+    def send_messages(self, message_batch):
+        for msg in message_batch:
+            self.output.write(msg + b"\n")
+        return True
+
+
 class ElasticsearchSender(LogSender):
     def __init__(self, config, msg_buffer, stats):
         super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
@@ -249,7 +269,7 @@ class ElasticsearchSender(LogSender):
         while self.es is None and self.running is True:
             try:
                 self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
-                self.indices = set(self.es.indices.get_aliases())
+                self.indices = set(self.es.indices.get_aliases())  # pylint: disable=no-member
                 break
             except exceptions.ConnectionError:   # pylint: disable=bare-except
                 self.es = None
@@ -278,7 +298,8 @@ class ElasticsearchSender(LogSender):
     def check_indices(self):
         if not self._init_es():
             return
-        indices = sorted(key for key in self.es.indices.get_aliases().keys() if key.startswith(self.index_name))
+        indices = sorted(key for key in self.es.indices.get_aliases().keys()  # pylint: disable=no-member
+                         if key.startswith(self.index_name))
         self.log.info("Checking indices, currently: %r are available", indices)
         while len(indices) > self.index_days_max:
             index_to_delete = indices.pop(0)
@@ -324,7 +345,8 @@ class ElasticsearchSender(LogSender):
                 self.log.debug("Sent %d log events to ES, took: %.2fs",
                                len(message_batch), time.monotonic() - start_time)
         except Exception as ex:  # pylint: disable=broad-except
-            self.log.warning("Problem sending logs to ES: %r", ex)
+            short_msg = str(ex)[:200]
+            self.log.warning("Problem sending logs to ES: %s: %s", ex.__class__.__name__, short_msg)
             return False
         return True
 
@@ -415,6 +437,8 @@ class MsgBuffer:
 class JournalPump(ServiceDaemon):
     def __init__(self, config_path):
         self.stats = None  # required by handle_new_config()
+        self.searches = []
+        self.geoip = None
         super().__init__(config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         self.journald_reader = None
         self.msg_buffer = MsgBuffer(self.load_state())
@@ -444,6 +468,58 @@ class JournalPump(ServiceDaemon):
         if self.msg_buffer.cursor:
             self.journald_reader.seek_cursor(self.msg_buffer.cursor)  # pylint: disable=no-member
 
+    def ip_to_geohash(self, tags, args):
+        """ip_to_geohash(ip_tag_name,precision) -> Convert IP address to geohash"""
+        if len(args) > 1:
+            precision = int(args[1])
+        else:
+            precision = 8
+        ip = tags[args[0]]
+        res = self.geoip.city(ip)
+        if not res:
+            return ""
+
+        loc = res.location
+        return geohash.encode(loc.latitude, loc.longitude, precision)  # pylint: disable=no-member
+
+    def _build_searches(self):
+        """
+        Pre-generate regex objects and tag value conversion methods for searches
+        """
+        # Example:
+        # {"name": "service_stop", "tags": {"foo": "bar"}, "search": {"MESSAGE": "Stopped target (?P<target>.+)\\."}}
+        re_op = re.compile("(?P<func>[a-z_]+)\\((?P<args>[a-z0-9_,]+)\\)")
+        funcs = {
+            "ip_to_geohash": self.ip_to_geohash,
+        }
+        for search in self.config.get("searches", []):
+            search.setdefault("tags", {})
+            search.setdefault("fields", {})
+            output = copy.deepcopy(search)
+            for name, pattern in output["fields"].items():
+                output["fields"][name] = re.compile(pattern)
+
+            for tag, value in search["tags"].items():
+                if "(" in value or ")" in value:
+                    # Tag uses a method conversion call, e.g. "ip_to_geohash(ip_address,5)"
+                    match = re_op.search(value)
+                    if not match:
+                        raise Exception("Invalid tag function tag value: {!r}".format(value))
+                    func_name = match.groupdict()["func"]
+                    try:
+                        f = funcs[func_name]  # pylint: disable=unused-variable
+                    except KeyError:
+                        raise Exception("Unknown tag function {!r} in {!r}".format(func_name, value))
+
+                    args = match.groupdict()["args"].split(",")  # pylint: disable=unused-variable
+
+                    def value_func(tags, f=f, args=args):  # pylint: disable=undefined-variable
+                        return f(tags, args)
+
+                    output["tags"][tag] = value_func
+
+            yield output
+
     def handle_new_config(self):
         """Called by ServiceDaemon when config has changed"""
         stats = self.config.get("statsd") or {}
@@ -452,6 +528,11 @@ class JournalPump(ServiceDaemon):
             port=stats.get("port"),
             tags=stats.get("tags"),
         )
+        self.searches = list(self._build_searches())
+        geoip_db_path = self.config.get("geoip_database")
+        if geoip_db_path:
+            self.log.info("Loading GeoIP data from %r", geoip_db_path)
+            self.geoip = GeoIPReader(geoip_db_path)
 
     def sigterm(self, signum, frame):
         if self.sender:
@@ -479,12 +560,52 @@ class JournalPump(ServiceDaemon):
                 "elasticsearch": ElasticsearchSender,
                 "kafka": KafkaSender,
                 "logplex": LogplexSender,
+                "file": FileSender,
             }
             class_name = senders.get(self.config["output_type"])
             self.sender = class_name(config=self.config, msg_buffer=self.msg_buffer, stats=self.stats)
             self.sender.start()
 
+    def perform_searches(self, jobject):
+        entry = jobject.entry
+        for search in self.searches:
+            all_match = True
+            tags = {}
+            for field, regex in search["fields"].items():
+                line = entry.get(field, "")
+                if not line:
+                    all_match = False
+                    break
+
+                if isinstance(line, bytes):
+                    try:
+                        line = line.decode("utf-8")
+                    except UnicodeDecodeError:
+                        # best-effort decode failed
+                        all_match = False
+                        break
+
+                match = regex.search(line)
+                if not match:
+                    all_match = False
+                    break
+                else:
+                    field_values = match.groupdict()
+                    tags = {}
+                    for tag, value in field_values.items():
+                        tags[tag] = value
+
+                    for tag, value in search.get("tags", {}).items():
+                        if isinstance(value, str):
+                            tags[tag] = value
+                        else:
+                            tags[tag] = value(tags)
+            if all_match:
+                self.stats.increase(search["name"], tags=tags)
+                search["hits"] = search.get("hits", 0) + 1
+
     def run(self):
+        last_stats_time = 0
         while self.running:
             entry = None
             try:
@@ -505,6 +626,7 @@ class JournalPump(ServiceDaemon):
                     else:
                         new_entry[key.lstrip("_")] = value
 
+                self.perform_searches(jobject)
                 if jobject.cursor is not None:
                     if not self.check_match(new_entry):
                         self.msg_buffer.set_cursor(jobject.cursor)
@@ -538,6 +660,11 @@ class JournalPump(ServiceDaemon):
                 self.log.exception("Unexpected exception during handling entry: %r", jobject)
                 self.stats.unexpected_exception(ex=ex, where="mainloop", tags={"app": "journalpump"})
                 time.sleep(0.5)
+
+            if self.searches and time.monotonic() - last_stats_time > 60.0:
+                self.log.info("search hits stats: %s",
+                              ", ".join("{}={}".format(s["name"], s.get("hits", 0)) for s in self.searches))
+                last_stats_time = time.monotonic()
 
             self.ping_watchdog()
 
