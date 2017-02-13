@@ -4,4 +4,4 @@
 # See the file `LICENSE` for details.
 
 """journalpump"""
-__version__ = '1.0.1'
+__version__ = '2.0.0'
