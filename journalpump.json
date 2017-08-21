@@ -1,13 +1,38 @@
 {
-    "output_type": "elasticsearch",
-    "elasticsearch_url": "https://u9r6z9e8:er57mbtcgsxn4lya@machinedomain.com:18195",
-    "elasticsearch_index_prefix": "journalpump",
-    "ca": "path/to/ca/file",
-    "certfile": "path/to/cert",
-    "keyfile": "path/to/key",
-    "ssl": true,
-    "kafka_topic": "testtopic",
-    "kafka_address": "localhost",
-    "match_key": "_MACHINE_ID",
-    "match_value": "97baf08d-62a5-47a6-9ce3-cd3b6685d3ec"
+    "readers": {
+        "host1": {
+            "senders": {
+                "__doc__": "Example: sending a single reader's output to multiple destinations",
+                "elastic1": {
+                    "output_type": "elasticsearch",
+                    "elasticsearch_url": "https://u9r6z9e8:er57mbtcgsxn4lya@machinedomain.com:18195",
+                    "elasticsearch_index_prefix": "journalpump",
+                    "ca": "path/to/ca/file",
+                    "certfile": "path/to/cert",
+                    "keyfile": "path/to/key",
+                    "ssl": true,
+                },
+                "kafka1": {
+                    "output_type": "kafka",
+                    "kafka_topic": "testtopic",
+                    "kafka_address": "localhost",
+                    "match_key": "_MACHINE_ID",
+                    "match_value": "97baf08d-62a5-47a6-9ce3-cd3b6685d3ec"
+                }
+            }
+        },
+        "sshd": {
+            "__doc__": "Example: sending just the sshd service logs (requires flags=4, i.e. systemd.journal.SYSTEM)",
+            "flags": 4,
+            "units_to_match": [
+                "sshd.service"
+            ],
+            "senders": {
+                "logfile1": {
+                    "output_type": "file",
+                    "file_output": "/tmp/sshd.log"
+                }
+            }
+        }
+    }
 }

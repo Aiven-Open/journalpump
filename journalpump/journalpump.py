@@ -16,10 +16,8 @@ import datetime
 import json
 import kafka.common
 import logging
-import os
 import re
 import socket
-import systemd.journal
 import time
 import uuid
 
@@ -41,7 +39,7 @@ KAFKA_CONN_ERRORS = tuple(kafka.common.RETRY_ERROR_TYPES) + (
 
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
-MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2
+MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2  # 1 MiB
 
 
 logging.getLogger("elasticsearch").setLevel(logging.ERROR)
@@ -61,17 +59,23 @@ def convert_realtime(t):
 
 
 converters = {
+    "CODE_LINE": int,
+    "COREDUMP_TIMESTAMP": convert_realtime,
     "MESSAGE_ID": _convert_uuid,
-    "_MACHINE_ID": _convert_uuid,
+    "PRIORITY": int,
+    "_AUDIT_ID": int,
+    "_AUDIT_LOGINUID": int,
+    "_AUDIT_SESSION": int,
+    "_AUDIT_TYPE": int,
     "_BOOT_ID": _convert_uuid,
-    "_SOURCE_REALTIME_TIMESTAMP": convert_realtime,
-    "__REALTIME_TIMESTAMP": convert_realtime,
+    "_GID": int,
+    "_MACHINE_ID": _convert_uuid,
+    "_PID": int,
     "_SOURCE_MONOTONIC_TIMESTAMP": convert_mon,
+    "_SOURCE_REALTIME_TIMESTAMP": convert_realtime,
     "__MONOTONIC_TIMESTAMP": convert_mon,
-    "COREDUMP_TIMESTAMP": convert_realtime
+    "__REALTIME_TIMESTAMP": convert_realtime,
 }
-
-systemd.journal.DEFAULT_CONVERTERS.update(converters)
 
 
 class JournalObject:
@@ -81,16 +85,25 @@ class JournalObject:
 
 
 class PumpReader(Reader):
-    def _convert_field(self, key, value):
-        try:
-            convert = self.converters[key]
-            return convert(value)
-        except (KeyError, ValueError):
-            # Leave in default bytes
-            try:
-                return bytes.decode(value)
-            except:  # pylint: disable=bare-except
-                return value
+    def convert_entry(self, entry):
+        """Faster journal lib _convert_entry replacement"""
+        output = {}
+        for key, value in entry.items():
+            convert = converters.get(key)
+            if convert is not None:
+                try:
+                    value = convert(value)
+                except ValueError:
+                    pass
+            if isinstance(value, bytes):
+                try:
+                    value = bytes.decode(value)
+                except:  # pylint: disable=bare-except
+                    pass
+
+            output[key] = value
+
+        return output
 
     def get_next(self, skip=1):
         # pylint: disable=no-member, protected-access
@@ -99,27 +112,75 @@ class PumpReader(Reader):
             entry = super()._get_all()
             if entry:
                 entry["__REALTIME_TIMESTAMP"] = self._get_realtime()
-                return JournalObject(cursor=self._get_cursor(), entry=self._convert_entry(entry))
+                return JournalObject(cursor=self._get_cursor(), entry=self.convert_entry(entry))
+
         return JournalObject()
 
 
-class LogSender(Thread):
-    def __init__(self, config, msg_buffer, stats, max_send_interval):
-        super().__init__()
-        self.log = logging.getLogger("LogSender")
+class Tagged:
+    def __init__(self, tags=None, **kw):
+        self._tags = (tags or {}).copy()
+        self._tags.update(kw)
+
+    def make_tags(self, tags=None):
+        output = self._tags.copy()
+        output.update(tags or {})
+        return output
+
+    def replace_tags(self, tags):
+        self._tags = tags
+
+
+class LogSender(Thread, Tagged):
+    def __init__(self, *, name, reader, config, stats, max_send_interval,
+                 tags=None, msg_buffer_max_length=50000):
+        Thread.__init__(self)
+        Tagged.__init__(self, tags, sender=name)
+        self.log = logging.getLogger("LogSender:{}".format(reader.name))
+        self.name = name
         self.stats = stats
         self.config = config
-        self.cursor = None
-        self.last_send_time = time.time()
-        self.last_state_save_time = time.time()
-        self.msg_buffer = msg_buffer
+        self.msg_buffer_max_length = msg_buffer_max_length
+        self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
-        self.start_time = time.time()
-        self.previous_state = None
         self.running = True
-        self.log.info("Initialized LogSender")
+        self._sent_cursor = None
+        self._sent_count = 0
+        self._sent_bytes = 0
+        self.msg_buffer = MsgBuffer()
+        self.log.info("Initialized %s", self.__class__.__name__)
 
-    def send_messages(self, message_batch):
+    def refresh_stats(self):
+        tags = self.make_tags()
+        self.stats.gauge("journal.last_sent_ago", value=time.monotonic() - self.last_send_time, tags=tags)
+        self.stats.gauge("journal.sent_bytes", value=self._sent_bytes, tags=tags)
+        self.stats.gauge("journal.sent_lines", value=self._sent_count, tags=tags)
+
+    def get_state(self):
+        return {
+            "type": self.__class__.__name__,
+            "buffer": {
+                "cursor": self.msg_buffer.cursor,
+                "total_size": self.msg_buffer.total_size,
+                "entry_num": self.msg_buffer.entry_num,
+                "current_queue": len(self.msg_buffer.messages),
+            },
+            "sent": {
+                "cursor": self._sent_cursor,
+                "count": self._sent_count,
+                "bytes": self._sent_bytes,
+            },
+        }
+
+    def mark_sent(self, *, messages, cursor):
+        self._sent_count += len(messages)
+        self._sent_bytes += sum(len(m) for m in messages)
+        self._sent_cursor = cursor
+
+    def request_stop(self):
+        self.running = False
+
+    def send_messages(self, *, messages, cursor):
         pass
 
     def maintenance_operations(self):
@@ -130,67 +191,51 @@ class LogSender(Thread):
         while self.running:
             self.maintenance_operations()
             if len(self.msg_buffer) > 1000 or \
-               time.time() - self.last_send_time > self.max_send_interval:
+               time.monotonic() - self.last_send_time > self.max_send_interval:
                 self.get_and_send_messages()
             else:
                 time.sleep(0.1)
         self.log.info("Stopping")
 
     def get_and_send_messages(self):
-        start_time = time.time()
+        start_time = time.monotonic()
         try:
-            messages, cursor = self.msg_buffer.get_items()
+            messages = self.msg_buffer.get_items()
             msg_count = len(messages)
-            self.log.debug("Got %d items from msg_buffer, cursor: %r", msg_count, cursor)
+            self.log.debug("Got %d items from msg_buffer", msg_count)
+
             while self.running and messages:
-                batch_size = len(messages[0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
+                msg_buffer_length = len(self.msg_buffer)
+                if msg_buffer_length > self.msg_buffer_max_length:
+                    # This makes the self.msg_buffer grow to at most msg_buffer_max_length entries
+                    self.log.debug("%d entries in msg buffer, slowing down a bit by sleeping",
+                                   msg_buffer_length)
+                    time.sleep(1.0)
+
+                batch_size = len(messages[0][0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
                 index = 1
                 while index < len(messages):
-                    item_size = len(messages[index]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
+                    item_size = len(messages[index][0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
                     if batch_size + item_size >= MAX_KAFKA_MESSAGE_SIZE:
                         break
                     batch_size += item_size
                     index += 1
 
                 messages_batch = messages[:index]
-                if self.send_messages(messages_batch):
+                message_bodies = [m[0] for m in messages_batch]
+                if self.send_messages(messages=message_bodies, cursor=messages_batch[-1][1]):
                     messages = messages[index:]
 
-            self.cursor = cursor
-            self.log.debug("Sending %d msgs, cursor: %r took %.4fs",
-                           msg_count, self.cursor, time.time() - start_time)
-
-            if time.time() - self.last_state_save_time > 1.0:
-                self.save_state()
-            self.last_send_time = time.time()
+            self.log.debug("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
+            self.last_send_time = time.monotonic()
         except:  # pylint: disable=bare-except
             self.log.exception("Problem sending messages: %r", messages)
             time.sleep(0.5)
 
-    def save_state(self):
-        state_to_save = {
-            "cursor": self.cursor,
-            "total_size": self.msg_buffer.total_size,
-            "entry_num": self.msg_buffer.entry_num,
-            "start_time": self.start_time,
-            "current_queue": len(self.msg_buffer)
-        }
-
-        if state_to_save != self.previous_state:
-            with open(self.config.get("json_state_file_path", "journalpump_state.json"), "w") as fp:
-                json.dump(state_to_save, fp, indent=4, sort_keys=True)
-                self.previous_state = state_to_save
-                self.log.debug("Wrote state file: %r, %.2f entries/s processed", state_to_save,
-                               self.msg_buffer.entry_num / (time.time() - self.start_time))
-
 
 class KafkaSender(LogSender):
-    def __init__(self, config, msg_buffer, stats):
-        super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
-                         max_send_interval=config.get("max_send_interval", 0.3))
-        self.config = config
-        self.msg_buffer = msg_buffer
-        self.stats = stats
+    def __init__(self, *, config, **kwargs):
+        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self.kafka_producer = None
         self.topic = self.config.get("kafka_topic")
 
@@ -218,13 +263,14 @@ class KafkaSender(LogSender):
             self.kafka_producer = None
             time.sleep(5.0)
 
-    def send_messages(self, message_batch):
+    def send_messages(self, *, messages, cursor):
         if not self.kafka_producer:
             self._init_kafka()
         try:
-            for msg in message_batch:
+            for msg in messages:
                 self.kafka_producer.send(topic=self.topic, value=msg)
             self.kafka_producer.flush()
+            self.mark_sent(messages=messages, cursor=cursor)
             return True
         except KAFKA_CONN_ERRORS as ex:
             self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
@@ -232,31 +278,27 @@ class KafkaSender(LogSender):
             self._init_kafka()
         except Exception as ex:  # pylint: disable=broad-except
             self.log.exception("Unexpected exception during send to kafka")
-            self.stats.unexpected_exception(ex=ex, where="sender", tags={"app": "journalpump"})
+            self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
             time.sleep(5.0)
             self._init_kafka()
 
 
 class FileSender(LogSender):
-    def __init__(self, config, msg_buffer, stats):
-        super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
-                         max_send_interval=config.get("max_send_interval", 0.3))
-        self.config = config
+    def __init__(self, *, config, **kwargs):
+        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self.output = open(config["file_output"], "ab")
 
-    def send_messages(self, message_batch):
-        for msg in message_batch:
+    def send_messages(self, *, messages, cursor):
+        for msg in messages:
             self.output.write(msg + b"\n")
+
+        self.mark_sent(messages=messages, cursor=cursor)
         return True
 
 
 class ElasticsearchSender(LogSender):
-    def __init__(self, config, msg_buffer, stats):
-        super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
-                         max_send_interval=config.get("max_send_interval", 10.0))
-        self.config = config
-        self.msg_buffer = msg_buffer
-        self.stats = stats
+    def __init__(self, *, config, **kwargs):
+        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 10.0), **kwargs)
         self.elasticsearch_url = self.config.get("elasticsearch_url")
         self.last_index_check_time = 0
         self.request_timeout = self.config.get("elasticsearch_timeout", 10.0)
@@ -316,13 +358,13 @@ class ElasticsearchSender(LogSender):
             self.last_index_check_time = time.monotonic()
             self.check_indices()
 
-    def send_messages(self, message_batch):
+    def send_messages(self, *, messages, cursor):
         if not self._init_es():
             return
         start_time = time.monotonic()
         try:
             actions = []
-            for msg in message_batch:
+            for msg in messages:
                 message = json.loads(msg.decode("utf8"))
                 timestamp = message.get("timestamp")
                 if "__REALTIME_TIMESTAMP" in message:
@@ -342,8 +384,9 @@ class ElasticsearchSender(LogSender):
                 })
             if actions:
                 helpers.bulk(self.es, actions)
+                self.mark_sent(messages=messages, cursor=cursor)
                 self.log.debug("Sent %d log events to ES, took: %.2fs",
-                               len(message_batch), time.monotonic() - start_time)
+                               len(messages), time.monotonic() - start_time)
         except Exception as ex:  # pylint: disable=broad-except
             short_msg = str(ex)[:200]
             self.log.warning("Problem sending logs to ES: %s: %s", ex.__class__.__name__, short_msg)
@@ -352,15 +395,11 @@ class ElasticsearchSender(LogSender):
 
 
 class LogplexSender(LogSender):
-    def __init__(self, config, msg_buffer, stats):
-        super().__init__(config=config, msg_buffer=msg_buffer, stats=stats,
-                         max_send_interval=config.get("max_send_interval", 5.0))
-        self.config = config
-        self.msg_buffer = msg_buffer
-        self.stats = stats
-        self.logplex_input_url = self.config["logplex_log_input_url"]
-        self.request_timeout = self.config.get("logplex_request_timeout", 2)
-        self.logplex_token = self.config["logplex_token"]
+    def __init__(self, *, config, **kwargs):
+        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 5.0), **kwargs)
+        self.logplex_input_url = config["logplex_log_input_url"]
+        self.request_timeout = config.get("logplex_request_timeout", 2)
+        self.logplex_token = config["logplex_token"]
         self.session = Session()
         self.msg_id = "-"
         self.structured_data = "-"
@@ -381,10 +420,10 @@ class LogplexSender(LogSender):
         pkt = pkt.encode("utf8")
         return '{} {}'.format(len(pkt), pkt)
 
-    def send_messages(self, message_batch):
-        auth = ('token', self.config["logplex_token"])
-        msg_data = ''.join([self.format_msg(msg) for msg in message_batch])
-        msg_count = len(message_batch)
+    def send_messages(self, *, messages, cursor):
+        auth = ('token', self.logplex_token)
+        msg_data = ''.join([self.format_msg(msg) for msg in messages])
+        msg_count = len(messages)
         headers = {
             "Content-Type": "application/logplex-1",
             "Logplex-Msg-Count": msg_count,
@@ -397,76 +436,203 @@ class LogplexSender(LogSender):
             timeout=self.request_timeout,
             verify=False
         )
+        self.mark_sent(messages=messages, cursor=cursor)
 
 
 class MsgBuffer:
-    def __init__(self, cursor=None):
+    def __init__(self):
         self.log = logging.getLogger("MsgBuffer")
-        self.msg_buffer = []
+        self.messages = []
         self.lock = Lock()
-        self.cursor = cursor
         self.entry_num = 0
         self.total_size = 0
         self.last_journal_msg_time = time.monotonic()
-        self.log.info("Initialized MsgBuffer with cursor: %r", cursor)
+        self.cursor = None
 
     def __len__(self):
-        return len(self.msg_buffer)
+        return len(self.messages)
 
     def get_items(self):
         messages = []
         with self.lock:
-            if self.msg_buffer:
-                messages = self.msg_buffer
-                self.msg_buffer = []
-        return messages, self.cursor
+            if self.messages:
+                messages = self.messages
+                self.messages = []
+        return messages
 
-    def set_cursor(self, cursor):
-        self.cursor = cursor
-        self.last_journal_msg_time = time.monotonic()
-
-    def set_item(self, item, cursor):
+    def add_item(self, *, item, cursor):
         with self.lock:
-            self.msg_buffer.append(item)
-            self.cursor = cursor
+            self.messages.append((item, cursor))
             self.last_journal_msg_time = time.monotonic()
+            self.cursor = cursor
+
         self.entry_num += 1
         self.total_size += len(item)
 
 
-class JournalPump(ServiceDaemon):
-    def __init__(self, config_path):
-        self.stats = None  # required by handle_new_config()
-        self.searches = []
-        self.geoip = None
-        super().__init__(config_path=config_path, multi_threaded=True, log_level=logging.INFO)
+class JournalReader(Tagged):
+    def __init__(self, *, name, config, geoip, stats,
+                 tags=None, seek_to=None, msg_buffer_max_length=50000, searches=None):
+        Tagged.__init__(self, tags, reader=name)
+        self.log = logging.getLogger("JournalReader:{}".format(name))
+        self.name = name
+        self.msg_buffer_max_length = msg_buffer_max_length
+        self.read_bytes = 0
+        self.read_lines = 0
+        self._last_sent_read_lines = 0
+        self._last_sent_read_bytes = 0
+        self.geoip = geoip
+        self.config = config
+        self.stats = stats
+        self.cursor = seek_to
         self.journald_reader = None
-        self.msg_buffer = MsgBuffer(self.load_state())
-        self.sender = None
-        self.init_reader()
+        self.running = True
+        self.senders = {}
+        self._senders_initialized = False
+        self.last_stats_send_time = time.monotonic()
+        self.last_journal_msg_time = time.monotonic()
+        self.searches = list(self._build_searches(searches))
 
-    def init_reader(self):
+    def get_resume_cursor(self):
+        """Find the sender cursor location where a new JournalReader instance should resume reading from"""
+        if not self.senders:
+            self.log.info("Reader has no senders, using reader's resume location")
+            return self.cursor
+
+        for sender_name, sender in self.senders.items():
+            state = sender.get_state()
+            cursor = state["sent"]["cursor"]
+            if cursor is None:
+                self.log.info("Sender %r needs a full catchup from beginning, resuming from journal start", sender_name)
+                return None
+
+            # TODO: pick oldest sent cursor
+            self.log.info("Resuming reader from sender's ('%s') position", sender_name)
+            return cursor
+
+        return None
+
+    def request_stop(self):
+        self.running = False
+        for sender in self.senders.values():
+            sender.request_stop()
+
+    def initialize_senders(self):
+        if self._senders_initialized:
+            return
+
+        senders = {
+            "elasticsearch": ElasticsearchSender,
+            "kafka": KafkaSender,
+            "logplex": LogplexSender,
+            "file": FileSender,
+        }
+        for sender_name, sender_config in self.config.get("senders", {}).items():
+            try:
+                sender_class = senders[sender_config["output_type"]]
+            except KeyError:
+                raise Exception("Unknown sender type {!r}".format(sender_config["output_type"]))
+
+            sender = sender_class(
+                config=sender_config,
+                msg_buffer_max_length=self.msg_buffer_max_length,
+                name=sender_name,
+                reader=self,
+                stats=self.stats,
+                tags=self.make_tags(),
+            )
+            sender.start()
+            self.senders[sender_name] = sender
+
+        self._senders_initialized = True
+
+    def get_state(self):
+        sender_state = {name: sender.get_state() for name, sender in self.senders.items()}
+        search_state = {search["name"]: search.get("hits", 0) for search in self.searches}
+        return {
+            "cursor": self.cursor,
+            "searches": search_state,
+            "senders": sender_state,
+            "total_lines": self.read_lines,
+            "total_bytes": self.read_bytes,
+        }
+
+    def inc_line_stats(self, *, journal_lines, journal_bytes):
+        self.read_bytes += journal_bytes
+        self.read_lines += journal_lines
+
+        now = time.monotonic()
+        if (now - self.last_stats_send_time) < 10.0:
+            # Do not send stats too often
+            return
+
+        tags = self.make_tags()
+        self.stats.gauge("journal.last_read_ago", value=now - self.last_journal_msg_time, tags=tags)
+        self.stats.gauge("journal.read_lines", value=self.read_lines, tags=tags)
+        self.stats.gauge("journal.read_bytes", value=self.read_bytes, tags=tags)
+        self.last_stats_send_time = now
+        lines_diff = self.read_lines - self._last_sent_read_lines
+        bytes_diff = self.read_bytes - self._last_sent_read_bytes
+        if lines_diff or bytes_diff:
+            self.log.info("Processed %r journal lines (%r bytes)", lines_diff, bytes_diff)
+        self._last_sent_read_lines = self.read_lines
+        self._last_sent_read_bytes = self.read_bytes
+
+        for sender in self.senders.values():
+            sender.refresh_stats()
+
+    def read_next(self):
+        journald_reader = self.get_reader(seek_to=self.cursor)
+        if journald_reader:
+            jobject = next(journald_reader)
+            if jobject.cursor:
+                self.cursor = jobject.cursor
+                self.last_journal_msg_time = time.monotonic()
+        else:
+            jobject = None
+
+        inactivity_timeout = 180
+        if (time.monotonic() - self.last_journal_msg_time) > inactivity_timeout and self.cursor:
+            self.log.info("We haven't seen any msgs in %.1fs, reinitiate PumpReader()", inactivity_timeout)
+            self.get_reader(seek_to=self.get_resume_cursor(), reinit=True)
+            self.last_journal_msg_time = time.monotonic()
+
+        return jobject
+
+    def get_reader(self, seek_to=None, reinit=False):
+        """Return an initialized reader or None"""
+        if not reinit and self.journald_reader:
+            return self.journald_reader
+
         if self.journald_reader:
+            # Close the existing reader
             self.journald_reader.close()  # pylint: disable=no-member
             self.journald_reader = None
 
-        if self.config.get("journal_path"):
-            while self.running:
-                try:
-                    self.journald_reader = PumpReader(path=self.config["journal_path"])
-                    break
-                except FileNotFoundError as ex:
-                    self.log.warning("journal not available yet, waiting: %s: %s",
-                                     ex.__class__.__name__, ex)
-                    time.sleep(5.0)
-        else:
-            self.journald_reader = PumpReader()
+        try:
+            self.journald_reader = PumpReader(
+                files=self.config.get("journal_files"),
+                flags=self.config.get("journal_flags"),
+                path=self.config.get("journal_path"),
+            )
+        except FileNotFoundError as ex:
+            self.log.warning("journal for %r not available yet, waiting: %s: %s",
+                             self.name, ex.__class__.__name__, ex)
+            time.sleep(5.0)
+            return None
+
+        if seek_to:
+            self.journald_reader.seek_cursor(seek_to)  # pylint: disable=no-member
+            # Now the cursor points to the last read item, step over it so that we
+            # do not read the same item twice
+            self.journald_reader._next()  # pylint: disable=protected-access
 
         for unit_to_match in self.config.get("units_to_match", []):
             self.journald_reader.add_match(_SYSTEMD_UNIT=unit_to_match)
 
-        if self.msg_buffer.cursor:
-            self.journald_reader.seek_cursor(self.msg_buffer.cursor)  # pylint: disable=no-member
+        self.initialize_senders()
+
+        return self.journald_reader
 
     def ip_to_geohash(self, tags, args):
         """ip_to_geohash(ip_tag_name,precision) -> Convert IP address to geohash"""
@@ -482,7 +648,7 @@ class JournalPump(ServiceDaemon):
         loc = res.location
         return geohash.encode(loc.latitude, loc.longitude, precision)  # pylint: disable=no-member
 
-    def _build_searches(self):
+    def _build_searches(self, searches):
         """
         Pre-generate regex objects and tag value conversion methods for searches
         """
@@ -492,7 +658,7 @@ class JournalPump(ServiceDaemon):
         funcs = {
             "ip_to_geohash": self.ip_to_geohash,
         }
-        for search in self.config.get("searches", []):
+        for search in searches:
             search.setdefault("tags", {})
             search.setdefault("fields", {})
             output = copy.deepcopy(search)
@@ -519,52 +685,6 @@ class JournalPump(ServiceDaemon):
                     output["tags"][tag] = value_func
 
             yield output
-
-    def handle_new_config(self):
-        """Called by ServiceDaemon when config has changed"""
-        stats = self.config.get("statsd") or {}
-        self.stats = statsd.StatsClient(
-            host=stats.get("host"),
-            port=stats.get("port"),
-            tags=stats.get("tags"),
-        )
-        self.searches = list(self._build_searches())
-        geoip_db_path = self.config.get("geoip_database")
-        if geoip_db_path:
-            self.log.info("Loading GeoIP data from %r", geoip_db_path)
-            self.geoip = GeoIPReader(geoip_db_path)
-
-    def sigterm(self, signum, frame):
-        if self.sender:
-            self.sender.running = False
-        super().sigterm(signum, frame)
-
-    def load_state(self):
-        filepath = self.config.get("json_state_file_path", "journalpump_state.json")
-        if os.path.exists(filepath):
-            with open(filepath, "r") as fp:
-                state_file = json.load(fp)
-            return state_file["cursor"]
-        return None
-
-    def check_match(self, entry):
-        if not self.config.get("match_key"):
-            return True
-        elif entry.get(self.config["match_key"]) == self.config["match_value"]:
-            return True
-        return False
-
-    def initialize_sender(self):
-        if not self.sender:
-            senders = {
-                "elasticsearch": ElasticsearchSender,
-                "kafka": KafkaSender,
-                "logplex": LogplexSender,
-                "file": FileSender,
-            }
-            class_name = senders.get(self.config["output_type"])
-            self.sender = class_name(config=self.config, msg_buffer=self.msg_buffer, stats=self.stats)
-            self.sender.start()
 
     def perform_searches(self, jobject):
         entry = jobject.entry
@@ -601,70 +721,218 @@ class JournalPump(ServiceDaemon):
                         else:
                             tags[tag] = value(tags)
             if all_match:
-                self.stats.increase(search["name"], tags=tags)
+                self.stats.increase(search["name"], tags=self.make_tags(tags))
                 search["hits"] = search.get("hits", 0) + 1
+
+
+class JournalPump(ServiceDaemon, Tagged):
+    def __init__(self, config_path):
+        Tagged.__init__(self)
+        self.stats = None
+        self.geoip = None
+        self.readers_active_config = None
+        self.readers = {}
+        self.previous_state = None
+        self.last_state_save_time = time.monotonic()
+        ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
+        self.start_time_str = datetime.datetime.utcnow().isoformat()
+        self.configure_readers()
+
+    def configure_readers(self):
+        new_config = self.config.get("readers", [])
+        if self.readers_active_config == new_config:
+            # No changes in readers, no reconfig required
+            return
+
+        # replace old readers with new ones
+        for reader in self.readers.values():
+            reader.request_stop()
+
+        self.readers = {}
+        state = self.load_state()
+        for reader_name, reader_config in new_config.items():
+            reader_state = state.get("readers", {}).get(reader_name, {})
+            resume_cursor = None
+            for sender_name, sender in reader_state.get("senders", {}).items():
+                sender_cursor = sender["sent"]["cursor"]
+                if sender_cursor is None:
+                    self.log.info("Sender %r for reader %r needs full sync from beginning",
+                                  sender_name, reader_name)
+                    resume_cursor = None
+                    break
+
+                # TODO: pick the OLDEST cursor
+                resume_cursor = sender_cursor
+
+            self.log.info("Reader %r resuming from cursor position: %r", reader_name, resume_cursor)
+            reader = JournalReader(
+                name=reader_name,
+                config=reader_config,
+                geoip=self.geoip,
+                stats=self.stats,
+                msg_buffer_max_length=self.config.get("msg_buffer_max_length", 50000),
+                seek_to=resume_cursor,
+                tags=self.make_tags(),
+                searches=reader_config.get("searches", {}),
+            )
+            self.readers[reader_name] = reader
+
+        self.readers_active_config = new_config
+
+    def handle_new_config(self):
+        """Called by ServiceDaemon when config has changed"""
+        stats = self.config.get("statsd") or {}
+        self.stats = statsd.StatsClient(
+            host=stats.get("host"),
+            port=stats.get("port"),
+            tags=stats.get("tags"),
+        )
+        self.replace_tags(self.config.get("tags", {}))
+        geoip_db_path = self.config.get("geoip_database")
+        if geoip_db_path:
+            self.log.info("Loading GeoIP data from %r", geoip_db_path)
+            self.geoip = GeoIPReader(geoip_db_path)
+
+        self.configure_readers()
+
+    def sigterm(self, signum, frame):
+        try:
+            self.save_state()
+        except:  # pylint: disable=bare-except
+            self.log.exception("Saving state at shutdown failed")
+
+        for reader in self.readers.values():
+            reader.request_stop()
+
+        super().sigterm(signum, frame)
+
+    def load_state(self):
+        file_path = self.get_state_file_path()
+        if not file_path:
+            return {}
+
+        try:
+            with open(file_path, "r") as fp:
+                return json.load(fp)
+        except FileNotFoundError:
+            return {}
+
+    def check_match(self, entry):
+        if not self.config.get("match_key"):
+            return True
+        elif entry.get(self.config["match_key"]) == self.config["match_value"]:
+            return True
+        return False
+
+    def reader_iteration(self, reader):
+        try:
+            jobject = reader.read_next()
+            if jobject is None:
+                return False
+
+            new_entry = {}
+            for key, value in jobject.entry.items():
+                if isinstance(value, bytes):
+                    new_entry[key.lstrip("_")] = repr(value)  # value may be bytes in any encoding
+                else:
+                    new_entry[key.lstrip("_")] = value
+
+            reader.perform_searches(jobject)
+
+            if jobject.cursor is not None:
+                if not self.check_match(new_entry):
+                    return True
+
+                json_entry = json.dumps(new_entry).encode("utf8")
+                if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
+                    self.stats.increase("journal.read_error", tags=self.make_tags({
+                        "error": "too_long",
+                        "reader": reader.name,
+                    }))
+                    error = "too large message {} bytes vs maximum {} bytes".format(
+                        len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
+                    self.log.warning("%s: %s ...", error, json_entry[:1024])
+                    entry = {
+                        "error": error,
+                        "partial_data": json_entry[:1024],
+                    }
+                    json_entry = json.dumps(entry).encode("utf8")
+
+                reader.inc_line_stats(journal_bytes=len(json_entry), journal_lines=1)
+                for sender in reader.senders.values():
+                    sender.msg_buffer.add_item(item=json_entry, cursor=jobject.cursor)
+
+                return True
+            else:
+                self.log.debug("No more journal entries to read")
+                return False
+        except StopIteration:
+            self.log.debug("No more journal entries to read, sleeping")
+            return False
+        except Exception as ex:  # pylint: disable=broad-except
+            self.log.exception("Unexpected exception during handling entry")
+            self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
+            time.sleep(0.5)
+            return False
+
+    def reader_iterations(self):
+        hits = {}
+        lines = 0
+        for reader_name, reader in self.readers.items():
+            try:
+                lines += int(self.reader_iteration(reader))
+            except Exception as ex:  # pylint: disable=broad-except
+                self.log.exception("Unexpected exception during reader %r iteration", reader_name)
+                self.stats.unexpected_exception(ex=ex, where="reader_iterations",
+                                                tags=self.make_tags({"app": "journalpump"}))
+                continue
+
+            for search in reader.searches:
+                hits[search["name"]] = search.get("hits", 0)
+
+        return lines, hits
+
+    def get_state_file_path(self):
+        return self.config.get("json_state_file_path")
+
+    def save_state(self):
+        state_file_path = self.get_state_file_path()
+        if not state_file_path:
+            return
+
+        reader_state = {name: reader.get_state() for name, reader in self.readers.items()}
+        state_to_save = {
+            "readers": reader_state,
+            "start_time": self.start_time_str,
+        }
+
+        if state_to_save != self.previous_state:
+            with open(state_file_path, "w") as fp:
+                json.dump(state_to_save, fp, indent=4, sort_keys=True)
+                self.previous_state = state_to_save
+                self.log.debug("Wrote state file: %r", state_to_save)
 
     def run(self):
         last_stats_time = 0
         while self.running:
-            entry = None
-            try:
-                self.initialize_sender()
-                msg_buffer_length = len(self.msg_buffer)
-                if msg_buffer_length > self.config.get("msg_buffer_max_length", 50000):
-                    # This makes the self.msg_buffer grow to at most msg_buffer_max_length entries
-                    self.log.debug("%d entries in msg buffer, slowing down a bit by sleeping",
-                                   msg_buffer_length)
-                    time.sleep(1.0)
-                    continue
+            lines, hits = self.reader_iterations()
 
-                jobject = next(self.journald_reader)
-                new_entry = {}
-                for key, value in jobject.entry.items():
-                    if isinstance(value, bytes):
-                        new_entry[key.lstrip("_")] = repr(value)  # value may be bytes in any encoding
-                    else:
-                        new_entry[key.lstrip("_")] = value
-
-                self.perform_searches(jobject)
-                if jobject.cursor is not None:
-                    if not self.check_match(new_entry):
-                        self.msg_buffer.set_cursor(jobject.cursor)
-                        continue
-                    json_entry = json.dumps(new_entry).encode("utf8")
-                    if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
-                        self.stats.increase("journal.error", tags={"error": "too_long"})
-                        error = "too large message {} bytes vs maximum {} bytes".format(
-                            len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
-                        self.log.warning("%s: %s ...", error, json_entry[:1024])
-                        entry = {
-                            "error": error,
-                            "partial_data": json_entry[:1024],
-                        }
-                        json_entry = json.dumps(entry).encode("utf8")
-                    self.stats.increase("journal.lines")
-                    self.stats.increase("journal.bytes", inc_value=len(json_entry))
-                    self.msg_buffer.set_item(json_entry, jobject.cursor)
-                else:
-                    self.log.debug("No more journal entries to read, sleeping")
-                    if time.monotonic() - self.msg_buffer.last_journal_msg_time > 180 and self.msg_buffer.cursor:
-                        self.log.info("We haven't seen any msgs in 180s, reinitiate PumpReader() and seek to: %r",
-                                      self.msg_buffer.cursor)
-                        self.init_reader()
-                        self.msg_buffer.last_journal_msg_time = time.monotonic()
-                    time.sleep(0.5)
-            except StopIteration:
-                self.log.debug("No more journal entries to read, sleeping")
-                time.sleep(0.5)
-            except Exception as ex:  # pylint: disable=broad-except
-                self.log.exception("Unexpected exception during handling entry: %r", jobject)
-                self.stats.unexpected_exception(ex=ex, where="mainloop", tags={"app": "journalpump"})
-                time.sleep(0.5)
-
-            if self.searches and time.monotonic() - last_stats_time > 60.0:
-                self.log.info("search hits stats: %s",
-                              ", ".join("{}={}".format(s["name"], s.get("hits", 0)) for s in self.searches))
+            if hits and time.monotonic() - last_stats_time > 60.0:
+                self.log.info("search hits stats: %s", hits)
                 last_stats_time = time.monotonic()
+
+            now = time.monotonic()
+            if now - self.last_state_save_time > 10.0:
+                self.save_state()
+                self.last_state_save_time = now
+
+            if not lines:
+                for reader in self.readers.values():
+                    # Refresh readers so they can send their buffered stats out
+                    reader.inc_line_stats(journal_bytes=0, journal_lines=0)
+
+                self.log.debug("No new journal lines received, sleeping")
+                time.sleep(1.0)
 
             self.ping_watchdog()
 
