@@ -93,19 +93,144 @@ directory.  The JSON state file is human readable and should give an
 understandable description of the current state of the journalpump.
 
 
-Configuration keys
-==================
+Top level configuration
+=======================
+Example::
 
-``ca`` (default ``null``)
+  {
+      "json_state_file_path": "/var/lib/journalpump/journalpump_state.json",
+      "readers": {
+         ...
+      },
+      "statsd":   {
+          "host": "127.0.0.1",
+          "port": 12345,
+          "tags": {
+              "sometag": "somevalue"
+          }
+      }
+  }
 
-Kafka Certificate Authority path, needed when you're using Kafka with SSL
-authentication.
 
-``certfile`` (default ``null``)
+``json_state_file_path`` (default ``"journalpump_state.json"``)
 
-Kafka client certificate path, needed when you're using Kafka with SSL
-authentication.
+Location of a JSON state file which describes the state of the
+journalpump process.
 
+``statsd`` (default ``null``)
+
+Enables metrics sending to a statsd daemon that supports the influxdb-statsd
+/ telegraf syntax with tags.
+
+The ``tags`` setting can be used to enter optional tag values for the metrics.
+
+Metrics sending follows the `Telegraf spec`_.
+
+.. _`Telegraf spec`: https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
+
+``log_level`` (default ``"INFO"``)
+
+Determines log level of journalpump.
+
+
+Reader configuration
+====================
+Reader configuration structure::
+
+  {
+      "readers": {
+          "some_reader": {
+              "senders": {
+                  "some_log": {
+                      ...
+                  },
+                  "another_log": {
+                      ...
+                  }
+              }
+          },
+          "another_reader": {
+              "senders": {
+                  "some_kafka": {
+                      ...
+                  }
+              }
+          }
+      }
+  }
+
+Example configuration for a single reader::
+
+  {
+      "journal_path": "/var/lib/machines/container1/var/log/journal/b09ffd62229f4bd0829e883c6bb12c4e",
+      "senders": {
+          "k1": {
+              "output_type": "kafka",
+              "ca": "/etc/journalpump/ca-bundle.crt",
+              "certfile": "/etc/journalpump/node.crt",
+              "kafka_address": "kafka.somewhere.com:12345",
+              "kafka_topic": "journals",
+              "keyfile": "/etc/journalpump/node.key",
+              "ssl": true
+          },
+      },
+      "searches": [
+          {
+              "fields": {
+                  "MESSAGE": "kernel: Out of memory: Kill process .+ \\((?P<process>[^ ]+)\\)"
+              },
+              "name": "journal.oom_killer"
+          }
+      ],
+      "tags": {
+          "type": "container"
+      }
+  }
+
+
+``match_key`` (default ``null``)
+
+If you want to match against a single journald field, this configuration key
+defines the key to match against.
+
+``match_value`` (default ``null``)
+
+If you want to match against a single journald field, this configuration key
+defines the value to match against.  Currently only equality is allowed.
+
+``msg_buffer_max_length`` (default ``50000``)
+
+How many journal entries to read at most into a memory buffer from
+which the journalpump feeds the configured logsender.
+
+``journal_path`` (default ``null``)
+
+Path to the directory containing journal files if you want to override the
+default one.
+
+``units_to_match`` (default ``[]``)
+
+Require that the logs message matches only against certain _SYSTEMD_UNITs.
+If not set, we allow log events from all units.
+
+
+Sender Configuration
+--------------------
+``output_type`` (default ``null``)
+
+Output to write journal events to.  Options are `elasticsearch`, `kafka`,
+`file` and `logplex`.
+
+
+File Sender Configuration
+-------------------------
+Writes journal entries as JSON to a text file, one entry per line.
+
+``file_output`` sets the path to the output file.
+
+
+Elasticsearch Sender Configuration
+----------------------------------
 ``elasticsearch_index_days_max`` (default ``3``)
 
 Maximum number of days of logs to keep in Elasticsearch.  Relevant when
@@ -129,6 +254,19 @@ Fully qualified elasticsearch url of the form
 ``https://username:password@hostname.com:port``.
 Required when using output_type ``elasticsearch``.
 
+
+Kafka Sender Configuration
+--------------------------
+``ca`` (default ``null``)
+
+Kafka Certificate Authority path, needed when you're using Kafka with SSL
+authentication.
+
+``certfile`` (default ``null``)
+
+Kafka client certificate path, needed when you're using Kafka with SSL
+authentication.
+
 ``kafka_api_version`` (default ``0.9``)
 
 Which Kafka server API version to use.
@@ -148,66 +286,6 @@ Required when using output_type ``kafka``.
 Kafka client key path, needed when you're using Kafka with SSL
 authentication.
 
-``match_key`` (default ``null``)
-
-If you want to match against a single journald field, this configuration key
-defines the key to match against.
-
-``match_value`` (default ``null``)
-
-If you want to match against a single journald field, this configuration key
-defines the value to match against.  Currently only equality is allowed.
-
-``msg_buffer_max_length`` (default ``50000``)
-
-How many journal entries to read at most into a memory buffer from
-which the journalpump feeds the configured logsender.
-
-``journal_path`` (default ``null``)
-
-Path to the directory containing journal files if you want to override the
-default one.
-
-``json_state_file_path`` (default ``"journalpump_state.json"``)
-
-Location of a JSON state file which describes the state of the
-journalpump process.
-
-``units_to_match`` (default ``[]``)
-
-Require that the logs message matches only against certain _SYSTEMD_UNITs.
-If not set, we allow log events from all units.
-
-``log_level`` (default ``"INFO"``)
-
-Determines log level of journalpump.
-
-``output_type`` (default ``null``)
-
-Output to write journal events to.  Options are elasticsearch, kafka and
-logplex.
-
-``statsd`` (default ``null``)
-
-Enables metrics sending to a statsd daemon that supports the influxdb-statsd
-/ telegraf syntax with tags.
-
-The value is a JSON object::
-
-  {
-      "host": "<statsd address>",
-      "port": "<statsd port>",
-      "tags": {
-          "<tag>": "<value>"
-      }
-  }
-
-The ``tags`` setting can be used to enter optional tag values for the
-metrics.
-
-Metrics sending follows the `Telegraf spec`_.
-
-.. _`Telegraf spec`: https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
 
 
 License
