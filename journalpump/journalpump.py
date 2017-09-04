@@ -7,6 +7,7 @@ from . daemon import ServiceDaemon
 from . import geohash, statsd
 from elasticsearch import Elasticsearch, helpers
 from elasticsearch import exceptions
+from functools import reduce
 from kafka import KafkaProducer
 from requests import Session
 from systemd.journal import Reader
@@ -18,6 +19,7 @@ import kafka.common
 import logging
 import re
 import socket
+import systemd.journal
 import time
 import uuid
 
@@ -610,10 +612,18 @@ class JournalReader(Tagged):
             self.journald_reader.close()  # pylint: disable=no-member
             self.journald_reader = None
 
+        # convert named flags e.g. "SYSTEM" to integer values
+        journal_flags = self.config.get("journal_flags")
+        if isinstance(journal_flags, list):
+            journal_flags = reduce(
+                lambda a, b: a | b,
+                [getattr(systemd.journal, flag.strip()) for flag in journal_flags],
+            )
+
         try:
             self.journald_reader = PumpReader(
                 files=self.config.get("journal_files"),
-                flags=self.config.get("journal_flags"),
+                flags=journal_flags,
                 path=self.config.get("journal_path"),
             )
         except FileNotFoundError as ex:

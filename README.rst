@@ -221,6 +221,14 @@ default one.
 Require that the logs message matches only against certain _SYSTEMD_UNITs.
 If not set, we allow log events from all units.
 
+``flags`` (default ``LOCAL_ONLY``)
+
+``"LOCAL_ONLY"`` opens journal on local machine only; ``"RUNTIME_ONLY"`` opens only volatile journal files;
+and ``"SYSTEM"`` opens journal files of system services and the kernel, ``"CURRENT_USER"`` opens files of the
+current user; and ``"OS_ROOT"`` is used to open the journal from directories relative to the specified
+directory path or file descriptor. Multiple flags can be OR'ed together using a list:
+``["LOCAL_ONLY", "CURRENT_USER"]``.
+
 
 Sender Configuration
 --------------------
