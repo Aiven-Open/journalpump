@@ -472,11 +472,12 @@ class MsgBuffer:
 
 class JournalReader(Tagged):
     def __init__(self, *, name, config, geoip, stats,
-                 tags=None, seek_to=None, msg_buffer_max_length=50000, searches=None):
+                 tags=None, seek_to=None, msg_buffer_max_length=50000, searches=None, initial_position=None):
         Tagged.__init__(self, tags, reader=name)
         self.log = logging.getLogger("JournalReader:{}".format(name))
         self.name = name
         self.msg_buffer_max_length = msg_buffer_max_length
+        self.initial_position = initial_position
         self.read_bytes = 0
         self.read_lines = 0
         self._last_sent_read_lines = 0
@@ -626,6 +627,18 @@ class JournalReader(Tagged):
             # Now the cursor points to the last read item, step over it so that we
             # do not read the same item twice
             self.journald_reader._next()  # pylint: disable=protected-access
+        elif self.initial_position == "tail":
+            self.journald_reader.seek_tail()
+            self.journald_reader._next()  # pylint: disable=protected-access
+        elif self.initial_position == "head":
+            self.journald_reader.seek_head()
+        elif isinstance(self.initial_position, int):
+            # Seconds from the current boot time
+            self.journald_reader.seek_monotonic(self.initial_position)
+
+        # Only do the initial seek once when the pump is started for the first time,
+        # the rest of the seeks will be to the last known cursor position
+        self.initial_position = None
 
         for unit_to_match in self.config.get("units_to_match", []):
             self.journald_reader.add_match(_SYSTEMD_UNIT=unit_to_match)
@@ -765,6 +778,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 resume_cursor = sender_cursor
 
             self.log.info("Reader %r resuming from cursor position: %r", reader_name, resume_cursor)
+            initial_position = reader_config.get("initial_position")
             reader = JournalReader(
                 name=reader_name,
                 config=reader_config,
@@ -772,6 +786,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 stats=self.stats,
                 msg_buffer_max_length=self.config.get("msg_buffer_max_length", 50000),
                 seek_to=resume_cursor,
+                initial_position=initial_position,
                 tags=self.make_tags(),
                 searches=reader_config.get("searches", {}),
             )

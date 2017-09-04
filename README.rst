@@ -188,6 +188,14 @@ Example configuration for a single reader::
   }
 
 
+``initial_position`` (default ``head``)
+
+Controls where the readers starts when the journalpump is launched for the first time:
+
+* ``head``: First entry in the journal
+* ``tail``: Last entry in the journal
+* ``<integer>``: Seconds from current boot session
+
 ``match_key`` (default ``null``)
 
 If you want to match against a single journald field, this configuration key
