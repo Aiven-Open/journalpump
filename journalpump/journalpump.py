@@ -3,15 +3,14 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 
-from . daemon import ServiceDaemon
 from . import geohash, statsd
-from elasticsearch import Elasticsearch, helpers
-from elasticsearch import exceptions
+from . daemon import ServiceDaemon
+from elasticsearch import Elasticsearch, exceptions, helpers
 from functools import reduce
 from kafka import KafkaProducer
 from requests import Session
 from systemd.journal import Reader
-from threading import Thread, Lock
+from threading import Lock, Thread
 import copy
 import datetime
 import json
@@ -711,6 +710,7 @@ class JournalReader(Tagged):
 
     def perform_searches(self, jobject):
         entry = jobject.entry
+        results = {}
         for search in self.searches:
             all_match = True
             tags = {}
@@ -734,18 +734,24 @@ class JournalReader(Tagged):
                     break
                 else:
                     field_values = match.groupdict()
-                    tags = {}
                     for tag, value in field_values.items():
                         tags[tag] = value
 
-                    for tag, value in search.get("tags", {}).items():
-                        if isinstance(value, str):
-                            tags[tag] = value
-                        else:
-                            tags[tag] = value(tags)
-            if all_match:
+            if not all_match:
+                continue
+
+            # add static tags + possible callables
+            for tag, value in search.get("tags", {}).items():
+                if callable(value):
+                    tags[tag] = value(tags)
+                else:
+                    tags[tag] = value
+
+            results[search["name"]] = tags
+            if self.stats:
                 self.stats.increase(search["name"], tags=self.make_tags(tags))
-                search["hits"] = search.get("hits", 0) + 1
+            search["hits"] = search.get("hits", 0) + 1
+        return results
 
 
 class JournalPump(ServiceDaemon, Tagged):
