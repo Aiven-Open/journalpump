@@ -1,5 +1,7 @@
 *~
 *.pyc
+/.cache/
+/.coverage
 /build/
 /dist/
 /journalpump.egg-info/

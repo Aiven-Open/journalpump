@@ -3,15 +3,14 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 
-from . daemon import ServiceDaemon
 from . import geohash, statsd
-from elasticsearch import Elasticsearch, helpers
-from elasticsearch import exceptions
+from . daemon import ServiceDaemon
+from elasticsearch import Elasticsearch, exceptions, helpers
 from functools import reduce
 from kafka import KafkaProducer
 from requests import Session
 from systemd.journal import Reader
-from threading import Thread, Lock
+from threading import Lock, Thread
 import copy
 import datetime
 import json
@@ -100,7 +99,7 @@ class PumpReader(Reader):
             if isinstance(value, bytes):
                 try:
                     value = bytes.decode(value)
-                except:  # pylint: disable=bare-except
+                except Exception:  # pylint: disable=broad-except
                     pass
 
             output[key] = value
@@ -201,6 +200,7 @@ class LogSender(Thread, Tagged):
 
     def get_and_send_messages(self):
         start_time = time.monotonic()
+        messages = None
         try:
             messages = self.msg_buffer.get_items()
             msg_count = len(messages)
@@ -230,7 +230,7 @@ class LogSender(Thread, Tagged):
 
             self.log.debug("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
             self.last_send_time = time.monotonic()
-        except:  # pylint: disable=bare-except
+        except Exception:   # pylint: disable=broad-except
             self.log.exception("Problem sending messages: %r", messages)
             time.sleep(0.5)
 
@@ -283,6 +283,7 @@ class KafkaSender(LogSender):
             self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
             time.sleep(5.0)
             self._init_kafka()
+        return False
 
 
 class FileSender(LogSender):
@@ -314,13 +315,11 @@ class ElasticsearchSender(LogSender):
             try:
                 self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
                 self.indices = set(self.es.indices.get_aliases())  # pylint: disable=no-member
-                break
-            except exceptions.ConnectionError:   # pylint: disable=bare-except
+            except exceptions.ConnectionError:
                 self.es = None
                 self.log.warning("Could not initialize Elasticsearch, %r", self.elasticsearch_url)
                 time.sleep(1.0)
-        if self.es:
-            return True
+        return self.es is not None
 
     def create_index_and_mappings(self, index_name):
         try:
@@ -352,7 +351,7 @@ class ElasticsearchSender(LogSender):
             try:
                 self.es.indices.delete(index_to_delete)
                 self.indices.discard(index_to_delete)
-            except:   # pylint: disable=bare-except
+            except Exception:   # pylint: disable=broad-except
                 self.log.exception("Problem deleting index: %r", index_to_delete)
 
     def maintenance_operations(self):
@@ -362,7 +361,7 @@ class ElasticsearchSender(LogSender):
 
     def send_messages(self, *, messages, cursor):
         if not self._init_es():
-            return
+            return False
         start_time = time.monotonic()
         try:
             actions = []
@@ -456,14 +455,14 @@ class MsgBuffer:
 
     def get_items(self):
         messages = []
-        with self.lock:  # pylint: disable=not-context-manager
+        with self.lock:
             if self.messages:
                 messages = self.messages
                 self.messages = []
         return messages
 
     def add_item(self, *, item, cursor):
-        with self.lock:  # pylint: disable=not-context-manager
+        with self.lock:
             self.messages.append((item, cursor))
             self.last_journal_msg_time = time.monotonic()
             self.cursor = cursor
@@ -711,6 +710,7 @@ class JournalReader(Tagged):
 
     def perform_searches(self, jobject):
         entry = jobject.entry
+        results = {}
         for search in self.searches:
             all_match = True
             tags = {}
@@ -734,18 +734,24 @@ class JournalReader(Tagged):
                     break
                 else:
                     field_values = match.groupdict()
-                    tags = {}
                     for tag, value in field_values.items():
                         tags[tag] = value
 
-                    for tag, value in search.get("tags", {}).items():
-                        if isinstance(value, str):
-                            tags[tag] = value
-                        else:
-                            tags[tag] = value(tags)
-            if all_match:
+            if not all_match:
+                continue
+
+            # add static tags + possible callables
+            for tag, value in search.get("tags", {}).items():
+                if callable(value):
+                    tags[tag] = value(tags)
+                else:
+                    tags[tag] = value
+
+            results[search["name"]] = tags
+            if self.stats:
                 self.stats.increase(search["name"], tags=self.make_tags(tags))
-                search["hits"] = search.get("hits", 0) + 1
+            search["hits"] = search.get("hits", 0) + 1
+        return results
 
 
 class JournalPump(ServiceDaemon, Tagged):
@@ -816,6 +822,8 @@ class JournalPump(ServiceDaemon, Tagged):
         geoip_db_path = self.config.get("geoip_database")
         if geoip_db_path:
             self.log.info("Loading GeoIP data from %r", geoip_db_path)
+            if GeoIPReader is None:
+                raise ValueError("geoip_database configured but geoip2 module not available")
             self.geoip = GeoIPReader(geoip_db_path)
 
         self.configure_readers()
@@ -823,7 +831,7 @@ class JournalPump(ServiceDaemon, Tagged):
     def sigterm(self, signum, frame):
         try:
             self.save_state()
-        except:  # pylint: disable=bare-except
+        except Exception:   # pylint: disable=broad-except
             self.log.exception("Saving state at shutdown failed")
 
         for reader in self.readers.values():
