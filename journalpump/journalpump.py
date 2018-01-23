@@ -252,6 +252,9 @@ class KafkaSender(LogSender):
                     api_version=self.config.get("kafka_api_version", "0.9"),
                     bootstrap_servers=self.config.get("kafka_address"),
                     compression_type="snappy" if snappy else "gzip",
+                    linger_ms=500,  # wait up 500 ms to see if we can send msgs in a group
+                    reconnect_backoff_ms=1000,  # up from the default 50ms to reduce connection attempts
+                    reconnect_backoff_max_ms=10000,  # up the upper bound for backoff to 10 seconds
                     security_protocol="SSL" if self.config.get("ssl") is True else "PLAINTEXT",
                     ssl_cafile=self.config.get("ca"),
                     ssl_certfile=self.config.get("certfile"),
