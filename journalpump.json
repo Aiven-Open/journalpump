@@ -2,11 +2,11 @@
     "readers": {
         "host1": {
             "senders": {
-                "__doc__": "Example: sending a single reader's output to multiple destinations",
                 "elastic1": {
                     "output_type": "elasticsearch",
                     "elasticsearch_url": "https://u9r6z9e8:er57mbtcgsxn4lya@machinedomain.com:18195",
                     "elasticsearch_index_prefix": "journalpump",
+                    "elasticsearch_index_days_max": 3,
                     "ca": "path/to/ca/file",
                     "certfile": "path/to/cert",
                     "keyfile": "path/to/key",
@@ -22,7 +22,6 @@
             }
         },
         "sshd": {
-            "__doc__": "Example: sending just the sshd service logs (requires flags=4, i.e. systemd.journal.SYSTEM)",
             "flags": 4,
             "units_to_match": [
                 "sshd.service"

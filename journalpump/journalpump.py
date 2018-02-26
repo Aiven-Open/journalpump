@@ -5,8 +5,8 @@
 
 from . import geohash, statsd
 from . daemon import ServiceDaemon
-from elasticsearch import Elasticsearch, exceptions, helpers
 from functools import reduce
+from io import BytesIO
 from kafka import KafkaProducer
 from requests import Session
 from systemd.journal import Reader
@@ -17,6 +17,7 @@ import json
 import kafka.common
 import logging
 import re
+import requests
 import socket
 import systemd.journal
 import time
@@ -57,6 +58,13 @@ def convert_mon(s):  # pylint: disable=unused-argument
 
 def convert_realtime(t):
     return int(t) / 1000000.0  # Stock systemd transforms these into datetimes
+
+
+def default_json_serialization(obj):  # pylint: disable=inconsistent-return-statements
+    if isinstance(obj, bytes):
+        return obj.decode("utf8")
+    elif isinstance(obj, datetime.datetime):
+        return obj.isoformat()
 
 
 converters = {
@@ -252,6 +260,9 @@ class KafkaSender(LogSender):
                     api_version=self.config.get("kafka_api_version", "0.9"),
                     bootstrap_servers=self.config.get("kafka_address"),
                     compression_type="snappy" if snappy else "gzip",
+                    linger_ms=500,  # wait up 500 ms to see if we can send msgs in a group
+                    reconnect_backoff_ms=1000,  # up from the default 50ms to reduce connection attempts
+                    reconnect_backoff_max_ms=10000,  # up the upper bound for backoff to 10 seconds
                     security_protocol="SSL" if self.config.get("ssl") is True else "PLAINTEXT",
                     ssl_cafile=self.config.get("ca"),
                     ssl_certfile=self.config.get("certfile"),
@@ -302,57 +313,78 @@ class FileSender(LogSender):
 class ElasticsearchSender(LogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 10.0), **kwargs)
-        self.elasticsearch_url = self.config.get("elasticsearch_url")
+        self.session_url = self.config.get("elasticsearch_url")
+        self.session_url_bulk = self.session_url + "/_bulk"
         self.last_index_check_time = 0
         self.request_timeout = self.config.get("elasticsearch_timeout", 10.0)
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
-        self.es = None
+        self.session = requests.Session()
         self.indices = set()
+        self.last_es_error = None
 
-    def _init_es(self):
-        while self.es is None and self.running is True:
-            try:
-                self.es = Elasticsearch([self.elasticsearch_url], timeout=self.request_timeout)
-                self.indices = set(self.es.indices.get_aliases())  # pylint: disable=no-member
-            except exceptions.ConnectionError:
-                self.es = None
-                self.log.warning("Could not initialize Elasticsearch, %r", self.elasticsearch_url)
-                time.sleep(1.0)
-        return self.es is not None
+    def _init_es_client(self):
+        if self.indices:
+            return True
+        try:
+            self.indices = set(self.session.get(self.session_url + "/_aliases").json().keys())
+            self.last_es_error = None
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as ex:
+            if ex.__class__ != self.last_es_error.__class__:
+                # only log these errors once, not every 10 seconds
+                self.log.warning("ES connection error: %s: %s", ex.__class__.__name__, ex)
+
+            self.last_es_error = ex
+            return False
+        except Exception as ex:  # pylint: disable=broad-except
+            self.log.exception("Unexpected exception connecting to ES")
+            self.stats.unexpected_exception(ex, where="es_pump_init_es_client")
+            return False
+
+        self.log.info("Initialized ES connection")
+        return True
 
     def create_index_and_mappings(self, index_name):
         try:
             self.log.info("Creating index: %r", index_name)
-            self.es.indices.create(index_name, {
+            res = self.session.put(self.session_url + "/{}".format(index_name), json={
                 "mappings": {
                     "journal_msg": {
                         "properties": {
-                            "SYSTEMD_SESSION": {"type": "string"},
-                            "SESSION_ID": {"type": "string"},
+                            "SYSTEMD_SESSION": {"type": "text"},
+                            "SESSION_ID": {"type": "text"},
                         }
                     }
-                }
+                },
             })
-            self.indices.add(index_name)
-        except exceptions.RequestError as ex:
-            self.log.exception("Problem creating index: %r %r", index_name, ex)
+            if res.status_code in (200, 201) or "already_exists_exception" in res.text:
+                self.indices.add(index_name)
+            else:
+                self.log.warning("Could not create index mappings for: %r, %r %r", index_name, res.text, res.status_code)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as ex:
+            self.log.error("Problem creating index %r: %s: %s", index_name, ex.__class__.__name__, ex)
+            self.stats.unexpected_exception(ex, where="es_pump_create_index_and_mappings")
+            time.sleep(5.0)  # prevent busy loop
+
+    @staticmethod
+    def format_message_for_es(buf, header, message):
+        buf.write(json.dumps(header, default=default_json_serialization).encode("utf8") + b"\n")
+        buf.write(json.dumps(message, default=default_json_serialization).encode("utf8") + b"\n")
 
     def check_indices(self):
-        if not self._init_es():
-            return
-        indices = sorted(key for key in self.es.indices.get_aliases().keys()  # pylint: disable=no-member
-                         if key.startswith(self.index_name))
-        self.log.info("Checking indices, currently: %r are available", indices)
+        aliases = self.session.get(self.session_url + "/_aliases").json()
+        indices = [key for key in aliases.keys() if key.startswith(self.index_name)]
+        self.log.info("Checking indices, currently: %r are available, max_indices: %r", indices, self.index_days_max)
         while len(indices) > self.index_days_max:
             index_to_delete = indices.pop(0)
             self.log.info("Deleting index: %r since we only keep %d days worth of indices",
                           index_to_delete, self.index_days_max)
             try:
-                self.es.indices.delete(index_to_delete)
+                self.session.delete("{}/{}".format(self.session_url, index_to_delete))
                 self.indices.discard(index_to_delete)
-            except Exception:   # pylint: disable=broad-except
-                self.log.exception("Problem deleting index: %r", index_to_delete)
+            except Exception as ex:   # pylint: disable=broad-except
+                self.log.exception("Unexpected exception deleting index %r", index_to_delete)
+                self.stats.unexpected_exception(ex, where="es_pump_check_indices")
 
     def maintenance_operations(self):
         if time.monotonic() - self.last_index_check_time > 3600:
@@ -360,16 +392,19 @@ class ElasticsearchSender(LogSender):
             self.check_indices()
 
     def send_messages(self, *, messages, cursor):
-        if not self._init_es():
-            return False
+        buf = BytesIO()
         start_time = time.monotonic()
         try:
-            actions = []
+            es_available = self._init_es_client()
+            if not es_available:
+                self.log.warning("Waiting for ES connection")
+                time.sleep(20.0)
+                return False
             for msg in messages:
                 message = json.loads(msg.decode("utf8"))
                 timestamp = message.get("timestamp")
-                if "__REALTIME_TIMESTAMP" in message:
-                    timestamp = datetime.datetime.utcfromtimestamp(message["__REALTIME_TIMESTAMP"])
+                if "REALTIME_TIMESTAMP" in message:
+                    timestamp = datetime.datetime.utcfromtimestamp(message["REALTIME_TIMESTAMP"])
                 else:
                     timestamp = datetime.datetime.utcnow()
 
@@ -378,19 +413,31 @@ class ElasticsearchSender(LogSender):
                 if index_name not in self.indices:
                     self.create_index_and_mappings(index_name)
 
-                actions.append({
-                    "_index": index_name,
-                    "_type": "journal_msg",
-                    "_source": message,
+                header = {
+                    "index": {
+                        "_index": index_name,
+                        "_type": "journal_msg",
+                    }
+                }
+                self.format_message_for_es(buf, header, message)
+
+            # If we have messages, send them along to ES
+            if buf.tell():
+                buf_size = buf.tell()
+                buf.seek(0)
+                res = self.session.post(self.session_url_bulk, data=buf, headers={
+                    "content-length": str(buf_size),
+                    "content-type": "application/x-ndjson",
                 })
-            if actions:
-                helpers.bulk(self.es, actions)
+                buf.seek(0)
+                buf.truncate(0)
+
                 self.mark_sent(messages=messages, cursor=cursor)
-                self.log.debug("Sent %d log events to ES, took: %.2fs",
-                               len(messages), time.monotonic() - start_time)
+                self.log.info("Sent %d log events to ES successfully: %r, took: %.2fs",
+                              len(messages), res.status_code in {200, 201}, time.monotonic() - start_time)
         except Exception as ex:  # pylint: disable=broad-except
             short_msg = str(ex)[:200]
-            self.log.warning("Problem sending logs to ES: %s: %s", ex.__class__.__name__, short_msg)
+            self.log.exception("Problem sending logs to ES: %s: %s", ex.__class__.__name__, short_msg)
             return False
         return True
 
@@ -455,14 +502,14 @@ class MsgBuffer:
 
     def get_items(self):
         messages = []
-        with self.lock:
+        with self.lock:  # pylint: disable=not-context-manager
             if self.messages:
                 messages = self.messages
                 self.messages = []
         return messages
 
     def add_item(self, *, item, cursor):
-        with self.lock:
+        with self.lock:  # pylint: disable=not-context-manager
             self.messages.append((item, cursor))
             self.last_journal_msg_time = time.monotonic()
             self.cursor = cursor
@@ -876,7 +923,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 if not self.check_match(new_entry):
                     return True
 
-                json_entry = json.dumps(new_entry).encode("utf8")
+                json_entry = json.dumps(new_entry, default=default_json_serialization).encode("utf8")
                 if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
                     self.stats.increase("journal.read_error", tags=self.make_tags({
                         "error": "too_long",
