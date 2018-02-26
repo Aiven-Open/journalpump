@@ -502,14 +502,14 @@ class MsgBuffer:
 
     def get_items(self):
         messages = []
-        with self.lock:
+        with self.lock:  # pylint: disable=not-context-manager
             if self.messages:
                 messages = self.messages
                 self.messages = []
         return messages
 
     def add_item(self, *, item, cursor):
-        with self.lock:
+        with self.lock:  # pylint: disable=not-context-manager
             self.messages.append((item, cursor))
             self.last_journal_msg_time = time.monotonic()
             self.cursor = cursor
