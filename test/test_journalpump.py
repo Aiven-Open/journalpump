@@ -1,4 +1,7 @@
-from journalpump.journalpump import ElasticsearchSender, JournalObject, JournalPump, KafkaSender, LogplexSender
+from collections import OrderedDict
+from journalpump.journalpump import (ElasticsearchSender, FieldFilter, JournalObject, JournalObjectHandler,
+                                     JournalPump, MAX_KAFKA_MESSAGE_SIZE, KafkaSender, LogplexSender)
+from unittest import mock, TestCase
 import json
 
 
@@ -6,10 +9,16 @@ def test_journalpump_init(tmpdir):
     # Logplex sender
     journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
+        "field_filters": {
+            "filter_a": {
+                "fields": ["message"]
+            }
+        },
         "readers": {
             "foo": {
                 "senders": {
                     "bar": {
+                        "field_filter": "filter_a",
                         "logplex_token": "foo",
                         "logplex_log_input_url": "http://logplex.com",
                         "output_type": "logplex",
@@ -23,6 +32,7 @@ def test_journalpump_init(tmpdir):
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
+    assert len(a.field_filters) == 1
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
@@ -31,6 +41,8 @@ def test_journalpump_init(tmpdir):
             assert sn == "bar"
             s.running = False
             assert isinstance(s, LogplexSender)
+            assert s.field_filter.name == "filter_a"
+            assert s.field_filter.fields == ["message"]
 
     # Kafka sender
     config = {
@@ -148,3 +160,65 @@ def test_journal_reader_tagging(tmpdir):
     })
     result = reader.perform_searches(entry)
     assert result == {}
+
+
+class TestFieldFilter(TestCase):
+    def test_whitelist(self):
+        ff = FieldFilter("test", {"fields": ["_foo", "BAR"]})
+        data = {"Foo": "a", "_bar": "b", "_zob": "c"}
+        assert ff.filter_fields(data) == {"Foo": "a", "_bar": "b"}
+        assert data == {"Foo": "a", "_bar": "b", "_zob": "c"}
+
+    def test_blacklist(self):
+        ff = FieldFilter("test", {"type": "blacklist", "fields": ["_foo"]})
+        data = {"Foo": "a", "_bar": "b", "_zob": "c"}
+        assert ff.filter_fields(data) == {"_bar": "b", "_zob": "c"}
+        assert data == {"Foo": "a", "_bar": "b", "_zob": "c"}
+
+
+class TestJournalObjectHandler(TestCase):
+    def setUp(self):
+        self.filter_a = FieldFilter("filter_a", {"fields": ["a"]})
+        self.filter_b = FieldFilter("filter_b", {"fields": ["a", "b"]})
+        self.sender_a = mock.Mock()
+        self.sender_a.field_filter = self.filter_a
+        self.sender_b = mock.Mock()
+        self.sender_b.field_filter = self.filter_b
+        self.sender_c = mock.Mock()
+        self.sender_c.field_filter = None
+        self.pump = mock.Mock()
+        self.reader = mock.Mock()
+        self.reader.senders = {"sender_a": self.sender_a, "sender_b": self.sender_b, "sender_c": self.sender_c}
+
+    def test_filtered_processing(self):
+        jobject = JournalObject(entry=OrderedDict(a=1, b=2, c=3), cursor=10)
+        handler = JournalObjectHandler(jobject, self.reader, self.pump)
+        assert handler.process() is True
+        self.sender_a.msg_buffer.add_item.assert_called_once_with(
+            item=json.dumps({"a": 1}).encode("utf-8"), cursor=10)
+        self.sender_b.msg_buffer.add_item.assert_called_once_with(
+            item=json.dumps(OrderedDict(a=1, b=2)).encode("utf-8"), cursor=10)
+        largest_data = json.dumps(OrderedDict(a=1, b=2, c=3)).encode("utf-8")
+        self.sender_c.msg_buffer.add_item.assert_called_once_with(
+            item=largest_data, cursor=10)
+        self.reader.inc_line_stats.assert_called_once_with(journal_bytes=len(largest_data), journal_lines=1)
+
+    def test_too_large_data(self):
+        self.pump.make_tags.return_value = "tags"
+        too_large = OrderedDict(a=1, b="x" * MAX_KAFKA_MESSAGE_SIZE)
+        jobject = JournalObject(entry=too_large, cursor=10)
+        handler = JournalObjectHandler(jobject, self.reader, self.pump)
+        assert handler.process() is True
+        self.sender_a.msg_buffer.add_item.assert_called_once_with(
+            item=json.dumps({"a": 1}).encode("utf-8"), cursor=10)
+        too_large_serialized = json.dumps(too_large)
+        error_message = "too large message {} bytes vs maximum {} bytes".format(
+            len(too_large_serialized), MAX_KAFKA_MESSAGE_SIZE)
+        error_item = json.dumps({
+            "error": error_message,
+            "partial_data": too_large_serialized[:1024],
+        }).encode("utf-8")
+        self.sender_b.msg_buffer.add_item.assert_called_once_with(item=error_item, cursor=10)
+        self.sender_c.msg_buffer.add_item.assert_called_once_with(item=error_item, cursor=10)
+        self.pump.stats.increase.assert_called_once_with("journal.read_error", tags="tags")
+        self.reader.inc_line_stats.assert_called_once_with(journal_bytes=len(error_item), journal_lines=1)

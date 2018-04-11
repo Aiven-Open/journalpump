@@ -1,4 +1,19 @@
 {
+    "field_filters": {
+        "drop_selinux_context": {
+            "fields": [
+                "_SELINUX_CONTEXT"
+            ],
+            "type": "blacklist"
+        },
+        "include_message_and_machine_id": {
+            "fields": [
+                "MESSAGE",
+                "_MACHINE_ID"
+            ],
+            "type": "whitelist"
+        }
+    },
     "readers": {
         "host1": {
             "senders": {
@@ -11,13 +26,15 @@
                     "certfile": "path/to/cert",
                     "keyfile": "path/to/key",
                     "ssl": true,
+                    "field_filter": "drop_selinux_context"
                 },
                 "kafka1": {
                     "output_type": "kafka",
                     "kafka_topic": "testtopic",
                     "kafka_address": "localhost",
                     "match_key": "_MACHINE_ID",
-                    "match_value": "97baf08d-62a5-47a6-9ce3-cd3b6685d3ec"
+                    "match_value": "97baf08d-62a5-47a6-9ce3-cd3b6685d3ec",
+                    "field_filter": "include_message_and_machine_id"
                 }
             }
         },

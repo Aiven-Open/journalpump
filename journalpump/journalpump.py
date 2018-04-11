@@ -141,7 +141,7 @@ class Tagged:
 
 
 class LogSender(Thread, Tagged):
-    def __init__(self, *, name, reader, config, stats, max_send_interval,
+    def __init__(self, *, name, reader, config, field_filter, stats, max_send_interval,
                  tags=None, msg_buffer_max_length=50000):
         Thread.__init__(self)
         Tagged.__init__(self, tags, sender=name)
@@ -149,6 +149,7 @@ class LogSender(Thread, Tagged):
         self.name = name
         self.stats = stats
         self.config = config
+        self.field_filter = field_filter
         self.msg_buffer_max_length = msg_buffer_max_length
         self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
@@ -519,7 +520,7 @@ class MsgBuffer:
 
 
 class JournalReader(Tagged):
-    def __init__(self, *, name, config, geoip, stats,
+    def __init__(self, *, name, config, field_filters, geoip, stats,
                  tags=None, seek_to=None, msg_buffer_max_length=50000, searches=None, initial_position=None):
         Tagged.__init__(self, tags, reader=name)
         self.log = logging.getLogger("JournalReader:{}".format(name))
@@ -532,6 +533,7 @@ class JournalReader(Tagged):
         self._last_sent_read_bytes = 0
         self.geoip = geoip
         self.config = config
+        self.field_filters = field_filters
         self.stats = stats
         self.cursor = seek_to
         self.journald_reader = None
@@ -582,8 +584,12 @@ class JournalReader(Tagged):
             except KeyError:
                 raise Exception("Unknown sender type {!r}".format(sender_config["output_type"]))
 
+            field_filter = None
+            if sender_config.get("field_filter", None):
+                field_filter = self.field_filters[sender_config["field_filter"]]
             sender = sender_class(
                 config=sender_config,
+                field_filter=field_filter,
                 msg_buffer_max_length=self.msg_buffer_max_length,
                 name=sender_name,
                 reader=self,
@@ -801,6 +807,84 @@ class JournalReader(Tagged):
         return results
 
 
+class FieldFilter:
+    def __init__(self, name, config):
+        self.name = name
+        self.whitelist = config.get("type", "whitelist") == "whitelist"
+        self.fields = [f.lstrip("_").lower() for f in config["fields"]]
+
+    def filter_fields(self, data):
+        return {name: val for name, val in data.items() if (name.lstrip("_").lower() in self.fields) is self.whitelist}
+
+
+class JournalObjectHandler:
+    def __init__(self, jobject, reader, pump):
+        self.error_reported = False
+        self.jobject = jobject
+        self.json_objects = {}
+        self.log = logging.getLogger(self.__class__.__name__)
+        self.pump = pump
+        self.reader = reader
+
+    def process(self):
+        new_entry = {}
+        for key, value in self.jobject.entry.items():
+            if isinstance(value, bytes):
+                new_entry[key.lstrip("_")] = repr(value)  # value may be bytes in any encoding
+            else:
+                new_entry[key.lstrip("_")] = value
+
+        self.reader.perform_searches(self.jobject)
+
+        if self.jobject.cursor is None:
+            self.log.debug("No more journal entries to read")
+            return False
+
+        if not self.pump.check_match(new_entry):
+            return True
+
+        for sender in self.reader.senders.values():
+            json_entry = self._get_or_generate_json(sender.field_filter, new_entry)
+            sender.msg_buffer.add_item(item=json_entry, cursor=self.jobject.cursor)
+
+        if self.json_objects:
+            max_bytes = max(len(v) for v in self.json_objects.values())
+            self.reader.inc_line_stats(journal_bytes=max_bytes, journal_lines=1)
+
+        return True
+
+    def _get_or_generate_json(self, field_filter, data):
+        ff_name = "" if field_filter is None else field_filter.name
+        if ff_name in self.json_objects:
+            return self.json_objects[ff_name]
+
+        if field_filter:
+            data = field_filter.filter_fields(data)
+
+        json_entry = json.dumps(data, default=default_json_serialization).encode("utf8")
+        if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
+            json_entry = self._truncate_long_message(json_entry)
+
+        self.json_objects[ff_name] = json_entry
+        return json_entry
+
+    def _truncate_long_message(self, json_entry):
+        error = "too large message {} bytes vs maximum {} bytes".format(
+            len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
+        if not self.error_reported:
+            self.pump.stats.increase("journal.read_error", tags=self.pump.make_tags({
+                "error": "too_long",
+                "reader": self.reader.name,
+            }))
+            self.log.warning("%s: %s ...", error, json_entry[:1024])
+            self.error_reported = True
+        entry = {
+            "error": error,
+            "partial_data": json_entry[:1024],
+        }
+        return json.dumps(entry, default=default_json_serialization).encode("utf8")
+
+
 class JournalPump(ServiceDaemon, Tagged):
     def __init__(self, config_path):
         Tagged.__init__(self)
@@ -808,11 +892,17 @@ class JournalPump(ServiceDaemon, Tagged):
         self.geoip = None
         self.readers_active_config = None
         self.readers = {}
+        self.field_filters = {}
         self.previous_state = None
         self.last_state_save_time = time.monotonic()
         ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         self.start_time_str = datetime.datetime.utcnow().isoformat()
+        self.configure_field_filters()
         self.configure_readers()
+
+    def configure_field_filters(self):
+        filters = self.config.get("field_filters", {})
+        self.field_filters = {name: FieldFilter(name, config) for name, config in filters.items()}
 
     def configure_readers(self):
         new_config = self.config.get("readers", [])
@@ -845,6 +935,7 @@ class JournalPump(ServiceDaemon, Tagged):
             reader = JournalReader(
                 name=reader_name,
                 config=reader_config,
+                field_filters=self.field_filters,
                 geoip=self.geoip,
                 stats=self.stats,
                 msg_buffer_max_length=self.config.get("msg_buffer_max_length", 50000),
@@ -873,6 +964,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 raise ValueError("geoip_database configured but geoip2 module not available")
             self.geoip = GeoIPReader(geoip_db_path)
 
+        self.configure_field_filters()
         self.configure_readers()
 
     def sigterm(self, signum, frame):
@@ -910,42 +1002,7 @@ class JournalPump(ServiceDaemon, Tagged):
             if jobject is None:
                 return False
 
-            new_entry = {}
-            for key, value in jobject.entry.items():
-                if isinstance(value, bytes):
-                    new_entry[key.lstrip("_")] = repr(value)  # value may be bytes in any encoding
-                else:
-                    new_entry[key.lstrip("_")] = value
-
-            reader.perform_searches(jobject)
-
-            if jobject.cursor is not None:
-                if not self.check_match(new_entry):
-                    return True
-
-                json_entry = json.dumps(new_entry, default=default_json_serialization).encode("utf8")
-                if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
-                    self.stats.increase("journal.read_error", tags=self.make_tags({
-                        "error": "too_long",
-                        "reader": reader.name,
-                    }))
-                    error = "too large message {} bytes vs maximum {} bytes".format(
-                        len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
-                    self.log.warning("%s: %s ...", error, json_entry[:1024])
-                    entry = {
-                        "error": error,
-                        "partial_data": json_entry[:1024],
-                    }
-                    json_entry = json.dumps(entry).encode("utf8")
-
-                reader.inc_line_stats(journal_bytes=len(json_entry), journal_lines=1)
-                for sender in reader.senders.values():
-                    sender.msg_buffer.add_item(item=json_entry, cursor=jobject.cursor)
-
-                return True
-            else:
-                self.log.debug("No more journal entries to read")
-                return False
+            return JournalObjectHandler(jobject, reader, self).process()
         except StopIteration:
             self.log.debug("No more journal entries to read, sleeping")
             return False

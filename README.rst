@@ -98,6 +98,9 @@ Top level configuration
 Example::
 
   {
+      "field_filters": {
+         ...
+      },
       "json_state_file_path": "/var/lib/journalpump/journalpump_state.json",
       "readers": {
          ...
@@ -132,6 +135,35 @@ Metrics sending follows the `Telegraf spec`_.
 
 Determines log level of journalpump.
 
+Field filter configuration
+==========================
+
+Field filters can be used to restrict the journald fields that journalpump sends forward.
+Field filter configuration structure::
+
+  {
+      "field_filters": {
+          "filter_name": {
+              "type": "whitelist|blacklist",
+              "fields": ["field1", "field2"]
+          }
+      }
+  }
+
+``filter_name``
+
+Name of the filter. The filters can be configured per sender and depending
+on the use case the filters for different senders may vary.
+
+``type`` (default ``whitelist``)
+
+Specifies whether the listed fields will be included (``whitelist``) or
+excluded (``blacklist``).
+
+``fields``
+
+The actual fields to include or exclude. Field name matching is case
+insensitive and underscores in the beginning of the fields are trimmed.
 
 Reader configuration
 ====================
@@ -162,10 +194,17 @@ Reader configuration structure::
 Example configuration for a single reader::
 
   {
+      "field_filters": {
+          "drop_process_id": {
+              "fields": ["process_id"],
+              "type": "blacklist"
+          }
+      },
       "journal_path": "/var/lib/machines/container1/var/log/journal/b09ffd62229f4bd0829e883c6bb12c4e",
       "senders": {
           "k1": {
               "output_type": "kafka",
+              "field_filter": "drop_process_id",
               "ca": "/etc/journalpump/ca-bundle.crt",
               "certfile": "/etc/journalpump/node.crt",
               "kafka_address": "kafka.somewhere.com:12345",
@@ -236,6 +275,10 @@ Sender Configuration
 
 Output to write journal events to.  Options are `elasticsearch`, `kafka`,
 `file` and `logplex`.
+
+``field_filter`` (default ``null``)
+
+Name of the field filter to apply for this sender, if any.
 
 
 File Sender Configuration
