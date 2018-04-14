@@ -44,7 +44,6 @@ KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
 MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2  # 1 MiB
 
 
-logging.getLogger("elasticsearch").setLevel(logging.ERROR)
 logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
 
 
