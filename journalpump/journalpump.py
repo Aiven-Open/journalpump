@@ -370,7 +370,8 @@ class ElasticsearchSender(LogSender):
     @staticmethod
     def format_message_for_es(buf, header, message):
         buf.write(json.dumps(header, default=default_json_serialization).encode("utf8") + b"\n")
-        buf.write(json.dumps(message, default=default_json_serialization).encode("utf8") + b"\n")
+        # Message already in utf8 encoded bytestring form
+        buf.write(message + b"\n")
 
     def check_indices(self):
         aliases = self.session.get(self.session_url + "/_aliases").json()
@@ -403,14 +404,8 @@ class ElasticsearchSender(LogSender):
                 return False
             for msg in messages:
                 message = json.loads(msg.decode("utf8"))
-                timestamp = message.get("timestamp")
-                if "REALTIME_TIMESTAMP" in message:
-                    timestamp = datetime.datetime.utcfromtimestamp(message["REALTIME_TIMESTAMP"])
-                else:
-                    timestamp = datetime.datetime.utcnow()
-
-                message["timestamp"] = timestamp
-                index_name = "{}-{}".format(self.index_name, datetime.datetime.date(timestamp))
+                # ISO datetime's first 10 characters are equivalent to the date we need i.e. '2018-04-14'
+                index_name = "{}-{}".format(self.index_name, message["timestamp"][:10])
                 if index_name not in self.indices:
                     self.create_index_and_mappings(index_name)
 
@@ -420,7 +415,7 @@ class ElasticsearchSender(LogSender):
                         "_type": "journal_msg",
                     }
                 }
-                self.format_message_for_es(buf, header, message)
+                self.format_message_for_es(buf, header, msg)
 
             # If we have messages, send them along to ES
             if buf.tell():
@@ -860,6 +855,13 @@ class JournalObjectHandler:
 
         if field_filter:
             data = field_filter.filter_fields(data)
+
+        # Always set a timestamp field that gets turned into an ISO timestamp based on REALTIME_TIMESTAMP if available
+        if "REALTIME_TIMESTAMP" in data:
+            timestamp = datetime.datetime.utcfromtimestamp(data["REALTIME_TIMESTAMP"])
+        else:
+            timestamp = datetime.datetime.utcnow()
+        data["timestamp"] = timestamp
 
         json_entry = json.dumps(data, default=default_json_serialization).encode("utf8")
         if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
