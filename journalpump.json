@@ -22,11 +22,8 @@
                     "elasticsearch_url": "https://u9r6z9e8:er57mbtcgsxn4lya@machinedomain.com:18195",
                     "elasticsearch_index_prefix": "journalpump",
                     "elasticsearch_index_days_max": 3,
-                    "ca": "path/to/ca/file",
-                    "certfile": "path/to/cert",
-                    "keyfile": "path/to/key",
-                    "ssl": true,
                     "field_filter": "drop_selinux_context"
+                    "ca": "path/to/ca/file",
                 },
                 "kafka1": {
                     "output_type": "kafka",
@@ -34,7 +31,11 @@
                     "kafka_address": "localhost",
                     "match_key": "_MACHINE_ID",
                     "match_value": "97baf08d-62a5-47a6-9ce3-cd3b6685d3ec",
-                    "field_filter": "include_message_and_machine_id"
+                    "field_filter": "include_message_and_machine_id",
+                    "ca": "path/to/ca/file",
+                    "certfile": "path/to/cert",
+                    "keyfile": "path/to/key",
+                    "ssl": true,
                 }
             }
         },
