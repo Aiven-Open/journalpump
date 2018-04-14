@@ -320,6 +320,8 @@ class ElasticsearchSender(LogSender):
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
         self.session = requests.Session()
+        # If ca is set in config we use that, otherwise we verify using builtin CA cert list
+        self.session.verify = self.config.get("ca", True)
         self.indices = set()
         self.last_es_error = None
 
