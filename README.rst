@@ -290,6 +290,11 @@ Writes journal entries as JSON to a text file, one entry per line.
 
 Elasticsearch Sender Configuration
 ----------------------------------
+``ca`` (default ``null``)
+
+Elasticsearch Certificate Authority path, needed when you're using Elasticsearch
+with self-signed certificates.
+
 ``elasticsearch_index_days_max`` (default ``3``)
 
 Maximum number of days of logs to keep in Elasticsearch.  Relevant when

@@ -44,7 +44,6 @@ KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
 MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2  # 1 MiB
 
 
-logging.getLogger("elasticsearch").setLevel(logging.ERROR)
 logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
 
 
@@ -142,13 +141,14 @@ class Tagged:
 
 class LogSender(Thread, Tagged):
     def __init__(self, *, name, reader, config, field_filter, stats, max_send_interval,
-                 tags=None, msg_buffer_max_length=50000):
+                 extra_field_values=None, tags=None, msg_buffer_max_length=50000):
         Thread.__init__(self)
         Tagged.__init__(self, tags, sender=name)
         self.log = logging.getLogger("LogSender:{}".format(reader.name))
         self.name = name
         self.stats = stats
         self.config = config
+        self.extra_field_values = extra_field_values
         self.field_filter = field_filter
         self.msg_buffer_max_length = msg_buffer_max_length
         self.last_send_time = time.monotonic()
@@ -321,6 +321,8 @@ class ElasticsearchSender(LogSender):
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
         self.session = requests.Session()
+        # If ca is set in config we use that, otherwise we verify using builtin CA cert list
+        self.session.verify = self.config.get("ca", True)
         self.indices = set()
         self.last_es_error = None
 
@@ -370,7 +372,8 @@ class ElasticsearchSender(LogSender):
     @staticmethod
     def format_message_for_es(buf, header, message):
         buf.write(json.dumps(header, default=default_json_serialization).encode("utf8") + b"\n")
-        buf.write(json.dumps(message, default=default_json_serialization).encode("utf8") + b"\n")
+        # Message already in utf8 encoded bytestring form
+        buf.write(message + b"\n")
 
     def check_indices(self):
         aliases = self.session.get(self.session_url + "/_aliases").json()
@@ -403,14 +406,8 @@ class ElasticsearchSender(LogSender):
                 return False
             for msg in messages:
                 message = json.loads(msg.decode("utf8"))
-                timestamp = message.get("timestamp")
-                if "REALTIME_TIMESTAMP" in message:
-                    timestamp = datetime.datetime.utcfromtimestamp(message["REALTIME_TIMESTAMP"])
-                else:
-                    timestamp = datetime.datetime.utcnow()
-
-                message["timestamp"] = timestamp
-                index_name = "{}-{}".format(self.index_name, datetime.datetime.date(timestamp))
+                # ISO datetime's first 10 characters are equivalent to the date we need i.e. '2018-04-14'
+                index_name = "{}-{}".format(self.index_name, message["timestamp"][:10])
                 if index_name not in self.indices:
                     self.create_index_and_mappings(index_name)
 
@@ -420,7 +417,7 @@ class ElasticsearchSender(LogSender):
                         "_type": "journal_msg",
                     }
                 }
-                self.format_message_for_es(buf, header, message)
+                self.format_message_for_es(buf, header, msg)
 
             # If we have messages, send them along to ES
             if buf.tell():
@@ -587,9 +584,16 @@ class JournalReader(Tagged):
             field_filter = None
             if sender_config.get("field_filter", None):
                 field_filter = self.field_filters[sender_config["field_filter"]]
+
+            extra_field_values = sender_config.get("extra_field_values", {})
+            if not isinstance(extra_field_values, dict):
+                self.log.warning("extra_field_values: %r not a dictionary object, ignoring", extra_field_values)
+                extra_field_values = {}
+
             sender = sender_class(
                 config=sender_config,
                 field_filter=field_filter,
+                extra_field_values=extra_field_values,
                 msg_buffer_max_length=self.msg_buffer_max_length,
                 name=sender_name,
                 reader=self,
@@ -844,7 +848,7 @@ class JournalObjectHandler:
             return True
 
         for sender in self.reader.senders.values():
-            json_entry = self._get_or_generate_json(sender.field_filter, new_entry)
+            json_entry = self._get_or_generate_json(sender.field_filter, sender.extra_field_values, new_entry)
             sender.msg_buffer.add_item(item=json_entry, cursor=self.jobject.cursor)
 
         if self.json_objects:
@@ -853,10 +857,20 @@ class JournalObjectHandler:
 
         return True
 
-    def _get_or_generate_json(self, field_filter, data):
+    def _get_or_generate_json(self, field_filter, extra_field_values, data):
         ff_name = "" if field_filter is None else field_filter.name
         if ff_name in self.json_objects:
             return self.json_objects[ff_name]
+
+        # Always set a timestamp field that gets turned into an ISO timestamp based on REALTIME_TIMESTAMP if available
+        if "REALTIME_TIMESTAMP" in data:
+            timestamp = datetime.datetime.utcfromtimestamp(data["REALTIME_TIMESTAMP"])
+        else:
+            timestamp = datetime.datetime.utcnow()
+        data["timestamp"] = timestamp
+
+        if extra_field_values:
+            data.update(extra_field_values)
 
         if field_filter:
             data = field_filter.filter_fields(data)

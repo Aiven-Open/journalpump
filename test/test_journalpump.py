@@ -1,6 +1,7 @@
 from collections import OrderedDict
-from journalpump.journalpump import (ElasticsearchSender, FieldFilter, JournalObject, JournalObjectHandler,
-                                     JournalPump, MAX_KAFKA_MESSAGE_SIZE, KafkaSender, LogplexSender)
+from datetime import datetime
+from journalpump.journalpump import (default_json_serialization, ElasticsearchSender, FieldFilter, MsgBuffer, JournalObject,
+                                     JournalObjectHandler, JournalPump, MAX_KAFKA_MESSAGE_SIZE, KafkaSender, LogplexSender)
 from unittest import mock, TestCase
 import json
 
@@ -182,25 +183,32 @@ class TestJournalObjectHandler(TestCase):
         self.filter_b = FieldFilter("filter_b", {"fields": ["a", "b"]})
         self.sender_a = mock.Mock()
         self.sender_a.field_filter = self.filter_a
+        self.sender_a.extra_field_values = {}
+        self.sender_a.msg_buffer = MsgBuffer()
         self.sender_b = mock.Mock()
         self.sender_b.field_filter = self.filter_b
+        self.sender_b.extra_field_values = {}
+        self.sender_b.msg_buffer = MsgBuffer()
         self.sender_c = mock.Mock()
         self.sender_c.field_filter = None
+        self.sender_c.extra_field_values = {}
+        self.sender_c.msg_buffer = MsgBuffer()
         self.pump = mock.Mock()
         self.reader = mock.Mock()
         self.reader.senders = {"sender_a": self.sender_a, "sender_b": self.sender_b, "sender_c": self.sender_c}
 
     def test_filtered_processing(self):
-        jobject = JournalObject(entry=OrderedDict(a=1, b=2, c=3), cursor=10)
+        jobject = JournalObject(entry=OrderedDict(a=1, b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10)
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process() is True
-        self.sender_a.msg_buffer.add_item.assert_called_once_with(
-            item=json.dumps({"a": 1}).encode("utf-8"), cursor=10)
-        self.sender_b.msg_buffer.add_item.assert_called_once_with(
-            item=json.dumps(OrderedDict(a=1, b=2)).encode("utf-8"), cursor=10)
-        largest_data = json.dumps(OrderedDict(a=1, b=2, c=3)).encode("utf-8")
-        self.sender_c.msg_buffer.add_item.assert_called_once_with(
-            item=largest_data, cursor=10)
+        assert (json.dumps({"a": 1}).encode("utf-8"), 10) in self.sender_a.msg_buffer.messages
+
+        assert (json.dumps(OrderedDict(a=1, b=2)).encode("utf-8"), 10) in self.sender_b.msg_buffer.messages
+
+        largest_data = json.dumps(
+            OrderedDict(a=1, b=2, c=3, REALTIME_TIMESTAMP=1, timestamp=datetime.utcfromtimestamp(1)),
+            default=default_json_serialization).encode("utf-8")
+        assert (largest_data, 10) in self.sender_c.msg_buffer.messages
         self.reader.inc_line_stats.assert_called_once_with(journal_bytes=len(largest_data), journal_lines=1)
 
     def test_too_large_data(self):
@@ -209,8 +217,7 @@ class TestJournalObjectHandler(TestCase):
         jobject = JournalObject(entry=too_large, cursor=10)
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process() is True
-        self.sender_a.msg_buffer.add_item.assert_called_once_with(
-            item=json.dumps({"a": 1}).encode("utf-8"), cursor=10)
+        assert (json.dumps({"a": 1}).encode("utf-8"), 10) in self.sender_a.msg_buffer.messages
         too_large_serialized = json.dumps(too_large)
         error_message = "too large message {} bytes vs maximum {} bytes".format(
             len(too_large_serialized), MAX_KAFKA_MESSAGE_SIZE)
@@ -218,7 +225,7 @@ class TestJournalObjectHandler(TestCase):
             "error": error_message,
             "partial_data": too_large_serialized[:1024],
         }).encode("utf-8")
-        self.sender_b.msg_buffer.add_item.assert_called_once_with(item=error_item, cursor=10)
-        self.sender_c.msg_buffer.add_item.assert_called_once_with(item=error_item, cursor=10)
+        assert "too large message" in str(self.sender_b.msg_buffer.messages)
+
         self.pump.stats.increase.assert_called_once_with("journal.read_error", tags="tags")
         self.reader.inc_line_stats.assert_called_once_with(journal_bytes=len(error_item), journal_lines=1)
