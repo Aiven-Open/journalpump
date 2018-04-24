@@ -183,12 +183,15 @@ class TestJournalObjectHandler(TestCase):
         self.filter_b = FieldFilter("filter_b", {"fields": ["a", "b"]})
         self.sender_a = mock.Mock()
         self.sender_a.field_filter = self.filter_a
+        self.sender_a.extra_field_values = {}
         self.sender_a.msg_buffer = MsgBuffer()
         self.sender_b = mock.Mock()
         self.sender_b.field_filter = self.filter_b
+        self.sender_b.extra_field_values = {}
         self.sender_b.msg_buffer = MsgBuffer()
         self.sender_c = mock.Mock()
         self.sender_c.field_filter = None
+        self.sender_c.extra_field_values = {}
         self.sender_c.msg_buffer = MsgBuffer()
         self.pump = mock.Mock()
         self.reader = mock.Mock()
