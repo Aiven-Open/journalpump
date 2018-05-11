@@ -345,6 +345,11 @@ Required when using output_type ``kafka``.
 The address of the kafka server which to write to.
 Required when using output_type ``kafka``.
 
+``kafka_msg_key`` (default ``null``)
+
+The key to use when writing messages into Kafka. Can be used
+for partition selection.
+
 ``keyfile`` (default ``null``)
 
 Kafka client key path, needed when you're using Kafka with SSL

@@ -248,6 +248,9 @@ class KafkaSender(LogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self.kafka_producer = None
+        self.kafka_msg_key = self.config.get("kafka_msg_key")
+        if self.kafka_msg_key:
+            self.kafka_msg_key = self.kafka_msg_key.encode("utf8")
         self.topic = self.config.get("kafka_topic")
 
     def _init_kafka(self):
@@ -282,7 +285,7 @@ class KafkaSender(LogSender):
             self._init_kafka()
         try:
             for msg in messages:
-                self.kafka_producer.send(topic=self.topic, value=msg)
+                self.kafka_producer.send(topic=self.topic, value=msg, key=self.kafka_msg_key)
             self.kafka_producer.flush()
             self.mark_sent(messages=messages, cursor=cursor)
             return True
