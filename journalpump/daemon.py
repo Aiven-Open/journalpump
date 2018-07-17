@@ -13,6 +13,7 @@ import logging
 import os
 import signal
 import sys
+import time
 
 LOG_FORMAT = "%(asctime)s\t%(name)s\t%(levelname)s\t%(message)s"
 LOG_FORMAT_JOURNAL = "%(name)-20s  %(levelname)-8s  %(message)s"
@@ -27,6 +28,7 @@ class ServiceDaemon:
     def __init__(self, config_path, require_config=True, multi_threaded=False, log_level=logging.DEBUG):
         assert isinstance(config_path, str)
         self._pid = os.getpid()
+        self._last_watchdog_msg_time = 0.0
         self.name = self.__class__.__name__.lower()
         self.log_level = log_level
         self.multi_threaded = multi_threaded
@@ -70,7 +72,11 @@ class ServiceDaemon:
 
     def ping_watchdog(self):
         """Let systemd know we are still alive and well"""
-        daemon.notify("WATCHDOG=1", pid=self._pid)
+        now = time.monotonic()
+        if now - self._last_watchdog_msg_time >= 1.0:
+            # Send max one notification per second
+            daemon.notify("WATCHDOG=1", pid=self._pid)
+            self._last_watchdog_msg_time = now
 
     def reload_config(self):
         file_ctime = None
@@ -111,7 +117,7 @@ class ServiceDaemon:
         exe = None
         try:
             exe = cls(config_path=args[0])
-            daemon.notify("READY=1", pid=self._pid)
+            daemon.notify("READY=1")
             return exe.run()
         except ServiceDaemonError as ex:
             logging.fatal("%s failed to start: %s", cls.__name__, ex)
