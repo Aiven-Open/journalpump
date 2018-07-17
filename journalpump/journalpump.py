@@ -51,7 +51,7 @@ def _convert_uuid(s):
     return str(uuid.UUID(s.decode()))
 
 
-def convert_mon(s):  # pylint: disable=unused-argument
+def convert_mon(s):  # pylint: disable=unused-argument,useless-return
     return None
 
 
@@ -59,11 +59,13 @@ def convert_realtime(t):
     return int(t) / 1000000.0  # Stock systemd transforms these into datetimes
 
 
-def default_json_serialization(obj):  # pylint: disable=inconsistent-return-statements
-    if isinstance(obj, bytes):
+def default_json_serialization(obj):
+    if isinstance(obj, bytes):  # pylint: disable=no-else-return
         return obj.decode("utf8")
     elif isinstance(obj, datetime.datetime):
         return obj.isoformat()
+    else:
+        return None
 
 
 converters = {
@@ -1007,11 +1009,12 @@ class JournalPump(ServiceDaemon, Tagged):
             return {}
 
     def check_match(self, entry):
-        if not self.config.get("match_key"):
+        if not self.config.get("match_key"):  # pylint: disable=no-else-return
             return True
         elif entry.get(self.config["match_key"]) == self.config["match_value"]:
             return True
-        return False
+        else:
+            return False
 
     def reader_iteration(self, reader):
         try:
