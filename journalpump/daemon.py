@@ -26,6 +26,7 @@ class ServiceDaemonError(Exception):
 class ServiceDaemon:
     def __init__(self, config_path, require_config=True, multi_threaded=False, log_level=logging.DEBUG):
         assert isinstance(config_path, str)
+        self._pid = os.getpid()
         self.name = self.__class__.__name__.lower()
         self.log_level = log_level
         self.multi_threaded = multi_threaded
@@ -64,12 +65,12 @@ class ServiceDaemon:
 
     def sigterm(self, signum, frame):  # pylint: disable=unused-argument
         self.log.info("Received SIG%s, stopping daemon...", "TERM" if (signum == signal.SIGTERM) else "INT")
-        daemon.notify("STOPPING=1")
+        daemon.notify("STOPPING=1", pid=self._pid)
         self.running = False
 
     def ping_watchdog(self):
         """Let systemd know we are still alive and well"""
-        daemon.notify("WATCHDOG=1")
+        daemon.notify("WATCHDOG=1", pid=self._pid)
 
     def reload_config(self):
         file_ctime = None
@@ -80,7 +81,7 @@ class ServiceDaemon:
                 raise ServiceDaemonError("Cannot start without json config file at {!r}".format(self.config_path))
 
         if file_ctime != self.config_file_ctime:
-            daemon.notify("RELOADING=1")
+            daemon.notify("RELOADING=1", pid=self._pid)
             self.log.info("%sloading configuration", "re" if self.config_file_ctime else "")
             self.config_file_ctime = file_ctime
             with open(self.config_path) as fp:
@@ -89,7 +90,7 @@ class ServiceDaemon:
             self.log_level = self.config.get("log_level", logging.INFO)
             self.configure_logging()
             self.handle_new_config()
-            daemon.notify("READY=1")
+            daemon.notify("READY=1", pid=self._pid)
 
     def handle_new_config(self):
         """Override in subclass"""
@@ -110,7 +111,7 @@ class ServiceDaemon:
         exe = None
         try:
             exe = cls(config_path=args[0])
-            daemon.notify("READY=1")
+            daemon.notify("READY=1", pid=self._pid)
             return exe.run()
         except ServiceDaemonError as ex:
             logging.fatal("%s failed to start: %s", cls.__name__, ex)
