@@ -1,1 +1,7 @@
-adduser --quiet --system --group --home /var/lib/journalpump journalpump
+#!/bin/sh
+
+set -e
+
+if ! getent passwd journalpump >/dev/null; then
+        adduser --quiet --system --group --home /var/lib/journalpump journalpump
+fi
