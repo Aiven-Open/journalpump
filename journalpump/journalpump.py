@@ -62,7 +62,7 @@ def convert_realtime(t):
 def default_json_serialization(obj):  # pylint: disable=inconsistent-return-statements
     if isinstance(obj, bytes):
         return obj.decode("utf8")
-    elif isinstance(obj, datetime.datetime):
+    if isinstance(obj, datetime.datetime):
         return obj.isoformat()
 
 
@@ -1009,7 +1009,7 @@ class JournalPump(ServiceDaemon, Tagged):
     def check_match(self, entry):
         if not self.config.get("match_key"):
             return True
-        elif entry.get(self.config["match_key"]) == self.config["match_value"]:
+        if entry.get(self.config["match_key"]) == self.config["match_value"]:
             return True
         return False
 
