@@ -11,10 +11,10 @@ Homepage: https://github.com/aiven/journalpump
 
 Package: journalpump
 Architecture: all
-Depends: ${misc:Depends}, ${python3:Depends},
+Depends: ${misc:Depends}, ${python3:Depends}, adduser,
  python3-elasticsearch, python3-kafka,
  python3-requests, python3-systemd
-Description: journalpump is a daemon that takes log messages from journald and pumps them
+Description: daemon that takes log messages from journald and pumps them
  to a given output.  Currently supported outputs are Elasticsearch, Kafka and
  logplex.  It reads messages from journald and optionally checks if they
  match a config rule and forwards them as JSON messages to the desired
