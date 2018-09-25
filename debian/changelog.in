@@ -3,7 +3,7 @@ journalpump (1.0.1) unstable; urgency=low
   * Rename to journalpump
   * Require Python 3
 
- -- Oskari Saarenmaa <os@aivenio>  Fri, 25 Mar 2016 11:50:01 +0200
+ -- Oskari Saarenmaa <os@aiven.io>  Fri, 25 Mar 2016 11:50:01 +0200
 
 kafkajournalpump (1.0.0) unstable; urgency=low
 
