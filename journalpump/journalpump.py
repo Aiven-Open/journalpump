@@ -217,13 +217,6 @@ class LogSender(Thread, Tagged):
             self.log.debug("Got %d items from msg_buffer", msg_count)
 
             while self.running and messages:
-                msg_buffer_length = len(self.msg_buffer)
-                if msg_buffer_length > self.msg_buffer_max_length:
-                    # This makes the self.msg_buffer grow to at most msg_buffer_max_length entries
-                    self.log.debug("%d entries in msg buffer, slowing down a bit by sleeping",
-                                   msg_buffer_length)
-                    time.sleep(1.0)
-
                 batch_size = len(messages[0][0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
                 index = 1
                 while index < len(messages):
@@ -537,6 +530,7 @@ class JournalReader(Tagged):
         self.field_filters = field_filters
         self.stats = stats
         self.cursor = seek_to
+        self.registered_for_poll = False
         self.journald_reader = None
         self.running = True
         self.senders = {}
@@ -544,6 +538,34 @@ class JournalReader(Tagged):
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
         self.searches = list(self._build_searches(searches))
+        self.journald_reader = self.get_reader(seek_to=seek_to)
+
+    def update_poll_registration_status(self, poller):
+        sender_over_limit = any(len(sender.msg_buffer) > self.msg_buffer_max_length for sender in self.senders.values())
+        if not self.registered_for_poll and not sender_over_limit:
+            self.log.info(
+                "Message buffer size under threshold for all senders, starting processing journal for %r",
+                self.name
+            )
+            self.register_for_poll(poller)
+        elif self.registered_for_poll and sender_over_limit:
+            self.log.info(
+                "Message buffer size for at least one sender over threshold, stopping processing journal for %r",
+                self.name
+            )
+            self.unregister_from_poll(poller)
+
+    def register_for_poll(self, poller):
+        if self.journald_reader:
+            poller.register(self.journald_reader, self.journald_reader.get_events())
+            self.registered_for_poll = True
+            self.log.info("Registered reader %r with fd %r", self.name, self.journald_reader.fileno())
+
+    def unregister_from_poll(self, poller):
+        if self.journald_reader:
+            poller.unregister(self.journald_reader)
+            self.registered_for_poll = False
+            self.log.info("Unregistered reader %r with fd %r", self.name, self.journald_reader.fileno())
 
     def get_resume_cursor(self):
         """Find the sender cursor location where a new JournalReader instance should resume reading from"""
@@ -920,15 +942,12 @@ class JournalPump(ServiceDaemon, Tagged):
             return
 
         # replace old readers with new ones
-        for reader_name, reader in self.readers.items():
+        for reader in self.readers.values():
             reader.request_stop()
             # Don't close the journald_reader here because it could currently be in use.
             # This may in some situations leak some resources but possible leak is small
             # and config reloads are typically quite infrequent.
-            if reader.journald_reader:
-                fileno = reader.journald_reader.fileno()
-                self.poller.unregister(fileno)
-                self.log.info("Unregistered reader %s with fd %r", reader_name, fileno)
+            reader.unregister_from_poll(self.poller)
 
         self.readers = {}
         state = self.load_state()
@@ -961,9 +980,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 searches=reader_config.get("searches", {}),
             )
             self.readers[reader_name] = reader
-            jdr = reader.get_reader(seek_to=resume_cursor)
-            self.poller.register(jdr, jdr.get_events())
-            self.log.info("Registered reader %s with fd %r", reader_name, jdr.fileno())
+            reader.update_poll_registration_status(self.poller)
 
         self.readers_active_config = new_config
 
@@ -1015,7 +1032,7 @@ class JournalPump(ServiceDaemon, Tagged):
             return True
         return False
 
-    def read_single_message(self, reader_name, reader):
+    def read_single_message(self, reader):
         try:
             jobject = reader.read_next()
             if jobject is None or jobject.entry is None:
@@ -1026,14 +1043,14 @@ class JournalPump(ServiceDaemon, Tagged):
             self.log.debug("No more journal entries to read")
             return False
         except Exception as ex:  # pylint: disable=broad-except
-            self.log.exception("Unexpected exception while handling entry for %s", reader_name)
+            self.log.exception("Unexpected exception while handling entry for %s", reader.name)
             self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
             time.sleep(0.5)
             return False
 
-    def read_all_available_messages(self, reader_name, reader, hits):
+    def read_all_available_messages(self, reader, hits):
         lines = 0
-        while self.read_single_message(reader_name, reader):
+        while self.read_single_message(reader):
             lines += 1
 
         for search in reader.searches:
@@ -1068,15 +1085,18 @@ class JournalPump(ServiceDaemon, Tagged):
             hits = {}
             lines = 0
             for fd, _event in results:
-                for reader_name, reader in self.readers.items():
+                for reader in self.readers.values():
                     jdr = reader.journald_reader
                     if fd != jdr.fileno():
                         continue
                     if jdr.process() == systemd.journal.APPEND:
-                        lines += self.read_all_available_messages(reader_name, reader, hits)
+                        lines += self.read_all_available_messages(reader, hits)
                     break
                 else:
                     self.log.error("Could not find reader with fd %r", fd)
+
+            for reader in self.readers.values():
+                reader.update_poll_registration_status(self.poller)
 
             if hits and time.monotonic() - last_stats_time > 60.0:
                 self.log.info("search hits stats: %s", hits)
