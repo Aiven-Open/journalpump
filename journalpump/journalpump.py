@@ -210,7 +210,7 @@ class LogSender(Thread, Tagged):
 
     def get_and_send_messages(self):
         start_time = time.monotonic()
-        messages = None
+        msg_count = None
         try:
             messages = self.msg_buffer.get_items()
             msg_count = len(messages)
@@ -241,7 +241,7 @@ class LogSender(Thread, Tagged):
             self.log.debug("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
             self.last_send_time = time.monotonic()
         except Exception:   # pylint: disable=broad-except
-            self.log.exception("Problem sending messages: %r", messages)
+            self.log.exception("Problem sending %r messages", msg_count)
             time.sleep(0.5)
 
 
