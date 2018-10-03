@@ -18,6 +18,7 @@ import kafka.common
 import logging
 import re
 import requests
+import select
 import socket
 import systemd.journal
 import time
@@ -122,7 +123,7 @@ class PumpReader(Reader):
                 entry["__REALTIME_TIMESTAMP"] = self._get_realtime()
                 return JournalObject(cursor=self._get_cursor(), entry=self.convert_entry(entry))
 
-        return JournalObject()
+        return None
 
 
 class Tagged:
@@ -209,20 +210,13 @@ class LogSender(Thread, Tagged):
 
     def get_and_send_messages(self):
         start_time = time.monotonic()
-        messages = None
+        msg_count = None
         try:
             messages = self.msg_buffer.get_items()
             msg_count = len(messages)
             self.log.debug("Got %d items from msg_buffer", msg_count)
 
             while self.running and messages:
-                msg_buffer_length = len(self.msg_buffer)
-                if msg_buffer_length > self.msg_buffer_max_length:
-                    # This makes the self.msg_buffer grow to at most msg_buffer_max_length entries
-                    self.log.debug("%d entries in msg buffer, slowing down a bit by sleeping",
-                                   msg_buffer_length)
-                    time.sleep(1.0)
-
                 batch_size = len(messages[0][0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
                 index = 1
                 while index < len(messages):
@@ -240,7 +234,7 @@ class LogSender(Thread, Tagged):
             self.log.debug("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
             self.last_send_time = time.monotonic()
         except Exception:   # pylint: disable=broad-except
-            self.log.exception("Problem sending messages: %r", messages)
+            self.log.exception("Problem sending %r messages", msg_count)
             time.sleep(0.5)
 
 
@@ -536,6 +530,7 @@ class JournalReader(Tagged):
         self.field_filters = field_filters
         self.stats = stats
         self.cursor = seek_to
+        self.registered_for_poll = False
         self.journald_reader = None
         self.running = True
         self.senders = {}
@@ -543,6 +538,34 @@ class JournalReader(Tagged):
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
         self.searches = list(self._build_searches(searches))
+        self.journald_reader = self.get_reader(seek_to=seek_to)
+
+    def update_poll_registration_status(self, poller):
+        sender_over_limit = any(len(sender.msg_buffer) > self.msg_buffer_max_length for sender in self.senders.values())
+        if not self.registered_for_poll and not sender_over_limit:
+            self.log.info(
+                "Message buffer size under threshold for all senders, starting processing journal for %r",
+                self.name
+            )
+            self.register_for_poll(poller)
+        elif self.registered_for_poll and sender_over_limit:
+            self.log.info(
+                "Message buffer size for at least one sender over threshold, stopping processing journal for %r",
+                self.name
+            )
+            self.unregister_from_poll(poller)
+
+    def register_for_poll(self, poller):
+        if self.journald_reader:
+            poller.register(self.journald_reader, self.journald_reader.get_events())
+            self.registered_for_poll = True
+            self.log.info("Registered reader %r with fd %r", self.name, self.journald_reader.fileno())
+
+    def unregister_from_poll(self, poller):
+        if self.journald_reader:
+            poller.unregister(self.journald_reader)
+            self.registered_for_poll = False
+            self.log.info("Unregistered reader %r with fd %r", self.name, self.journald_reader.fileno())
 
     def get_resume_cursor(self):
         """Find the sender cursor location where a new JournalReader instance should resume reading from"""
@@ -644,19 +667,9 @@ class JournalReader(Tagged):
             sender.refresh_stats()
 
     def read_next(self):
-        journald_reader = self.get_reader(seek_to=self.cursor)
-        if journald_reader:
-            jobject = next(journald_reader)
-            if jobject.cursor:
-                self.cursor = jobject.cursor
-                self.last_journal_msg_time = time.monotonic()
-        else:
-            jobject = None
-
-        inactivity_timeout = 180
-        if (time.monotonic() - self.last_journal_msg_time) > inactivity_timeout and self.cursor:
-            self.log.info("We haven't seen any msgs in %.1fs, reinitiate PumpReader()", inactivity_timeout)
-            self.get_reader(seek_to=self.get_resume_cursor(), reinit=True)
+        jobject = next(self.journald_reader)
+        if jobject.cursor:
+            self.cursor = jobject.cursor
             self.last_journal_msg_time = time.monotonic()
 
         return jobject
@@ -907,6 +920,7 @@ class JournalPump(ServiceDaemon, Tagged):
         Tagged.__init__(self)
         self.stats = None
         self.geoip = None
+        self.poller = select.poll()
         self.readers_active_config = None
         self.readers = {}
         self.field_filters = {}
@@ -930,6 +944,10 @@ class JournalPump(ServiceDaemon, Tagged):
         # replace old readers with new ones
         for reader in self.readers.values():
             reader.request_stop()
+            # Don't close the journald_reader here because it could currently be in use.
+            # This may in some situations leak some resources but possible leak is small
+            # and config reloads are typically quite infrequent.
+            reader.unregister_from_poll(self.poller)
 
         self.readers = {}
         state = self.load_state()
@@ -962,6 +980,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 searches=reader_config.get("searches", {}),
             )
             self.readers[reader_name] = reader
+            reader.update_poll_registration_status(self.poller)
 
         self.readers_active_config = new_config
 
@@ -1013,38 +1032,31 @@ class JournalPump(ServiceDaemon, Tagged):
             return True
         return False
 
-    def reader_iteration(self, reader):
+    def read_single_message(self, reader):
         try:
             jobject = reader.read_next()
-            if jobject is None:
+            if jobject is None or jobject.entry is None:
                 return False
 
             return JournalObjectHandler(jobject, reader, self).process()
         except StopIteration:
-            self.log.debug("No more journal entries to read, sleeping")
+            self.log.debug("No more journal entries to read")
             return False
         except Exception as ex:  # pylint: disable=broad-except
-            self.log.exception("Unexpected exception during handling entry")
+            self.log.exception("Unexpected exception while handling entry for %s", reader.name)
             self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
             time.sleep(0.5)
             return False
 
-    def reader_iterations(self):
-        hits = {}
+    def read_all_available_messages(self, reader, hits):
         lines = 0
-        for reader_name, reader in self.readers.items():
-            try:
-                lines += int(self.reader_iteration(reader))
-            except Exception as ex:  # pylint: disable=broad-except
-                self.log.exception("Unexpected exception during reader %r iteration", reader_name)
-                self.stats.unexpected_exception(ex=ex, where="reader_iterations",
-                                                tags=self.make_tags({"app": "journalpump"}))
-                continue
+        while self.read_single_message(reader):
+            lines += 1
 
-            for search in reader.searches:
-                hits[search["name"]] = search.get("hits", 0)
+        for search in reader.searches:
+            hits[search["name"]] = search.get("hits", 0)
 
-        return lines, hits
+        return lines
 
     def get_state_file_path(self):
         return self.config.get("json_state_file_path")
@@ -1069,7 +1081,22 @@ class JournalPump(ServiceDaemon, Tagged):
     def run(self):
         last_stats_time = 0
         while self.running:
-            lines, hits = self.reader_iterations()
+            results = self.poller.poll(1000)
+            hits = {}
+            lines = 0
+            for fd, _event in results:
+                for reader in self.readers.values():
+                    jdr = reader.journald_reader
+                    if fd != jdr.fileno():
+                        continue
+                    if jdr.process() == systemd.journal.APPEND:
+                        lines += self.read_all_available_messages(reader, hits)
+                    break
+                else:
+                    self.log.error("Could not find reader with fd %r", fd)
+
+            for reader in self.readers.values():
+                reader.update_poll_registration_status(self.poller)
 
             if hits and time.monotonic() - last_stats_time > 60.0:
                 self.log.info("search hits stats: %s", hits)
@@ -1085,8 +1112,7 @@ class JournalPump(ServiceDaemon, Tagged):
                     # Refresh readers so they can send their buffered stats out
                     reader.inc_line_stats(journal_bytes=0, journal_lines=0)
 
-                self.log.debug("No new journal lines received, sleeping")
-                time.sleep(1.0)
+                self.log.debug("No new journal lines received")
 
             self.ping_watchdog()
 
