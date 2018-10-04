@@ -532,15 +532,24 @@ class JournalReader(Tagged):
         self.cursor = seek_to
         self.registered_for_poll = False
         self.journald_reader = None
+        self.last_journald_create_attempt = 0
         self.running = True
         self.senders = {}
         self._senders_initialized = False
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
         self.searches = list(self._build_searches(searches))
-        self.journald_reader = self.get_reader(seek_to=seek_to)
+
+    def create_journald_reader_if_missing(self):
+        if not self.journald_reader and time.monotonic() - self.last_journald_create_attempt > 2:
+            self.last_journald_create_attempt = time.monotonic()
+            self.journald_reader = self.get_reader(seek_to=self.cursor)
 
     def update_poll_registration_status(self, poller):
+        self.create_journald_reader_if_missing()
+        if not self.journald_reader:
+            return
+
         sender_over_limit = any(len(sender.msg_buffer) > self.msg_buffer_max_length for sender in self.senders.values())
         if not self.registered_for_poll and not sender_over_limit:
             self.log.info(
@@ -699,9 +708,8 @@ class JournalReader(Tagged):
                 path=self.config.get("journal_path"),
             )
         except FileNotFoundError as ex:
-            self.log.warning("journal for %r not available yet, waiting: %s: %s",
+            self.log.warning("journal for %r not available yet: %s: %s",
                              self.name, ex.__class__.__name__, ex)
-            time.sleep(5.0)
             return None
 
         if seek_to:
@@ -980,7 +988,6 @@ class JournalPump(ServiceDaemon, Tagged):
                 searches=reader_config.get("searches", {}),
             )
             self.readers[reader_name] = reader
-            reader.update_poll_registration_status(self.poller)
 
         self.readers_active_config = new_config
 
@@ -1087,7 +1094,7 @@ class JournalPump(ServiceDaemon, Tagged):
             for fd, _event in results:
                 for reader in self.readers.values():
                     jdr = reader.journald_reader
-                    if fd != jdr.fileno():
+                    if not jdr or fd != jdr.fileno():
                         continue
                     if jdr.process() == systemd.journal.APPEND:
                         lines += self.read_all_available_messages(reader, hits)
