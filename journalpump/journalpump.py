@@ -327,7 +327,7 @@ class ElasticsearchSender(LogSender):
         if self.indices:
             return True
         try:
-            self.indices = set(self.session.get(self.session_url + "/_aliases").json().keys())
+            self.indices = set(self.session.get(self.session_url + "/_aliases", timeout=60.0).json().keys())
             self.last_es_error = None
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as ex:
             if ex.__class__ != self.last_es_error.__class__:
@@ -347,16 +347,20 @@ class ElasticsearchSender(LogSender):
     def create_index_and_mappings(self, index_name):
         try:
             self.log.info("Creating index: %r", index_name)
-            res = self.session.put(self.session_url + "/{}".format(index_name), json={
-                "mappings": {
-                    "journal_msg": {
-                        "properties": {
-                            "SYSTEMD_SESSION": {"type": "text"},
-                            "SESSION_ID": {"type": "text"},
+            res = self.session.put(
+                self.session_url + "/{}".format(index_name),
+                json={
+                    "mappings": {
+                        "journal_msg": {
+                            "properties": {
+                                "SYSTEMD_SESSION": {"type": "text"},
+                                "SESSION_ID": {"type": "text"},
+                            }
                         }
-                    }
+                    },
                 },
-            })
+                timeout=60.0,
+            )
             if res.status_code in (200, 201) or "already_exists_exception" in res.text:
                 self.indices.add(index_name)
             else:
@@ -420,10 +424,15 @@ class ElasticsearchSender(LogSender):
             if buf.tell():
                 buf_size = buf.tell()
                 buf.seek(0)
-                res = self.session.post(self.session_url_bulk, data=buf, headers={
-                    "content-length": str(buf_size),
-                    "content-type": "application/x-ndjson",
-                })
+                res = self.session.post(
+                    self.session_url_bulk,
+                    data=buf,
+                    headers={
+                        "content-length": str(buf_size),
+                        "content-type": "application/x-ndjson",
+                    },
+                    timeout=120.0,
+                )
                 buf.seek(0)
                 buf.truncate(0)
 
