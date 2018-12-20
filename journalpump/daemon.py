@@ -93,7 +93,6 @@ class ServiceDaemon:
 
     def handle_new_config(self):
         """Override in subclass"""
-        pass
 
     def run(self):
         raise NotImplementedError()
