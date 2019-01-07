@@ -39,7 +39,7 @@ rpm:
 	$(RM) journalpump-rpm-src.tar.gz
 
 build-dep-fed:
-	sudo dnf -y install \
+	sudo dnf -y --best --allowerasing install \
 		python3-flake8 python3-kafka python3-pytest python3-pylint \
 		python3-requests systemd-python3
 
