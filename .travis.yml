@@ -10,6 +10,12 @@ python:
   - "3.5"
   - "3.6"
 
+matrix:
+  include:
+    - python: 3.7
+      dist: xenial
+      sudo: true
+
 install:
   - "pip install pylint pytest mock flake8 kafka-python coverage coveralls requests"
   - "pip install https://github.com/systemd/python-systemd/zipball/master"
