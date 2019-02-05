@@ -534,6 +534,9 @@ class JournalReader(Tagged):
         self.read_lines = 0
         self._last_sent_read_lines = 0
         self._last_sent_read_bytes = 0
+        self._sent_bytes_diff = 0
+        self._sent_lines_diff = 0
+        self.last_stats_print_time = time.monotonic()
         self.geoip = geoip
         self.config = config
         self.field_filters = field_filters
@@ -674,10 +677,14 @@ class JournalReader(Tagged):
         self.stats.gauge("journal.read_lines", value=self.read_lines, tags=tags)
         self.stats.gauge("journal.read_bytes", value=self.read_bytes, tags=tags)
         self.last_stats_send_time = now
-        lines_diff = self.read_lines - self._last_sent_read_lines
-        bytes_diff = self.read_bytes - self._last_sent_read_bytes
-        if lines_diff or bytes_diff:
-            self.log.info("Processed %r journal lines (%r bytes)", lines_diff, bytes_diff)
+        self._sent_lines_diff += self.read_lines - self._last_sent_read_lines
+        self._sent_bytes_diff += self.read_bytes - self._last_sent_read_bytes
+        if now - self.last_stats_print_time > 120:
+            self.log.info("Processed %r journal lines (%r bytes)", self._sent_lines_diff, self._sent_bytes_diff)
+            self._sent_lines_diff = 0
+            self._sent_bytes_diff = 0
+            self.last_stats_print_time = now
+
         self._last_sent_read_lines = self.read_lines
         self._last_sent_read_bytes = self.read_bytes
 
