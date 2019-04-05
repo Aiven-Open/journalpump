@@ -356,6 +356,46 @@ Kafka client key path, needed when you're using Kafka with SSL
 authentication.
 
 
+Rsyslog Sender Configuration
+----------------------------
+
+``rsyslog_server`` (default ``null``)
+
+Address of the remote syslog server.
+
+``rsyslog_port`` (default ``514``)
+
+Port used by the remote syslog server.
+
+``default_facility`` (default ``1``)
+
+Facility for the syslog message if not provided by the entry being relayed.
+(see RFC5424 for list of facilities.)
+
+``structured_data`` (default ``null``)
+
+Content of structured data section (optional, required by some services to identify the sender).
+
+``ssl`` (default ``false``)
+
+Require encrypted connection.
+
+``ca`` (default ``null``)
+
+CA path. Note! setting ca will automatically also set ssl to True
+
+``certfile`` (default ``null``)
+
+Client certificate path, required if remote syslog requires SSL authentication.
+
+``keyfile`` (default ``null``)
+
+Client key path, required if remote syslog requires SSL authentication.
+
+``format`` (default ``rfc5424``)
+
+Format message according to rfc5424 or rfc3164
+
 
 License
 =======

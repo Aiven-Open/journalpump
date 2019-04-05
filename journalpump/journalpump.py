@@ -5,6 +5,7 @@
 
 from . import geohash, statsd
 from . daemon import ServiceDaemon
+from . rsyslog import SyslogTcpClient
 from functools import reduce
 from io import BytesIO
 from kafka import KafkaProducer
@@ -40,10 +41,10 @@ KAFKA_CONN_ERRORS = tuple(kafka.common.RETRY_ERROR_TYPES) + (
     socket.timeout,
 )
 
+RSYSLOG_CONN_ERRORS = (socket.timeout, ConnectionRefusedError)
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
 MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2  # 1 MiB
-
 
 logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
 
@@ -306,6 +307,89 @@ class FileSender(LogSender):
 
         self.mark_sent(messages=messages, cursor=cursor)
         return True
+
+
+class RsyslogSender(LogSender):
+    def __init__(self, *, config, **kwargs):
+        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
+        self.rsyslog_client = None
+        self.sd = None
+        self.default_facility = 1
+
+    def _init_rsyslog_client(self):
+        self.log.info("Initializing Rsyslog Client")
+        while self.running:
+            try:
+                if self.rsyslog_client:
+                    self.rsyslog_client.close()
+
+                self.default_facility = self.config.get("default_facility", 1)
+                self.sd = self.config.get("structured_data")
+
+                server = self.config.get("rsyslog_server")
+                port = self.config.get("rsyslog_port", 514)
+
+                protocol = "SSL" if self.config.get("ssl") is True else "PLAINTEXT"
+
+                ca = self.config.get("ca_certs")
+                key = self.config.get("client_key")
+                cert = self.config.get("client_cert")
+
+                self.rsyslog_client = SyslogTcpClient(
+                    server=server,
+                    port=port,
+                    rfc=self.config.get("format", "rfc5424").upper(),
+                    protocol=protocol,
+                    cacerts=ca,
+                    keyfile=key,
+                    certfile=cert
+                )
+                self.log.info("Initialized Rsyslog Client, server: %s, port: %d", server, port)
+                break
+            except RSYSLOG_CONN_ERRORS as ex:
+                self.log.warning(
+                    "Retryable error during Rsyslog Client initialization: %s: %s, sleeping", ex.__class__.__name__, ex
+                )
+            self.rsyslog_client = None
+            time.sleep(5.0)
+
+    def send_messages(self, *, messages, cursor):
+        if not self.rsyslog_client:
+            self._init_rsyslog_client()
+        try:
+            for msg in messages:
+                message = json.loads(msg.decode("utf8"))
+
+                facility = int(message.get("SYSLOG_FACILITY", self.default_facility))
+                severity = int(message["PRIORITY"])
+                timestamp = message["timestamp"][:26] + "Z"  # Assume UTC for now
+                hostname = message.get("HOSTNAME")
+                appname = message.get("SYSLOG_IDENTIFIER", message.get("SYSTEMD_UNIT", message.get('PROCESS_NAME')))
+                progid = message.get("PID")
+                txt = message.get("MESSAGE")
+
+                self.rsyslog_client.log(
+                    facility=facility,
+                    severity=severity,
+                    timestamp=timestamp,
+                    hostname=hostname,
+                    program=appname,
+                    pid=progid,
+                    msg=txt,
+                    sd=self.sd
+                )
+            self.mark_sent(messages=messages, cursor=cursor)
+            return True
+        except RSYSLOG_CONN_ERRORS as ex:
+            self.log.info("Rsyslog Client retryable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
+            time.sleep(0.5)
+            self._init_rsyslog_client()
+        except Exception as ex:  # pylint: disable=broad-except
+            self.log.exception("Unexpected exception during send to rsyslog")
+            self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
+            time.sleep(5.0)
+            self._init_rsyslog_client()
+        return False
 
 
 class ElasticsearchSender(LogSender):
@@ -621,6 +705,7 @@ class JournalReader(Tagged):
             "kafka": KafkaSender,
             "logplex": LogplexSender,
             "file": FileSender,
+            "rsyslog": RsyslogSender,
         }
         for sender_name, sender_config in self.config.get("senders", {}).items():
             try:

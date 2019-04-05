@@ -4,12 +4,16 @@ long_ver = $(shell git describe --long 2>/dev/null || echo $(short_ver)-0-unknow
 all: py-egg
 
 PYTHON ?= python3
-PYLINT_DIRS = journalpump/ test/
+PYLINT_DIRS = journalpump/ test/ systest/
 
 test: pylint unittest flake8
 
 unittest:
 	$(PYTHON) -m pytest -vv test/
+
+.PHONY: systest
+systest:
+	$(PYTHON) -m pytest -vv systest/
 
 pylint:
 	$(PYTHON) -m pylint.lint --rcfile .pylintrc $(PYLINT_DIRS)
