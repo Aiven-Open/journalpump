@@ -1,8 +1,9 @@
-journalpump 2.1.x (unreleased)
+journalpump 2.1.0 (2019-04-09)
 ==============================
 * Support for multiple journal readers with separate configuration for each
 * Multiple send destinations per reader
 * Reader flags can be specified to for example read the "system" journal
+* Add rsyslog sender as an output
 
 journalpump 2.0.0 (2017-02-13)
 ============================
@@ -10,7 +11,7 @@ journalpump 2.0.0 (2017-02-13)
 * Rename kafkajournalpump to just journalpump
 * Refactor journalpump to be able to support other outputs than Kafka
 * Add Logplex sender as an output
-* Add Elasticsearch sender as an ouput
+* Add Elasticsearch sender as an output
 * telegraf statsd support including support for searches
 * Require Python 3.4 or newer
 * Various robustness improvements
