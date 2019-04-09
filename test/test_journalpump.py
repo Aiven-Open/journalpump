@@ -1,8 +1,10 @@
 from collections import OrderedDict
 from datetime import datetime
 from journalpump.journalpump import (default_json_serialization, ElasticsearchSender, FieldFilter, MsgBuffer, JournalObject,
-                                     JournalObjectHandler, JournalPump, MAX_KAFKA_MESSAGE_SIZE, KafkaSender, LogplexSender)
+                                     JournalObjectHandler, JournalPump, MAX_KAFKA_MESSAGE_SIZE, KafkaSender, LogplexSender,
+                                     RsyslogSender)
 from unittest import mock, TestCase
+
 import json
 
 
@@ -99,6 +101,33 @@ def test_journalpump_init(tmpdir):
             assert sn == "bar"
             s.running = False
             assert isinstance(s, ElasticsearchSender)
+
+    # rsyslog sender
+    config = {
+        "readers": {
+            "foo": {
+                "senders": {
+                    "bar": {
+                        "output_type": "rsyslog",
+                        # "rsyslog_protocol": "tcp",
+                        # "rsyslog_address": "127.0.0.1:514",
+                    },
+                },
+            },
+        },
+    }
+    with open(journalpump_path, "w") as fp:
+        fp.write(json.dumps(config))
+    a = JournalPump(journalpump_path)
+
+    assert len(a.readers) == 1
+    for rn, r in a.readers.items():
+        assert rn == "foo"
+        r.running = False
+        for sn, s in r.senders.items():
+            assert sn == "bar"
+            s.running = False
+            assert isinstance(s, RsyslogSender)
 
 
 def test_journal_reader_tagging(tmpdir):
