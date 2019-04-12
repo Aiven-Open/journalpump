@@ -3,6 +3,7 @@ from datetime import datetime
 from journalpump.journalpump import (default_json_serialization, ElasticsearchSender, FieldFilter, MsgBuffer, JournalObject,
                                      JournalObjectHandler, JournalPump, MAX_KAFKA_MESSAGE_SIZE, KafkaSender, LogplexSender,
                                      RsyslogSender)
+from time import sleep
 from unittest import mock, TestCase
 
 import json
@@ -109,8 +110,8 @@ def test_journalpump_init(tmpdir):
                 "senders": {
                     "bar": {
                         "output_type": "rsyslog",
-                        # "rsyslog_protocol": "tcp",
-                        # "rsyslog_address": "127.0.0.1:514",
+                        "rsyslog_server": "127.0.0.1",
+                        "rsyslog_port": 514,
                     },
                 },
             },
@@ -251,3 +252,50 @@ class TestJournalObjectHandler(TestCase):
         assert "too large message" in str(self.sender_b.msg_buffer.messages)
 
         self.pump.stats.increase.assert_called_once_with("journal.read_error", tags="tags")
+
+
+def test_journalpump_state_file(tmpdir):
+    journalpump_path = str(tmpdir.join("journalpump.json"))
+    statefile_path = str(tmpdir.join("journalpump_state.json"))
+    config = {
+        "json_state_file_path": statefile_path,
+        "readers": {
+            "state_test": {
+                "senders": {
+                    "fake_syslog": {
+                        "output_type": "rsyslog",
+                        "rsyslog_server": "127.0.0.1",
+                        "rsyslog_port": 514,
+                    },
+                },
+            },
+        },
+    }
+
+    with open(journalpump_path, "w") as fp:
+        fp.write(json.dumps(config))
+
+    pump = JournalPump(journalpump_path)
+    for _, reader in pump.readers.items():
+        reader.initialize_senders()
+        sleep(1.1)
+        reader.request_stop()
+    pump.save_state()
+
+    with open(statefile_path, "r") as fp:
+        state = json.load(fp)
+
+    assert "readers" in state
+    assert "start_time" in state
+    assert "state_test" in state["readers"]
+    reader_state = state["readers"]["state_test"]
+    assert reader_state.get("total_bytes") == 0
+    assert reader_state.get("total_lines") == 0
+    assert "senders" in reader_state
+    assert "fake_syslog" in reader_state["senders"]
+    sender_state = reader_state["senders"]["fake_syslog"]
+    assert "health" in sender_state
+    assert "elapsed" in sender_state["health"]
+    assert sender_state["health"]["elapsed"] > 1.0
+    assert "status" in sender_state["health"]
+    assert sender_state["health"]["status"] == "stopped"

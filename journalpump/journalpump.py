@@ -49,6 +49,13 @@ MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2  # 1 MiB
 logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
 
 
+# Map running/_connected to health
+def _convert_to_health(*, running, connected):
+    if running:
+        return ("connected", 3) if connected else ("disconnected", 2)
+    return ("stale", 2) if connected else("stopped", 0)
+
+
 def _convert_uuid(s):
     return str(uuid.UUID(s.decode()))
 
@@ -159,6 +166,8 @@ class LogSender(Thread, Tagged):
         self._sent_cursor = None
         self._sent_count = 0
         self._sent_bytes = 0
+        self._connected = False
+        self._connected_changed = time.monotonic()  # last time _connected status changed
         self.msg_buffer = MsgBuffer()
         self.log.info("Initialized %s", self.__class__.__name__)
 
@@ -167,6 +176,8 @@ class LogSender(Thread, Tagged):
         self.stats.gauge("journal.last_sent_ago", value=time.monotonic() - self.last_send_time, tags=tags)
         self.stats.gauge("journal.sent_bytes", value=self._sent_bytes, tags=tags)
         self.stats.gauge("journal.sent_lines", value=self._sent_count, tags=tags)
+        self.stats.gauge("journal.status",
+                         value=_convert_to_health(running=self.running, connected=self._connected)[1], tags=tags)
 
     def get_state(self):
         return {
@@ -182,7 +193,21 @@ class LogSender(Thread, Tagged):
                 "count": self._sent_count,
                 "bytes": self._sent_bytes,
             },
+            "health": {
+                "status": _convert_to_health(running=self.running, connected=self._connected)[0],
+                "elapsed": time.monotonic() - self._connected_changed,
+            }
         }
+
+    def mark_connected(self):
+        if not self._connected:
+            self._connected_changed = time.monotonic()
+        self._connected = True
+
+    def mark_disconnected(self):
+        if self._connected:
+            self._connected_changed = time.monotonic()
+        self._connected = False
 
     def mark_sent(self, *, messages, cursor):
         self._sent_count += len(messages)
@@ -250,6 +275,7 @@ class KafkaSender(LogSender):
 
     def _init_kafka(self):
         self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
+        self.mark_disconnected()
         while self.running:
             try:
                 if self.kafka_producer:
@@ -268,8 +294,10 @@ class KafkaSender(LogSender):
                     ssl_keyfile=self.config.get("keyfile"),
                 )
                 self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
+                self.mark_connected()
                 break
             except KAFKA_CONN_ERRORS as ex:
+                self.mark_disconnected()
                 self.log.warning("Retriable error during Kafka initialization: %s: %s, sleeping",
                                  ex.__class__.__name__, ex)
             self.kafka_producer = None
@@ -298,8 +326,10 @@ class KafkaSender(LogSender):
 
 class FileSender(LogSender):
     def __init__(self, *, config, **kwargs):
+        self.mark_disconnected()
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self.output = open(config["file_output"], "ab")
+        self.mark_connected()
 
     def send_messages(self, *, messages, cursor):
         for msg in messages:
@@ -318,6 +348,7 @@ class RsyslogSender(LogSender):
 
     def _init_rsyslog_client(self):
         self.log.info("Initializing Rsyslog Client")
+        self.mark_disconnected()
         while self.running:
             try:
                 if self.rsyslog_client:
@@ -345,11 +376,13 @@ class RsyslogSender(LogSender):
                     certfile=cert
                 )
                 self.log.info("Initialized Rsyslog Client, server: %s, port: %d", server, port)
+                self.mark_connected()
                 break
             except RSYSLOG_CONN_ERRORS as ex:
                 self.log.warning(
                     "Retryable error during Rsyslog Client initialization: %s: %s, sleeping", ex.__class__.__name__, ex
                 )
+                self.mark_disconnected()
             self.rsyslog_client = None
             time.sleep(5.0)
 
@@ -410,6 +443,7 @@ class ElasticsearchSender(LogSender):
     def _init_es_client(self):
         if self.indices:
             return True
+        self.mark_disconnected()
         try:
             self.indices = set(self.session.get(self.session_url + "/_aliases", timeout=60.0).json().keys())
             self.last_es_error = None
@@ -426,6 +460,7 @@ class ElasticsearchSender(LogSender):
             return False
 
         self.log.info("Initialized ES connection")
+        self.mark_connected()
         return True
 
     def create_index_and_mappings(self, index_name):
@@ -539,6 +574,7 @@ class LogplexSender(LogSender):
         self.session = Session()
         self.msg_id = "-"
         self.structured_data = "-"
+        self.mark_connected()
 
     def format_msg(self, msg):
         # TODO: figure out a way to optionally get the entry without JSON
