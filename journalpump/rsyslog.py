@@ -49,32 +49,41 @@ class SyslogTcpClient:
                 "certfile": certfile,
                 "ca_certs": cacerts,
             }
+        self._connect()
 
     def _connect(self):
-        for addr_info in socket.getaddrinfo(self.server, self.port, socket.AF_UNSPEC, self.socket_proto):
-            family, sock_type, sock_proto, _, sock_addr = addr_info
-            try:
-                self.socket = socket.socket(family, sock_type, sock_proto)
-                if self.ssl_params is not None:
-                    self.socket = ssl.wrap_socket(self.socket, **self.ssl_params)
-                self.socket.connect(sock_addr)
-                return
-            except socket.timeout:
-                if self.socket is not None:
-                    self.socket.close()
-                    self.socket = None
-        raise socket.timeout
+        try:
+            last_connection_error = None
+            for addr_info in socket.getaddrinfo(self.server, self.port, socket.AF_UNSPEC, self.socket_proto):
+                family, sock_type, sock_proto, _, sock_addr = addr_info
+                try:
+                    self.socket = socket.socket(family, sock_type, sock_proto)
+                    if self.ssl_params is not None:
+                        self.socket = ssl.wrap_socket(self.socket, **self.ssl_params)
+                    self.socket.connect(sock_addr)
+                    return
+                except Exception as ex:  # pylint: disable=broad-except
+                    if self.socket is not None:
+                        self.socket.close()
+                    last_connection_error = ex
+        except socket.gaierror:
+            raise ValueError("Invalid address {}:{}".format(self.server, self.port))
+
+        raise last_connection_error
 
     def close(self):
         if self.socket is None:
             return
-
-        self.socket.close()
-        self.socket = None
+        try:
+            self.socket.close()
+        finally:
+            self.socket = None
 
     def send(self, message):
         if self.socket is None:
             self._connect()
+        if len(message) >= self.max_msg:
+            message[self.max_msg - 1] = b'\n'
         self.socket.sendall(message[:self.max_msg])
 
     def log(self, *, facility, severity, timestamp, hostname, program, pid=None, msgid=None, msg=None, sd=None):
