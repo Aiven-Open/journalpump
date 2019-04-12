@@ -5,8 +5,8 @@ journalpump |BuildStatus|_
 .. _BuildStatus: https://travis-ci.org/aiven/journalpump
 
 journalpump is a daemon that takes log messages from journald and pumps them
-to a given output.  Currently supported outputs are Elasticsearch, Kafka and
-logplex.  It reads messages from journald and optionally checks if they
+to a given output.  Currently supported outputs are Elasticsearch, Kafka,
+logplex and rsyslog. It reads messages from journald and optionally checks if they
 match a config rule and forwards them as JSON messages to the desired
 output.
 
@@ -380,7 +380,7 @@ Content of structured data section (optional, required by some services to ident
 
 Require encrypted connection.
 
-``ca`` (default ``null``)
+``ca_certs`` (default ``null``)
 
 CA path. Note! setting ca will automatically also set ssl to True
 
