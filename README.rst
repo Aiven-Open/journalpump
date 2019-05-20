@@ -372,6 +372,23 @@ Port used by the remote syslog server.
 Facility for the syslog message if not provided by the entry being relayed.
 (see RFC5424 for list of facilities.)
 
+``default_severity`` (default ``6``)
+
+Severity for the syslog message if not provided by the entry being relayed.
+(see RFC5424 for list of priorities.)
+
+``format`` (default ``rfc5424``)
+
+Log format to use. Can be rfc3164, rfc5424 or custom.
+
+``logline`` (default ``null``)
+
+Custom logline format (ignored unless format is set to custom). The format is a limited version
+of the formatting used by rsyslog. Supported tags are pri, procotol-version, timestamp,
+timestamp:::date-rfc3339, HOSTNAME, app-name, procid, msgid, msg and structured-data.
+
+For example the rfc3164 log format would be defined as `<%pri%>%timestamp% %HOSTNAME% %app-name%[%procid%]: %msg%`
+
 ``structured_data`` (default ``null``)
 
 Content of structured data section (optional, required by some services to identify the sender).

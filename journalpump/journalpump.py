@@ -345,6 +345,7 @@ class RsyslogSender(LogSender):
         self.rsyslog_client = None
         self.sd = None
         self.default_facility = 1
+        self.default_severity = 6
 
     def _init_rsyslog_client(self):
         self.log.info("Initializing Rsyslog Client")
@@ -355,25 +356,21 @@ class RsyslogSender(LogSender):
                     self.rsyslog_client.close()
 
                 self.default_facility = self.config.get("default_facility", 1)
+                self.default_severity = self.config.get("default_severity", 6)
                 self.sd = self.config.get("structured_data")
 
                 server = self.config.get("rsyslog_server")
                 port = self.config.get("rsyslog_port", 514)
 
-                protocol = "SSL" if self.config.get("ssl") is True else "PLAINTEXT"
-
-                ca = self.config.get("ca_certs")
-                key = self.config.get("client_key")
-                cert = self.config.get("client_cert")
-
                 self.rsyslog_client = SyslogTcpClient(
                     server=server,
                     port=port,
                     rfc=self.config.get("format", "rfc5424").upper(),
-                    protocol=protocol,
-                    cacerts=ca,
-                    keyfile=key,
-                    certfile=cert
+                    protocol="SSL" if self.config.get("ssl") is True else "PLAINTEXT",
+                    cacerts=self.config.get("ca_certs"),
+                    keyfile=self.config.get("client_key"),
+                    certfile=self.config.get("client_cert"),
+                    log_format=self.config.get("logline"),
                 )
                 self.log.info("Initialized Rsyslog Client, server: %s, port: %d", server, port)
                 self.mark_connected()
@@ -392,9 +389,13 @@ class RsyslogSender(LogSender):
         try:
             for msg in messages:
                 message = json.loads(msg.decode("utf8"))
+                _facility = message.get("SYSLOG_FACILITY")
+                try:
+                    facility = int(_facility[0] if isinstance(_facility, list) else _facility)
+                except Exception:  # pylint: disable=broad-except
+                    facility = self.default_facility
 
-                facility = int(message.get("SYSLOG_FACILITY", self.default_facility))
-                severity = int(message["PRIORITY"])
+                severity = int(message.get("PRIORITY", self.default_severity))
                 timestamp = message["timestamp"][:26] + "Z"  # Assume UTC for now
                 hostname = message.get("HOSTNAME")
                 appname = message.get("SYSLOG_IDENTIFIER", message.get("SYSTEMD_UNIT", message.get('PROCESS_NAME')))
