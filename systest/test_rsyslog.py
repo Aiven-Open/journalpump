@@ -112,7 +112,7 @@ def _run_pump_test(*, config_path, logfile):
         # Wait a little while for threads to finish
         retry = 0
         while retry < 5:
-            if not [thread for thread in threads if thread.isAlive()]:
+            if not [thread for thread in threads if thread.is_alive()]:
                 break
             sleep(1)
             retry += 1
@@ -144,7 +144,8 @@ def test_rsyslogd_tcp_sender(tmpdir):
                             "output_type": "rsyslog",
                             "rsyslog_server": "127.0.0.1",
                             "rsyslog_port": 5140,
-                            "format": "rfc3164",
+                            "format": "custom",
+                            "logline": "<%pri%>%timestamp% %HOSTNAME% %app-name%[%procid%]: %msg% {%%} %not-valid-tag%",
                         },
                     },
                 },
