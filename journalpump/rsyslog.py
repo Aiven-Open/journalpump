@@ -134,7 +134,7 @@ class SyslogTcpClient:
     def send(self, message):
         if self.socket is None:
             self._connect()
-        self.socket.sendall(message[:self.max_msg-1])
+        self.socket.sendall(message[:self.max_msg - 1])
         if len(message) >= self.max_msg:
             self.socket.sendall(b'\n')
 
