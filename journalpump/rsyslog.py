@@ -32,7 +32,7 @@ def _custom_formatter(custom, **kwargs):
 
 _LOGLINE_VARS = {
     "pri": "{pri}",
-    "procotol-version": "1",
+    "protocol-version": "1",
     "timestamp": "{rfc3164date}",
     "timestamp:::date-rfc3339": "{rfc3339date}",
     "HOSTNAME": "{hostname}",
