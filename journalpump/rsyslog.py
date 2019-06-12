@@ -106,7 +106,7 @@ class SyslogTcpClient:
     def _connect(self):
         try:
             last_connection_error = None
-            for addr_info in socket.getaddrinfo(self.server, self.port, socket.AF_UNSPEC, self.socket_proto):
+            for addr_info in socket.getaddrinfo(self.server, self.port, socket.AF_INET, self.socket_proto):
                 family, sock_type, sock_proto, _, sock_addr = addr_info
                 try:
                     self.socket = socket.socket(family, sock_type, sock_proto)
