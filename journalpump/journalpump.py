@@ -1000,11 +1000,13 @@ class JournalObjectHandler:
             else:
                 new_entry[key.lstrip("_")] = value
 
-        self.reader.perform_searches(self.jobject)
-
         if self.jobject.cursor is None:
             self.log.debug("No more journal entries to read")
             return False
+
+        if self.reader.searches:
+            if not self.reader.perform_searches(self.jobject):
+                return True
 
         if not self.pump.check_match(new_entry):
             return True
