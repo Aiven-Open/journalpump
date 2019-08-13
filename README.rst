@@ -401,11 +401,11 @@ Require encrypted connection.
 
 CA path. Note! setting ca will automatically also set ssl to True
 
-``certfile`` (default ``null``)
+``client_cert`` (default ``null``)
 
 Client certificate path, required if remote syslog requires SSL authentication.
 
-``keyfile`` (default ``null``)
+``client_key`` (default ``null``)
 
 Client key path, required if remote syslog requires SSL authentication.
 
