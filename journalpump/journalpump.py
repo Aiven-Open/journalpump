@@ -951,10 +951,9 @@ class JournalReader(Tagged):
                 if not match:
                     all_match = False
                     break
-                else:
-                    field_values = match.groupdict()
-                    for tag, value in field_values.items():
-                        tags[tag] = value
+                field_values = match.groupdict()
+                for tag, value in field_values.items():
+                    tags[tag] = value
 
             if not all_match:
                 continue
@@ -1084,7 +1083,7 @@ class JournalPump(ServiceDaemon, Tagged):
         self.field_filters = {name: FieldFilter(name, config) for name, config in filters.items()}
 
     def configure_readers(self):
-        new_config = self.config.get("readers", [])
+        new_config = self.config.get("readers", {})
         if self.readers_active_config == new_config:
             # No changes in readers, no reconfig required
             return
