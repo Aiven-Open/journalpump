@@ -1084,7 +1084,7 @@ class JournalPump(ServiceDaemon, Tagged):
         self.field_filters = {name: FieldFilter(name, config) for name, config in filters.items()}
 
     def configure_readers(self):
-        new_config = self.config.get("readers", [])
+        new_config = self.config.get("readers", {})
         if self.readers_active_config == new_config:
             # No changes in readers, no reconfig required
             return
