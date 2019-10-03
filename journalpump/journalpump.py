@@ -951,10 +951,9 @@ class JournalReader(Tagged):
                 if not match:
                     all_match = False
                     break
-                else:
-                    field_values = match.groupdict()
-                    for tag, value in field_values.items():
-                        tags[tag] = value
+                field_values = match.groupdict()
+                for tag, value in field_values.items():
+                    tags[tag] = value
 
             if not all_match:
                 continue
