@@ -430,7 +430,6 @@ class ElasticsearchSender(LogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 10.0), **kwargs)
         self.session_url = self.config.get("elasticsearch_url")
-        self.session_url_bulk = self.session_url + "/_bulk"
         self.last_index_check_time = 0
         self.request_timeout = self.config.get("elasticsearch_timeout", 10.0)
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
@@ -544,8 +543,14 @@ class ElasticsearchSender(LogSender):
             if buf.tell():
                 buf_size = buf.tell()
                 buf.seek(0)
+                # Elasticsearch allows using _index even when posting
+                # to particular index to override the index the entry
+                # so this is mostly cosmetic to avoid needing to
+                # expose /_bulk. We use simply the most recent index
+                # name as base as it does not really matter which one
+                # we use.
                 res = self.session.post(
-                    self.session_url_bulk,
+                    '%s/%s/_bulk' % (self.session_url, index_name),
                     data=buf,
                     headers={
                         "content-length": str(buf_size),

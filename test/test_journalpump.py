@@ -308,7 +308,7 @@ def test_es_sender():
     with responses.RequestsMock() as rsps:
         rsps.add(responses.GET, url + '/_aliases',
                  json={})
-        rsps.add(responses.POST, url + '/_bulk')
+        rsps.add(responses.POST, url + '/journalpump-2019-10-07/_bulk')
         es = ElasticsearchSender(name='es',
                                  reader=mock.Mock(),
                                  stats=mock.Mock(),
