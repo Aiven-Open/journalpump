@@ -3,6 +3,7 @@ from datetime import datetime
 from journalpump.journalpump import (default_json_serialization, ElasticsearchSender, FieldFilter, MsgBuffer, JournalObject,
                                      JournalObjectHandler, JournalPump, MAX_KAFKA_MESSAGE_SIZE, KafkaSender, LogplexSender,
                                      RsyslogSender)
+import responses
 from time import sleep
 from unittest import mock, TestCase
 
@@ -299,3 +300,18 @@ def test_journalpump_state_file(tmpdir):
     assert sender_state["health"]["elapsed"] > 1.0
     assert "status" in sender_state["health"]
     assert sender_state["health"]["status"] == "stopped"
+
+
+@responses.activate
+def test_es_sender():
+    url = "http://localhost:1234"
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.GET, url + '/_aliases',
+                 json={})
+        rsps.add(responses.POST, url + '/_bulk')
+        es = ElasticsearchSender(name='es',
+                                 reader=mock.Mock(),
+                                 stats=mock.Mock(),
+                                 field_filter=None,
+                                 config={"elasticsearch_url": url})
+        assert es.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)

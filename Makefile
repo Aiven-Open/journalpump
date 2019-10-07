@@ -45,7 +45,7 @@ rpm:
 build-dep-fed:
 	sudo dnf -y --best --allowerasing install \
 		python3-flake8 python3-kafka python3-pytest python3-pylint \
-		python3-requests systemd-python3
+		python3-requests python3-responses systemd-python3
 
 build-dep-deb:
 	sudo apt-get install \

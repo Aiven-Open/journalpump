@@ -26,3 +26,6 @@ max-line-length=125
 [REPORTS]
 output-format=text
 reports=no
+
+[TYPECHECK]
+ignored-classes=responses
