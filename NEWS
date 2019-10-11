@@ -1,6 +1,8 @@
-journalpump 2.1.1 (unreleased)
+journalpump 2.1.2 (2019-10-11)
 ==============================
-* report sender health in jsonpump_state.json
+* Report sender health in jsonpump_state.json
+* Added limited rsyslog custom log format support
+* Use /<index>/_bulk instead of /_bulk for sending to Elasticsearch
 
 journalpump 2.1.0 (2019-04-09)
 ==============================
