@@ -6,6 +6,7 @@
 from . import geohash, statsd
 from . daemon import ServiceDaemon
 from . rsyslog import SyslogTcpClient
+from . util import atomic_replace_file
 from functools import reduce
 from io import BytesIO
 from kafka import KafkaProducer
@@ -1224,7 +1225,7 @@ class JournalPump(ServiceDaemon, Tagged):
         }
 
         if state_to_save != self.previous_state:
-            with open(state_file_path, "w") as fp:
+            with atomic_replace_file(state_file_path) as fp:
                 json.dump(state_to_save, fp, indent=4, sort_keys=True)
                 self.previous_state = state_to_save
                 self.log.debug("Wrote state file: %r", state_to_save)
