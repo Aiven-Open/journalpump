@@ -160,6 +160,7 @@ class LogSender(Thread, Tagged):
         self.extra_field_values = extra_field_values
         self.field_filter = field_filter
         self.msg_buffer_max_length = msg_buffer_max_length
+        self.last_maintenance_fail = 0
         self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
         self.running = True
@@ -226,7 +227,14 @@ class LogSender(Thread, Tagged):
 
     def run(self):
         while self.running:
-            self.maintenance_operations()
+            try:
+                # Don't run maintenance operations again immediately if it just failed
+                if not self.last_maintenance_fail or time.monotonic() - self.last_maintenance_fail > 60:
+                    self.maintenance_operations()
+            except Exception as ex:  # pylint: disable=broad-except
+                self.log.error("Maintenance operation failed: %r", ex)
+                self.stats.unexpected_exception(ex=ex, where="maintenance_operation")
+                self.last_maintenance_fail = time.monotonic()
             if len(self.msg_buffer) > 1000 or \
                time.monotonic() - self.last_send_time > self.max_send_interval:
                 self.get_and_send_messages()
