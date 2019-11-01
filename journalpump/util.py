@@ -5,6 +5,7 @@
 
 import contextlib
 import os
+import requests
 import tempfile
 
 
@@ -20,3 +21,23 @@ def atomic_replace_file(file_path):
         with contextlib.suppress(Exception):
             os.unlink(tmp_file_path)
         raise
+
+
+class TimeoutAdapter(requests.adapters.HTTPAdapter):
+    def __init__(self, *args, timeout=None, **kwargs):
+        self.timeout = timeout
+        super(TimeoutAdapter, self).__init__(*args, **kwargs)
+
+    def send(self, *args, **kwargs):  # pylint: disable=arguments-differ
+        if not kwargs.get("timeout"):
+            kwargs["timeout"] = self.timeout
+        return super(TimeoutAdapter, self).send(*args, **kwargs)
+
+
+def get_requests_session(*, timeout=60):
+    request_session = requests.Session()
+    adapter_args = {"timeout": timeout}
+    adapter = TimeoutAdapter(**adapter_args)
+    request_session.mount("http://", adapter)
+    request_session.mount("https://", adapter)
+    return request_session

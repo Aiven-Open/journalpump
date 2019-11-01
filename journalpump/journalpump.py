@@ -6,11 +6,10 @@
 from . import geohash, statsd
 from . daemon import ServiceDaemon
 from . rsyslog import SyslogTcpClient
-from . util import atomic_replace_file
+from . util import atomic_replace_file, get_requests_session
 from functools import reduce
 from io import BytesIO
 from kafka import KafkaProducer
-from requests import Session
 from systemd.journal import Reader
 from threading import Lock, Thread
 import copy
@@ -435,7 +434,7 @@ class ElasticsearchSender(LogSender):
         self.request_timeout = self.config.get("elasticsearch_timeout", 10.0)
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")
-        self.session = requests.Session()
+        self.session = get_requests_session()
         # If ca is set in config we use that, otherwise we verify using builtin CA cert list
         self.session.verify = self.config.get("ca", True)
         self.indices = set()
@@ -497,7 +496,7 @@ class ElasticsearchSender(LogSender):
         buf.write(message + b"\n")
 
     def check_indices(self):
-        aliases = self.session.get(self.session_url + "/_aliases").json()
+        aliases = self.session.get(self.session_url + "/_aliases", timeout=60.0).json()
         indices = [key for key in aliases.keys() if key.startswith(self.index_name)]
         self.log.info("Checking indices, currently: %r are available, max_indices: %r", indices, self.index_days_max)
         while len(indices) > self.index_days_max:
@@ -505,7 +504,7 @@ class ElasticsearchSender(LogSender):
             self.log.info("Deleting index: %r since we only keep %d days worth of indices",
                           index_to_delete, self.index_days_max)
             try:
-                self.session.delete("{}/{}".format(self.session_url, index_to_delete))
+                self.session.delete("{}/{}".format(self.session_url, index_to_delete), timeout=60.0)
                 self.indices.discard(index_to_delete)
             except Exception as ex:   # pylint: disable=broad-except
                 self.log.exception("Unexpected exception deleting index %r", index_to_delete)
@@ -578,7 +577,7 @@ class LogplexSender(LogSender):
         self.logplex_input_url = config["logplex_log_input_url"]
         self.request_timeout = config.get("logplex_request_timeout", 2)
         self.logplex_token = config["logplex_token"]
-        self.session = Session()
+        self.session = get_requests_session()
         self.msg_id = "-"
         self.structured_data = "-"
         self.mark_connected()
