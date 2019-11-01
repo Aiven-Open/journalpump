@@ -1,6 +1,7 @@
 journalpump 2.1.3 (unreleased)
 ==============================
 * Use atomic replacement when overwriting previous state file
+* Add missing timeout to Elasticsearch log sender
 
 journalpump 2.1.2 (2019-10-11)
 ==============================
