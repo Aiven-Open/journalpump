@@ -16,7 +16,7 @@ systest:
 	$(PYTHON) -m pytest -vv systest/
 
 pylint:
-	$(PYTHON) -m pylint.lint --rcfile .pylintrc $(PYLINT_DIRS)
+	$(PYTHON) -m pylint --rcfile .pylintrc $(PYLINT_DIRS)
 
 flake8:
 	$(PYTHON) -m flake8 --max-line-length=125 $(PYLINT_DIRS)

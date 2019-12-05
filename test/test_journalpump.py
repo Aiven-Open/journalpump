@@ -232,9 +232,10 @@ class TestJournalObjectHandler(TestCase):
         jobject = JournalObject(entry=OrderedDict(a=1, b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10)
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process() is True
-        assert (json.dumps({"a": 1}).encode("utf-8"), 10) in self.sender_a.msg_buffer.messages
-
-        assert (json.dumps(OrderedDict(a=1, b=2)).encode("utf-8"), 10) in self.sender_b.msg_buffer.messages
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"a": 1}, 10) in sender_a_msgs
+        sender_b_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_b.msg_buffer.messages]
+        assert ({"a": 1, "b": 2}, 10) in sender_b_msgs
 
         largest_data = json.dumps(
             OrderedDict(a=1, b=2, c=3, REALTIME_TIMESTAMP=1, timestamp=datetime.utcfromtimestamp(1)),
@@ -249,7 +250,8 @@ class TestJournalObjectHandler(TestCase):
         jobject = JournalObject(entry=too_large, cursor=10)
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process() is True
-        assert (json.dumps({"a": 1}).encode("utf-8"), 10) in self.sender_a.msg_buffer.messages
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"a": 1}, 10) in sender_a_msgs
         assert "too large message" in str(self.sender_b.msg_buffer.messages)
 
         self.pump.stats.increase.assert_called_once_with("journal.read_error", tags="tags")
