@@ -241,7 +241,7 @@ class LogSender(Thread, Tagged):
         self._sent_count += len(messages)
         self._sent_bytes += sum(len(m) for m in messages)
         self._sent_cursor = cursor
-        self._errors = []
+        self.mark_connected()
 
     def request_stop(self):
         self.running = False
@@ -613,6 +613,7 @@ class ElasticsearchSender(LogSender):
             short_msg = str(ex)[:200]
             self.log.exception("Problem sending logs to ES: %s: %s", ex.__class__.__name__, short_msg)
             return False
+
         return True
 
 
