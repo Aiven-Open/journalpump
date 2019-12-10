@@ -17,6 +17,7 @@ import datetime
 import json
 import kafka.common
 import logging
+import random
 import re
 import requests
 import select
@@ -174,7 +175,15 @@ class LogSender(Thread, Tagged):
         self._connected_changed = time.monotonic()  # last time _connected status changed
         self._errors = []
         self.msg_buffer = MsgBuffer()
+        self._backoff_attempt = 0
         self.log.info("Initialized %s", self.__class__.__name__)
+
+    def _backoff(self, *, base=0.5, cap=1800.0):
+        self._backoff_attempt += 1
+        t = min(cap, base * 2 ** self._backoff_attempt) / 2
+        t = random.random() * t + t
+        self.log.info("Sleeping for %.0f seconds", t)
+        time.sleep(t)
 
     def refresh_stats(self):
         tags = self.make_tags()
@@ -210,6 +219,7 @@ class LogSender(Thread, Tagged):
             self._connected_changed = time.monotonic()
         self._connected = True
         self._errors = []
+        self._backoff_attempt = 0
 
     def mark_disconnected(self, error=None):
         if self._connected:
@@ -241,7 +251,7 @@ class LogSender(Thread, Tagged):
         self._sent_count += len(messages)
         self._sent_bytes += sum(len(m) for m in messages)
         self._sent_cursor = cursor
-        self._errors = []
+        self.mark_connected()
 
     def request_stop(self):
         self.running = False
@@ -297,7 +307,7 @@ class LogSender(Thread, Tagged):
             self.last_send_time = time.monotonic()
         except Exception:   # pylint: disable=broad-except
             self.log.exception("Problem sending %r messages", msg_count)
-            time.sleep(0.5)
+            self._backoff()
 
 
 class KafkaSender(LogSender):
@@ -334,8 +344,8 @@ class KafkaSender(LogSender):
                 break
             except KAFKA_CONN_ERRORS as ex:
                 self.mark_disconnected(ex)
-                self.log.warning("Retriable error during Kafka initialization: %s: %s, sleeping",
-                                 ex.__class__.__name__, ex)
+                self.log.warning("Retriable error during Kafka initialization: %s: %s", ex.__class__.__name__, ex)
+                self._backoff()
             self.kafka_producer = None
             time.sleep(5.0)
 
@@ -351,13 +361,13 @@ class KafkaSender(LogSender):
         except KAFKA_CONN_ERRORS as ex:
             self.mark_disconnected(ex)
             self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
-            time.sleep(0.5)
+            self._backoff()
             self._init_kafka()
         except Exception as ex:  # pylint: disable=broad-except
             self.mark_disconnected(ex)
             self.log.exception("Unexpected exception during send to kafka")
             self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
-            time.sleep(5.0)
+            self._backoff()
             self._init_kafka()
         return False
 
@@ -418,6 +428,7 @@ class RsyslogSender(LogSender):
                     "Retryable error during Rsyslog Client initialization: %s: %s, sleeping", ex.__class__.__name__, ex
                 )
                 self.mark_disconnected(ex)
+                self._backoff()
             self.rsyslog_client = None
             time.sleep(5.0)
 
@@ -455,13 +466,13 @@ class RsyslogSender(LogSender):
         except RSYSLOG_CONN_ERRORS as ex:
             self.mark_disconnected(ex)
             self.log.info("Rsyslog Client retryable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
-            time.sleep(0.5)
+            self._backoff()
             self._init_rsyslog_client()
         except Exception as ex:  # pylint: disable=broad-except
             self.mark_disconnected(ex)
             self.log.exception("Unexpected exception during send to rsyslog")
             self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
-            time.sleep(5.0)
+            self._backoff()
             self._init_rsyslog_client()
         return False
 
@@ -509,7 +520,7 @@ class ElasticsearchSender(LogSender):
         try:
             self.log.info("Creating index: %r", index_name)
             res = self.session.put(
-                self.session_url + "/{}".format(index_name),
+                self.session_url + "/{}?include_type_name=true".format(index_name),
                 json={
                     "mappings": {
                         "journal_msg": {
@@ -531,7 +542,7 @@ class ElasticsearchSender(LogSender):
             self.mark_disconnected(ex)
             self.log.error("Problem creating index %r: %s: %s", index_name, ex.__class__.__name__, ex)
             self.stats.unexpected_exception(ex, where="es_pump_create_index_and_mappings")
-            time.sleep(5.0)  # prevent busy loop
+            self._backoff()
 
     @staticmethod
     def format_message_for_es(buf, header, message):
@@ -566,7 +577,7 @@ class ElasticsearchSender(LogSender):
             es_available = self._init_es_client()
             if not es_available:
                 self.log.warning("Waiting for ES connection")
-                time.sleep(20.0)
+                self._backoff()
                 return False
             for msg in messages:
                 message = json.loads(msg.decode("utf8"))
@@ -612,7 +623,9 @@ class ElasticsearchSender(LogSender):
             self.mark_disconnected(ex)
             short_msg = str(ex)[:200]
             self.log.exception("Problem sending logs to ES: %s: %s", ex.__class__.__name__, short_msg)
+            self._backoff()
             return False
+
         return True
 
 
