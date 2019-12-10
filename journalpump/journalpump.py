@@ -520,7 +520,7 @@ class ElasticsearchSender(LogSender):
         try:
             self.log.info("Creating index: %r", index_name)
             res = self.session.put(
-                self.session_url + "/{}".format(index_name),
+                self.session_url + "/{}?include_type_name=true".format(index_name),
                 json={
                     "mappings": {
                         "journal_msg": {
