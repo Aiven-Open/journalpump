@@ -6,7 +6,7 @@ Summary:        Pump messages from systemd journal to Elasticsearch, Kafka or Lo
 License:        ASL 2.0
 Source0:        journalpump-rpm-src.tar.gz
 Requires:       python3-kafka, systemd-python3, python3-requests
-BuildRequires:  %{requires}
+BuildRequires:  python3-kafka, systemd-python3, python3-requests
 BuildRequires:  python3-devel, python3-pytest, python3-pylint
 BuildArch:      noarch
 Obsoletes:      kafkajournalpump
