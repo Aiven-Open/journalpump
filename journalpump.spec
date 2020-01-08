@@ -7,7 +7,7 @@ License:        ASL 2.0
 Source0:        journalpump-rpm-src.tar.gz
 Requires:       python3-kafka, systemd-python3, python3-requests
 BuildRequires:  python3-kafka, systemd-python3, python3-requests
-BuildRequires:  python3-devel, python3-pytest, python3-pylint
+BuildRequires:  python3-devel, python3-pytest, python3-pylint python3-responses
 BuildArch:      noarch
 Obsoletes:      kafkajournalpump
 
