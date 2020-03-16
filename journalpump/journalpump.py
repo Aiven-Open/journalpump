@@ -15,7 +15,7 @@ from threading import Lock, Thread
 import copy
 import datetime
 import json
-import kafka.common
+import kafka.errors
 import logging
 import random
 import re
@@ -37,8 +37,8 @@ except ImportError:
     GeoIPReader = None
 
 
-KAFKA_CONN_ERRORS = tuple(kafka.common.RETRY_ERROR_TYPES) + (
-    kafka.common.UnknownError,
+KAFKA_CONN_ERRORS = tuple(kafka.errors.RETRY_ERROR_TYPES) + (
+    kafka.errors.UnknownError,
     socket.timeout,
 )
 
