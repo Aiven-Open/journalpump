@@ -552,7 +552,8 @@ class ElasticsearchSender(LogSender):
 
     def check_indices(self):
         aliases = self.session.get(self.session_url + "/_aliases", timeout=60.0).json()
-        indices = [key for key in aliases.keys() if key.startswith(self.index_name)]
+        index_full_prefix = "{}-".format(self.index_name)
+        indices = sorted(key for key in aliases.keys() if key.startswith(index_full_prefix))
         self.log.info("Checking indices, currently: %r are available, max_indices: %r", indices, self.index_days_max)
         while len(indices) > self.index_days_max:
             index_to_delete = indices.pop(0)
