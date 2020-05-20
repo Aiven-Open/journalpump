@@ -28,7 +28,7 @@ class TimeoutAdapter(requests.adapters.HTTPAdapter):
         self.timeout = timeout
         super(TimeoutAdapter, self).__init__(*args, **kwargs)
 
-    def send(self, *args, **kwargs):  # pylint: disable=arguments-differ
+    def send(self, *args, **kwargs):  # pylint: disable=arguments-differ,signature-differs
         if not kwargs.get("timeout"):
             kwargs["timeout"] = self.timeout
         return super(TimeoutAdapter, self).send(*args, **kwargs)
