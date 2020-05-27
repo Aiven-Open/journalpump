@@ -2,15 +2,17 @@ from collections import OrderedDict
 from datetime import datetime
 from journalpump.journalpump import (default_json_serialization, ElasticsearchSender, FieldFilter, MsgBuffer, JournalObject,
                                      JournalObjectHandler, JournalPump, MAX_KAFKA_MESSAGE_SIZE, KafkaSender, LogplexSender,
-                                     RsyslogSender)
+                                     RsyslogSender, AWSCloudWatchSender)
 import responses
 from time import sleep
 from unittest import mock, TestCase
+from botocore.stub import Stubber
+import boto3
 
 import json
 
 
-def test_journalpump_init(tmpdir):
+def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     # Logplex sender
     journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
@@ -130,6 +132,61 @@ def test_journalpump_init(tmpdir):
             assert sn == "bar"
             s.running = False
             assert isinstance(s, RsyslogSender)
+
+    # AWS CloudWatch sender
+    config = {
+        "readers": {
+            "foo": {
+                "senders": {
+                    "bar": {
+                        "output_type": "aws_cloudwatch",
+                        "aws_cloudwatch_log_group": "group",
+                        "aws_cloudwatch_log_stream": "stream",
+                        "aws_region": "us-east-1",
+                        "aws_access_key_id": "key",
+                        "aws_secret_access_key": "secret"
+                    }
+                }
+            }
+        }
+    }
+    with open(journalpump_path, "w") as fp:
+        fp.write(json.dumps(config))
+    a = JournalPump(journalpump_path)
+
+    class MockCloudWatch(mock.Mock):
+        def __init__(self, *args, **kwargs):
+            super(MockCloudWatch, self).__init__(*args, **kwargs)
+            self.create_log_group = mock.Mock(return_value=None)
+            self.create_log_stream = mock.Mock(return_value=None)
+            self.describe_log_streams = mock.Mock(return_value={
+                "logStreams": [
+                    {"logStreamName": "stream", "uploadSequenceToken": "token"}
+                ]
+            })
+
+    assert len(a.readers) == 1
+    for rn, r in a.readers.items():
+        assert rn == "foo"
+        with mock.patch("boto3.client", new=MockCloudWatch()) as mock_client:
+            r.create_journald_reader_if_missing()
+            mock_client.assert_called_once_with(
+                "logs",
+                region_name="us-east-1",
+                aws_access_key_id="key",
+                aws_secret_access_key="secret"
+            )
+        r.running = False
+        for sn, s in r.senders.items():
+            assert sn == "bar"
+            s.running = False
+            # pylint: disable=protected-access
+            s._logs.create_log_group.assert_called_once_with(logGroupName="group")
+            s._logs.create_log_stream.assert_called_once_with(logGroupName="group", logStreamName="stream")
+            s._logs.describe_log_streams.assert_called_once_with(logGroupName="group")
+            assert s._next_sequence_token == "token"
+            # pylint: enable=protected-access
+            assert isinstance(s, AWSCloudWatchSender)
 
 
 def test_journal_reader_tagging(tmpdir):
@@ -317,3 +374,101 @@ def test_es_sender():
                                  field_filter=None,
                                  config={"elasticsearch_url": url})
         assert es.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
+
+
+def test_awscloudwatch_sender():
+    logs = boto3.client("logs", region_name="us-east-1")
+
+    with Stubber(logs) as stubber:
+        stubber.add_client_error("create_log_group", service_error_code="ResourceAlreadyExistsException")
+        stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response(
+            "describe_log_streams",
+            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
+            {"logGroupName": "group"}
+        )
+        sender = AWSCloudWatchSender(
+            name="awscloudwatch",
+            reader=mock.Mock(),
+            stats=mock.Mock(),
+            field_filter=None,
+            config={
+                "aws_cloudwatch_log_group": "group",
+                "aws_cloudwatch_log_stream": "stream"
+            },
+            aws_cloudwatch_logs=logs)
+        assert sender._next_sequence_token == "token"  # pylint: disable=protected-access
+
+    with Stubber(logs) as stubber:
+        stubber.add_response(
+            "put_log_events",
+            {"ResponseMetadata": {"HTTPStatusCode": 200}, "nextSequenceToken": "token1", "rejectedLogEventsInfo": {}}
+        )
+        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
+        assert sender._next_sequence_token == "token1"  # pylint: disable=protected-access
+        assert sender._sent_count == 1  # pylint: disable=protected-access
+
+    with Stubber(logs) as stubber:
+        expected_args = {
+            "logGroupName": "group",
+            "logStreamName": "stream",
+            "logEvents": [{
+                "timestamp": 123456789000,
+                "message": '{"MESSAGE": "Hello World!"}'
+            }],
+            "sequenceToken": "token1"
+        }
+        stubber.add_response(
+            "put_log_events",
+            {"ResponseMetadata": {"HTTPStatusCode": 200}, "nextSequenceToken": "token2", "rejectedLogEventsInfo": {}},
+            expected_args
+        )
+        with mock.patch("time.time", return_value=123456789):
+            sender.send_messages(messages=[b'{"MESSAGE": "Hello World!"}'], cursor=None)
+        assert sender._next_sequence_token == "token2"  # pylint: disable=protected-access
+        assert sender._sent_count == 2  # pylint: disable=protected-access
+
+    with Stubber(logs) as stubber:
+        expected_args = {
+            "logGroupName": "group",
+            "logStreamName": "stream",
+            "logEvents": [{
+                "timestamp": 1590581737308,
+                "message": '{"REALTIME_TIMESTAMP": 1590581737.308352}'
+            }],
+            "sequenceToken": "token2"
+        }
+        stubber.add_response(
+            "put_log_events",
+            {"ResponseMetadata": {"HTTPStatusCode": 200}, "nextSequenceToken": "token2", "rejectedLogEventsInfo": {}},
+            expected_args
+        )
+        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
+        assert sender._next_sequence_token == "token2"  # pylint: disable=protected-access
+        assert sender._sent_count == 3  # pylint: disable=protected-access
+
+    with Stubber(logs) as stubber:
+        stubber.add_client_error("put_log_events", service_error_code="ThrottlingException")
+        stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response(
+            "describe_log_streams",
+            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
+            {"logGroupName": "group"}
+        )
+        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
+        assert sender._connected  # pylint: disable=protected-access
+        assert sender._sent_count == 3  # pylint: disable=protected-access
+
+    with Stubber(logs) as stubber:
+        stubber.add_client_error("put_log_events", service_error_code="InternalFailure")
+        stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response(
+            "describe_log_streams",
+            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
+            {"logGroupName": "group"}
+        )
+        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
+        assert sender._connected  # pylint: disable=protected-access
+        assert sender._sent_count == 3  # pylint: disable=protected-access
