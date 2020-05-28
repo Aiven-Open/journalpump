@@ -43,6 +43,8 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
+        r.create_journald_reader_if_missing()
+        assert len(r.senders) == 1
         r.running = False
         for sn, s in r.senders.items():
             assert sn == "bar"
@@ -73,6 +75,8 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
+        r.create_journald_reader_if_missing()
+        assert len(r.senders) == 1
         r.running = False
         for sn, s in r.senders.items():
             assert sn == "bar"
@@ -100,6 +104,8 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
+        r.create_journald_reader_if_missing()
+        assert len(r.senders) == 1
         r.running = False
         for sn, s in r.senders.items():
             assert sn == "bar"
@@ -127,6 +133,8 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
+        r.create_journald_reader_if_missing()
+        assert len(r.senders) == 1
         r.running = False
         for sn, s in r.senders.items():
             assert sn == "bar"
@@ -170,6 +178,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
         assert rn == "foo"
         with mock.patch("boto3.client", new=MockCloudWatch()) as mock_client:
             r.create_journald_reader_if_missing()
+            assert len(r.senders) == 1
             mock_client.assert_called_once_with(
                 "logs",
                 region_name="us-east-1",
