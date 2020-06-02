@@ -6,9 +6,9 @@ journalpump |BuildStatus|_
 
 journalpump is a daemon that takes log messages from journald and pumps them
 to a given output.  Currently supported outputs are Elasticsearch, Kafka,
-logplex and rsyslog. It reads messages from journald and optionally checks if they
-match a config rule and forwards them as JSON messages to the desired
-output.
+logplex, rsyslog and AWS CloudWatch. It reads messages from journald and
+optionally checks if they match a config rule and forwards them as JSON messages
+to the desired output.
 
 
 Building
@@ -355,6 +355,34 @@ for partition selection.
 Kafka client key path, needed when you're using Kafka with SSL
 authentication.
 
+AWS CloudWatch Logs Sender Configuration
+----------------------------------------
+``aws_cloudwatch_log_group``
+
+The log group used in AWS CloudWatch.
+
+``aws_cloudwatch_log_stream``
+
+The log stream used in AWS CloudWatch.
+
+``aws_region`` (default ``null``)
+
+AWS region used.
+
+``aws_access_key_id`` (default ``null``)
+
+AWS access key id used.
+
+``aws_secret_access_key`` (default ``null``)
+
+AWS secret access key used.
+
+The AWS credentials and region are optional. In case they are not included
+credentials are configured automatically by the ``boto3`` module.
+
+The AWS credentials that are used need the following permissions:
+``logs:CreateLogGroup``, ``logs:CreateLogStream``, ``logs:PutLogEvents``
+and ``logs:DescribeLogStreams``.
 
 Rsyslog Sender Configuration
 ----------------------------
