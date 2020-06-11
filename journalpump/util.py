@@ -3,6 +3,7 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 
+import datetime
 import contextlib
 import os
 import requests
@@ -41,3 +42,10 @@ def get_requests_session(*, timeout=60):
     request_session.mount("http://", adapter)
     request_session.mount("https://", adapter)
     return request_session
+
+
+def default_json_serialization(obj):  # pylint: disable=inconsistent-return-statements
+    if isinstance(obj, bytes):
+        return obj.decode("utf8")
+    if isinstance(obj, datetime.datetime):
+        return obj.isoformat()

@@ -1,8 +1,10 @@
 from collections import OrderedDict
 from datetime import datetime
-from journalpump.journalpump import (default_json_serialization, ElasticsearchSender, FieldFilter, MsgBuffer, JournalObject,
-                                     JournalObjectHandler, JournalPump, MAX_KAFKA_MESSAGE_SIZE, KafkaSender, LogplexSender,
-                                     RsyslogSender, AWSCloudWatchSender)
+from journalpump.util import default_json_serialization
+from journalpump.senders.base import MsgBuffer, MAX_KAFKA_MESSAGE_SIZE
+from journalpump.senders import ElasticsearchSender, KafkaSender, LogplexSender, RsyslogSender, AWSCloudWatchSender
+from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump
+
 import responses
 from time import sleep
 from unittest import mock, TestCase
