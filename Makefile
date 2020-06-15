@@ -15,6 +15,9 @@ unittest:
 systest:
 	$(PYTHON) -m pytest -vv systest/
 
+py-egg:
+	VERSION=$(shell git describe --tags) $(PYTHON) setup.py bdist_egg
+
 pylint:
 	$(PYTHON) -m pylint --rcfile .pylintrc $(PYLINT_DIRS)
 
@@ -45,12 +48,14 @@ rpm:
 build-dep-fed:
 	sudo dnf -y --best --allowerasing install \
 		python3-flake8 python3-kafka python3-pytest python3-pylint \
-		python3-requests python3-responses systemd-python3 python3-boto3
+		python3-requests python3-responses systemd-python3 python3-boto3 \
+		python3-google-api-client
 
 build-dep-deb:
 	sudo apt-get install \
 		build-essential devscripts dh-systemd \
-		python-all python-setuptools python3-systemd python3-kafka
+		python-all python-setuptools python3-systemd python3-kafka \
+		python3-boto python3-googleapi
 
 
 .PHONY: rpm

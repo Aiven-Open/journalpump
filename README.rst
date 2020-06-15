@@ -384,6 +384,26 @@ The AWS credentials that are used need the following permissions:
 ``logs:CreateLogGroup``, ``logs:CreateLogStream``, ``logs:PutLogEvents``
 and ``logs:DescribeLogStreams``.
 
+Google Cloud Logging Sender Configuration
+-----------------------------------------
+``google_cloud_logging_project_id``
+
+The GCP project id to which logs will be sent.
+
+``google_cloud_logging_log_id``
+
+The log id to be used for this particular sender.
+
+``google_cloud_logging_resource_labels``
+
+A dictionary containing the labels added to the monitored resource.
+Find the allowed labels from https://cloud.google.com/monitoring/api/resources#tag_generic_node.
+
+``google_service_account_credentials``
+
+The service account credentials to be used for this sender. If not
+defined, the sender will try to find credentials from the system.
+
 Rsyslog Sender Configuration
 ----------------------------
 

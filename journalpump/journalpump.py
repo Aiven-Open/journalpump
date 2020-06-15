@@ -10,7 +10,8 @@ from functools import reduce
 from systemd.journal import Reader
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE
 from .senders.base import Tagged
-from .senders import AWSCloudWatchSender, RsyslogSender, LogplexSender, FileSender, KafkaSender, ElasticsearchSender
+from .senders import (AWSCloudWatchSender, RsyslogSender, LogplexSender, FileSender,
+                      KafkaSender, ElasticsearchSender, GoogleCloudLoggingSender)
 import copy
 import datetime
 import json
@@ -198,7 +199,8 @@ class JournalReader(Tagged):
             "logplex": LogplexSender,
             "file": FileSender,
             "rsyslog": RsyslogSender,
-            "aws_cloudwatch": AWSCloudWatchSender
+            "aws_cloudwatch": AWSCloudWatchSender,
+            "google_cloud_logging": GoogleCloudLoggingSender,
         }
         for sender_name, sender_config in self.config.get("senders", {}).items():
             try:

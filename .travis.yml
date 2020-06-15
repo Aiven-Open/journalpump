@@ -12,7 +12,7 @@ python:
   - "3.7"
 
 install:
-  - "pip install pylint pytest mock flake8 kafka-python coverage coveralls requests responses boto3"
+  - "pip install pylint pytest mock flake8 kafka-python coverage coveralls requests responses boto3 google-api-python-client oauth2client"
   - "pip install https://github.com/systemd/python-systemd/zipball/master"
 
 script:

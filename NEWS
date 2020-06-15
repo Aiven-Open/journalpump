@@ -1,3 +1,7 @@
+journalpump 2.3.0 (2020-06-15)
+==============================
+* Added Google Cloud Logging logs sender
+
 journalpump 2.2.0 (2020-06-01)
 ==============================
 * Added AWS CloudWatch logs sender
