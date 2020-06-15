@@ -2,7 +2,9 @@
 *.pyc
 /.cache/
 /.coverage
+/.vscode/
 /build/
 /dist/
 /journalpump.egg-info/
 /rpm/
+/venv/
