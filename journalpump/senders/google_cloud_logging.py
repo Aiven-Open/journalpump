@@ -5,6 +5,9 @@ from googleapiclient.errors import Error as GoogleApiClientError
 from oauth2client.service_account import ServiceAccountCredentials
 
 import json
+import logging
+
+logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
 
 
 class GoogleCloudLoggingSender(LogSender):
@@ -72,7 +75,7 @@ class GoogleCloudLoggingSender(LogSender):
                 "jsonPayload": msg,
             }
             if timestamp is not None:
-                entry["timestamp"] = timestamp
+                entry["timestamp"] = timestamp[:26] + "Z"  # assume timestamp to be UTC
             if journald_priority is not None:
                 severity = GoogleCloudLoggingSender._SEVERITY_MAPPING.get(journald_priority, "DEFAULT")
                 entry["severity"] = severity
