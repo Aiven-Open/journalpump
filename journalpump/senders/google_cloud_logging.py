@@ -5,6 +5,9 @@ from googleapiclient.errors import Error as GoogleApiClientError
 from oauth2client.service_account import ServiceAccountCredentials
 
 import json
+import logging
+
+logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
 
 
 class GoogleCloudLoggingSender(LogSender):
