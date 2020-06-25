@@ -75,7 +75,7 @@ class GoogleCloudLoggingSender(LogSender):
                 "jsonPayload": msg,
             }
             if timestamp is not None:
-                entry["timestamp"] = timestamp
+                entry["timestamp"] = timestamp[:26] + "Z"  # assume timestamp to be UTC
             if journald_priority is not None:
                 severity = GoogleCloudLoggingSender._SEVERITY_MAPPING.get(journald_priority, "DEFAULT")
                 entry["severity"] = severity

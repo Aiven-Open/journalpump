@@ -648,7 +648,7 @@ def test_google_cloud_logging_sender():
             },
         "entries": [
             {
-                "timestamp": "2020-06-25T06:24:13.787255",
+                "timestamp": "2020-06-25T06:24:13.787255Z",
                 "severity": "EMERGENCY",
                 "jsonPayload": {
                     "message": "Hello"
