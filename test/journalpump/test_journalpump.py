@@ -3,12 +3,13 @@ from collections import OrderedDict
 from datetime import datetime
 from googleapiclient.http import RequestMockBuilder as GoogleApiClientRequestMockBuilder
 from httplib2 import Response as HttpLib2Response
-from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump
+from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump, PumpReader
 from journalpump.senders import (
     AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
 from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer
 from journalpump.util import default_json_serialization
+from test.conftest import StandaloneJournalD
 from time import sleep
 from unittest import mock, TestCase
 
@@ -426,7 +427,7 @@ def test_journalpump_state_file(tmpdir):
 
     pump = JournalPump(journalpump_path)
     for _, reader in pump.readers.items():
-        reader.initialize_senders()
+        reader._initialize_senders()
         sleep(1.1)
         reader.request_stop()
     pump.save_state()
@@ -686,3 +687,23 @@ def test_google_cloud_logging_sender():
         messages=[b'{"message": "Hello", "PRIORITY": 0, "timestamp": "2020-06-25T06:24:13.787255"}'], cursor=None
     )
     assert sender._sent_count == 1  # pylint: disable=protected-access
+
+
+def test_pump_reader(journald_server: StandaloneJournalD):
+    """Test the pump reader can read from journald at all"""
+    pump_reader = PumpReader(path=journald_server.logs_path().as_posix())
+
+    # Generate some journal entries
+    src_logs = [f"Log {i}" for i in range(100)]
+    for l in src_logs:
+        journald_server.send_log(l)
+
+    entries = []
+    while True:
+        entry = pump_reader.get_next()
+        if entry is None:
+            break
+        entries.append(entry)
+
+    assert len(entries) > 0
+    assert {entry.entry["MESSAGE"] for entry in entries}.issuperset(set(src_logs))

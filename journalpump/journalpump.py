@@ -144,13 +144,13 @@ class JournalReader(Tagged):
         self.last_journal_msg_time = time.monotonic()
         self.searches = list(self._build_searches(searches))
 
-    def create_journald_reader_if_missing(self):
+    def _create_journald_reader_if_missing(self):
         if not self.journald_reader and time.monotonic() - self.last_journald_create_attempt > 2:
             self.last_journald_create_attempt = time.monotonic()
-            self.journald_reader = self.get_reader(seek_to=self.cursor)
+            self.journald_reader = self._get_reader(seek_to=self.cursor)
 
     def update_poll_registration_status(self, poller):
-        self.create_journald_reader_if_missing()
+        self._create_journald_reader_if_missing()
         if not self.journald_reader:
             return
 
@@ -159,14 +159,14 @@ class JournalReader(Tagged):
             self.log.info(
                 "Message buffer size under threshold for all senders, starting processing journal for %r", self.name
             )
-            self.register_for_poll(poller)
+            self._register_for_poll(poller)
         elif self.registered_for_poll and sender_over_limit:
             self.log.info(
                 "Message buffer size for at least one sender over threshold, stopping processing journal for %r", self.name
             )
             self.unregister_from_poll(poller)
 
-    def register_for_poll(self, poller):
+    def _register_for_poll(self, poller):
         if self.journald_reader:
             poller.register(self.journald_reader, self.journald_reader.get_events())
             self.registered_for_poll = True
@@ -178,31 +178,12 @@ class JournalReader(Tagged):
             self.registered_for_poll = False
             self.log.info("Unregistered reader %r with fd %r", self.name, self.journald_reader.fileno())
 
-    def get_resume_cursor(self):
-        """Find the sender cursor location where a new JournalReader instance should resume reading from"""
-        if not self.senders:
-            self.log.info("Reader has no senders, using reader's resume location")
-            return self.cursor
-
-        for sender_name, sender in self.senders.items():
-            state = sender.get_state()
-            cursor = state["sent"]["cursor"]
-            if cursor is None:
-                self.log.info("Sender %r needs a full catchup from beginning, resuming from journal start", sender_name)
-                return None
-
-            # TODO: pick oldest sent cursor
-            self.log.info("Resuming reader from sender's ('%s') position", sender_name)
-            return cursor
-
-        return None
-
     def request_stop(self):
         self.running = False
         for sender in self.senders.values():
             sender.request_stop()
 
-    def initialize_senders(self):
+    def _initialize_senders(self):
         if self._senders_initialized:
             return
 
@@ -292,7 +273,7 @@ class JournalReader(Tagged):
 
         return jobject
 
-    def get_reader(self, seek_to=None, reinit=False):
+    def _get_reader(self, seek_to=None, reinit=False):
         """Return an initialized reader or None"""
         if not reinit and self.journald_reader:
             return self.journald_reader
@@ -342,7 +323,7 @@ class JournalReader(Tagged):
         for unit_to_match in self.config.get("units_to_match", []):
             self.journald_reader.add_match(_SYSTEMD_UNIT=unit_to_match)
 
-        self.initialize_senders()
+        self._initialize_senders()
 
         return self.journald_reader
 
