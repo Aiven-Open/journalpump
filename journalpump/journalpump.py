@@ -2,16 +2,17 @@
 #
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
-
 from . import geohash, statsd
 from .daemon import ServiceDaemon
 from .senders import (
     AWSCloudWatchSender, ElasticsearchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
+from .types import GeoIPProtocol
 from .util import atomic_replace_file, default_json_serialization
 from functools import reduce
 from systemd.journal import Reader
+from typing import Type, Union
 
 import copy
 import datetime
@@ -23,6 +24,7 @@ import systemd.journal
 import time
 import uuid
 
+GeoIPReader: Union[Type[GeoIPProtocol], None]
 try:
     from geoip2.database import Reader as GeoIPReader
 except ImportError:
