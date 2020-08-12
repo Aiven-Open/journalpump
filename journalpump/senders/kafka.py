@@ -1,17 +1,14 @@
 from .base import LogSender
+from kafka import errors, KafkaProducer
 
-from kafka import KafkaProducer
-from kafka import errors
-
-import time
-import socket
 import logging
+import socket
+import time
 
 try:
     import snappy
 except ImportError:
     snappy = None
-
 
 KAFKA_CONN_ERRORS = tuple(errors.RETRY_ERROR_TYPES) + (
     errors.UnknownError,

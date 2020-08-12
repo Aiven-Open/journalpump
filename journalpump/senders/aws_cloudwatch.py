@@ -1,18 +1,14 @@
 from .base import LogSender
 
-import time
-import json
-import botocore
 import boto3
+import botocore
+import json
+import time
 
 
 class AWSCloudWatchSender(LogSender):
     def __init__(self, *, config, aws_cloudwatch_logs=None, **kwargs):
-        super().__init__(
-            config=config,
-            max_send_interval=config.get("max_send_interval", 0.3),
-            **kwargs
-        )
+        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self._logs = aws_cloudwatch_logs
         self.log_group = self.config.get("aws_cloudwatch_log_group")
         self.log_stream = self.config.get("aws_cloudwatch_log_stream")
@@ -44,7 +40,7 @@ class AWSCloudWatchSender(LogSender):
                 raise
         streams = self._logs.describe_log_streams(logGroupName=self.log_group).get("logStreams")
         if streams is not None:
-            stream_metadata = [stream for stream in streams if stream['logStreamName'] == self.log_stream][0]
+            stream_metadata = [stream for stream in streams if stream["logStreamName"] == self.log_stream][0]
             self._next_sequence_token = stream_metadata.get("uploadSequenceToken")
             self.mark_connected()
         else:
@@ -56,17 +52,8 @@ class AWSCloudWatchSender(LogSender):
             raw_message = msg.decode("utf8")
             message = json.loads(raw_message)
             timestamp = message.get("REALTIME_TIMESTAMP") or time.time()
-            log_events.append(
-                {
-                    "timestamp": int(timestamp * 1000.0),
-                    "message": raw_message
-                }
-            )
-        kwargs = {
-            "logGroupName": self.log_group,
-            "logStreamName": self.log_stream,
-            "logEvents": log_events
-        }
+            log_events.append({"timestamp": int(timestamp * 1000.0), "message": raw_message})
+        kwargs = {"logGroupName": self.log_group, "logStreamName": self.log_stream, "logEvents": log_events}
         if self._next_sequence_token is not None:
             kwargs["sequenceToken"] = self._next_sequence_token
         try:

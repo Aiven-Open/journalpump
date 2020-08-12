@@ -3,6 +3,10 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 
+from journalpump.journalpump import JournalPump
+from subprocess import Popen
+from time import sleep
+
 import json
 import logging
 import logging.handlers
@@ -12,10 +16,6 @@ import re
 import socket
 import string
 import threading
-from subprocess import Popen
-from time import sleep
-
-from journalpump.journalpump import JournalPump
 
 RSYSLOGD = "/usr/sbin/rsyslogd"
 
@@ -92,7 +92,7 @@ def _run_pump_test(*, config_path, logfile):
         threads.append(pump)
 
         assert _journalpump_initialized(journalpump), "Failed to initialize journalpump"
-        identifier = ''.join(random.sample(string.ascii_uppercase + string.digits, k=8))
+        identifier = "".join(random.sample(string.ascii_uppercase + string.digits, k=8))
         logger = logging.getLogger("rsyslog-tester")
         logger.info("Info message for %s", identifier)
         logger.warning("Warning message for %s", identifier)

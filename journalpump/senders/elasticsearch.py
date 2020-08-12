@@ -1,7 +1,6 @@
 from .base import LogSender
-from journalpump.util import default_json_serialization
-from journalpump.util import get_requests_session
 from io import BytesIO
+from journalpump.util import default_json_serialization, get_requests_session
 
 import json
 import requests
@@ -56,8 +55,12 @@ class ElasticsearchSender(LogSender):
                     "mappings": {
                         "journal_msg": {
                             "properties": {
-                                "SYSTEMD_SESSION": {"type": "text"},
-                                "SESSION_ID": {"type": "text"},
+                                "SYSTEMD_SESSION": {
+                                    "type": "text"
+                                },
+                                "SESSION_ID": {
+                                    "type": "text"
+                                },
                             }
                         }
                     },
@@ -88,12 +91,13 @@ class ElasticsearchSender(LogSender):
         self.log.info("Checking indices, currently: %r are available, max_indices: %r", indices, self.index_days_max)
         while len(indices) > self.index_days_max:
             index_to_delete = indices.pop(0)
-            self.log.info("Deleting index: %r since we only keep %d days worth of indices",
-                          index_to_delete, self.index_days_max)
+            self.log.info(
+                "Deleting index: %r since we only keep %d days worth of indices", index_to_delete, self.index_days_max
+            )
             try:
                 self.session.delete("{}/{}".format(self.session_url, index_to_delete), timeout=60.0)
                 self.indices.discard(index_to_delete)
-            except Exception as ex:   # pylint: disable=broad-except
+            except Exception as ex:  # pylint: disable=broad-except
                 self.log.exception("Unexpected exception deleting index %r", index_to_delete)
                 self.stats.unexpected_exception(ex, where="es_pump_check_indices")
 
@@ -137,7 +141,7 @@ class ElasticsearchSender(LogSender):
                 # name as base as it does not really matter which one
                 # we use.
                 res = self.session.post(
-                    '%s/%s/_bulk' % (self.session_url, index_name),
+                    "%s/%s/_bulk" % (self.session_url, index_name),
                     data=buf,
                     headers={
                         "content-length": str(buf_size),
@@ -149,8 +153,10 @@ class ElasticsearchSender(LogSender):
                 buf.truncate(0)
 
                 self.mark_sent(messages=messages, cursor=cursor)
-                self.log.info("Sent %d log events to ES successfully: %r, took: %.2fs",
-                              len(messages), res.status_code in {200, 201}, time.monotonic() - start_time)
+                self.log.info(
+                    "Sent %d log events to ES successfully: %r, took: %.2fs", len(messages), res.status_code in {200, 201},
+                    time.monotonic() - start_time
+                )
         except Exception as ex:  # pylint: disable=broad-except
             self.mark_disconnected(ex)
             short_msg = str(ex)[:200]

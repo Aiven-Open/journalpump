@@ -1,20 +1,20 @@
+from botocore.stub import Stubber
 from collections import OrderedDict
 from datetime import datetime
-from journalpump.util import default_json_serialization
-from journalpump.senders.base import MsgBuffer, MAX_KAFKA_MESSAGE_SIZE
-from journalpump.senders import (ElasticsearchSender, KafkaSender, LogplexSender, RsyslogSender,
-                                 AWSCloudWatchSender, GoogleCloudLoggingSender)
-from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump
 from googleapiclient.http import RequestMockBuilder as GoogleApiClientRequestMockBuilder
 from httplib2 import Response as HttpLib2Response
-
-import responses
+from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump
+from journalpump.senders import (
+    AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
+)
+from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer
+from journalpump.util import default_json_serialization
 from time import sleep
 from unittest import mock, TestCase
-from botocore.stub import Stubber
-import boto3
 
+import boto3
 import json
+import responses
 
 _PRIVATE_KEY = \
     "-----BEGIN PRIVATE KEY-----\n" + \
@@ -202,11 +202,12 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             super(MockCloudWatch, self).__init__(*args, **kwargs)
             self.create_log_group = mock.Mock(return_value=None)
             self.create_log_stream = mock.Mock(return_value=None)
-            self.describe_log_streams = mock.Mock(return_value={
-                "logStreams": [
-                    {"logStreamName": "stream", "uploadSequenceToken": "token"}
-                ]
-            })
+            self.describe_log_streams = mock.Mock(
+                return_value={"logStreams": [{
+                    "logStreamName": "stream",
+                    "uploadSequenceToken": "token"
+                }]}
+            )
 
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
@@ -215,10 +216,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             r.create_journald_reader_if_missing()
             assert len(r.senders) == 1
             mock_client.assert_called_once_with(
-                "logs",
-                region_name="us-east-1",
-                aws_access_key_id="key",
-                aws_secret_access_key="secret"
+                "logs", region_name="us-east-1", aws_access_key_id="key", aws_secret_access_key="secret"
             )
         r.running = False
         for sn, s in r.senders.items():
@@ -251,8 +249,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
                             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                             "token_uri": "https://oauth2.googleapis.com/token",
                             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                            "client_x509_cert_url":
-                                "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"
+                            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"
                         }
                     }
                 }
@@ -287,9 +284,11 @@ def test_journal_reader_tagging(tmpdir):
                             "MESSAGE": r"(?P<cpu>CPU\d+): .*temperature.*",
                             "SYSLOG_IDENTIFIER": r"^(?P<from>.*)$",
                             "PRIORITY": r"^(?P<level>[0-4])$",  # emergency, alert, critical, error
-                            "SYSLOG_FACILITY": r"^0$",          # kernel only
+                            "SYSLOG_FACILITY": r"^0$",  # kernel only
                         },
-                        "tags": {"section": "cputemp"},
+                        "tags": {
+                            "section": "cputemp"
+                        },
                     },
                     {
                         "name": "noresults",
@@ -309,12 +308,14 @@ def test_journal_reader_tagging(tmpdir):
     reader = pump.readers["system"]
 
     # matching entry
-    entry = JournalObject(entry={
-        "MESSAGE": "CPU0: Core temperature above threshold, cpu clock throttled (total events = 1)",
-        "PRIORITY": "2",
-        "SYSLOG_FACILITY": "0",
-        "SYSLOG_IDENTIFIER": "kernel",
-    })
+    entry = JournalObject(
+        entry={
+            "MESSAGE": "CPU0: Core temperature above threshold, cpu clock throttled (total events = 1)",
+            "PRIORITY": "2",
+            "SYSLOG_FACILITY": "0",
+            "SYSLOG_IDENTIFIER": "kernel",
+        }
+    )
     result = reader.perform_searches(entry)
     expected = {
         "kernel.cpu.temperature": {
@@ -327,12 +328,14 @@ def test_journal_reader_tagging(tmpdir):
     assert result == expected
 
     # some fields are not matching
-    entry = JournalObject(entry={
-        "MESSAGE": "CPU1: on fire",
-        "PRIORITY": "1",
-        "SYSLOG_FACILITY": "0",
-        "SYSLOG_IDENTIFIER": "kernel",
-    })
+    entry = JournalObject(
+        entry={
+            "MESSAGE": "CPU1: on fire",
+            "PRIORITY": "1",
+            "SYSLOG_FACILITY": "0",
+            "SYSLOG_IDENTIFIER": "kernel",
+        }
+    )
     result = reader.perform_searches(entry)
     assert result == {}
 
@@ -451,14 +454,11 @@ def test_journalpump_state_file(tmpdir):
 def test_es_sender():
     url = "http://localhost:1234"
     with responses.RequestsMock() as rsps:
-        rsps.add(responses.GET, url + '/_aliases',
-                 json={})
-        rsps.add(responses.POST, url + '/journalpump-2019-10-07/_bulk')
-        es = ElasticsearchSender(name='es',
-                                 reader=mock.Mock(),
-                                 stats=mock.Mock(),
-                                 field_filter=None,
-                                 config={"elasticsearch_url": url})
+        rsps.add(responses.GET, url + "/_aliases", json={})
+        rsps.add(responses.POST, url + "/journalpump-2019-10-07/_bulk")
+        es = ElasticsearchSender(
+            name="es", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"elasticsearch_url": url}
+        )
         assert es.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
 
 
@@ -469,9 +469,10 @@ def test_awscloudwatch_sender():
         stubber.add_client_error("create_log_group", service_error_code="ResourceAlreadyExistsException")
         stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response(
-            "describe_log_streams",
-            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
-            {"logGroupName": "group"}
+            "describe_log_streams", {"logStreams": [{
+                "logStreamName": "stream",
+                "uploadSequenceToken": "token"
+            }]}, {"logGroupName": "group"}
         )
         sender = AWSCloudWatchSender(
             name="awscloudwatch",
@@ -482,13 +483,19 @@ def test_awscloudwatch_sender():
                 "aws_cloudwatch_log_group": "group",
                 "aws_cloudwatch_log_stream": "stream"
             },
-            aws_cloudwatch_logs=logs)
+            aws_cloudwatch_logs=logs
+        )
         assert sender._next_sequence_token == "token"  # pylint: disable=protected-access
 
     with Stubber(logs) as stubber:
         stubber.add_response(
-            "put_log_events",
-            {"ResponseMetadata": {"HTTPStatusCode": 200}, "nextSequenceToken": "token1", "rejectedLogEventsInfo": {}}
+            "put_log_events", {
+                "ResponseMetadata": {
+                    "HTTPStatusCode": 200
+                },
+                "nextSequenceToken": "token1",
+                "rejectedLogEventsInfo": {}
+            }
         )
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._next_sequence_token == "token1"  # pylint: disable=protected-access
@@ -505,9 +512,13 @@ def test_awscloudwatch_sender():
             "sequenceToken": "token1"
         }
         stubber.add_response(
-            "put_log_events",
-            {"ResponseMetadata": {"HTTPStatusCode": 200}, "nextSequenceToken": "token2", "rejectedLogEventsInfo": {}},
-            expected_args
+            "put_log_events", {
+                "ResponseMetadata": {
+                    "HTTPStatusCode": 200
+                },
+                "nextSequenceToken": "token2",
+                "rejectedLogEventsInfo": {}
+            }, expected_args
         )
         with mock.patch("time.time", return_value=123456789):
             sender.send_messages(messages=[b'{"MESSAGE": "Hello World!"}'], cursor=None)
@@ -525,9 +536,13 @@ def test_awscloudwatch_sender():
             "sequenceToken": "token2"
         }
         stubber.add_response(
-            "put_log_events",
-            {"ResponseMetadata": {"HTTPStatusCode": 200}, "nextSequenceToken": "token2", "rejectedLogEventsInfo": {}},
-            expected_args
+            "put_log_events", {
+                "ResponseMetadata": {
+                    "HTTPStatusCode": 200
+                },
+                "nextSequenceToken": "token2",
+                "rejectedLogEventsInfo": {}
+            }, expected_args
         )
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._next_sequence_token == "token2"  # pylint: disable=protected-access
@@ -538,9 +553,10 @@ def test_awscloudwatch_sender():
         stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response(
-            "describe_log_streams",
-            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
-            {"logGroupName": "group"}
+            "describe_log_streams", {"logStreams": [{
+                "logStreamName": "stream",
+                "uploadSequenceToken": "token"
+            }]}, {"logGroupName": "group"}
         )
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._connected  # pylint: disable=protected-access
@@ -551,9 +567,10 @@ def test_awscloudwatch_sender():
         stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response(
-            "describe_log_streams",
-            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
-            {"logGroupName": "group"}
+            "describe_log_streams", {"logStreams": [{
+                "logStreamName": "stream",
+                "uploadSequenceToken": "token"
+            }]}, {"logGroupName": "group"}
         )
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._connected  # pylint: disable=protected-access
@@ -578,31 +595,28 @@ def test_google_cloud_logging_sender():
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url":
-                "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"
+            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"
         }
     }
 
     expected_body = {
         "logName": "projects/project-id/logs/log-id",
-        "resource":
-            {
-                "type": "generic_node",
-                "labels": {
-                    "location": "us-east-1",
-                    "node_id": "my-test-node"
-                },
+        "resource": {
+            "type": "generic_node",
+            "labels": {
+                "location": "us-east-1",
+                "node_id": "my-test-node"
             },
-        "entries": [
-            {
-                "jsonPayload": {
-                    "message": "Hello"
-                }
-            }]
+        },
+        "entries": [{
+            "jsonPayload": {
+                "message": "Hello"
+            }
+        }]
     }
     requestBuilder = GoogleApiClientRequestMockBuilder(
         {
-            'logging.entries.write': (None, "{}", expected_body),
+            "logging.entries.write": (None, "{}", expected_body),
         },
         check_unexpected=True,
     )
@@ -620,7 +634,7 @@ def test_google_cloud_logging_sender():
 
     requestBuilder = GoogleApiClientRequestMockBuilder(
         {
-            'logging.entries.write': (HttpLib2Response({"status": "400"}), b"", expected_body),
+            "logging.entries.write": (HttpLib2Response({"status": "400"}), b"", expected_body),
         },
         check_unexpected=True,
     )
@@ -638,26 +652,24 @@ def test_google_cloud_logging_sender():
 
     expected_body = {
         "logName": "projects/project-id/logs/log-id",
-        "resource":
-            {
-                "type": "generic_node",
-                "labels": {
-                    "location": "us-east-1",
-                    "node_id": "my-test-node"
-                },
+        "resource": {
+            "type": "generic_node",
+            "labels": {
+                "location": "us-east-1",
+                "node_id": "my-test-node"
             },
-        "entries": [
-            {
-                "timestamp": "2020-06-25T06:24:13.787255Z",
-                "severity": "EMERGENCY",
-                "jsonPayload": {
-                    "message": "Hello"
-                }
-            }]
+        },
+        "entries": [{
+            "timestamp": "2020-06-25T06:24:13.787255Z",
+            "severity": "EMERGENCY",
+            "jsonPayload": {
+                "message": "Hello"
+            }
+        }]
     }
     requestBuilder = GoogleApiClientRequestMockBuilder(
         {
-            'logging.entries.write': (None, "{}", expected_body),
+            "logging.entries.write": (None, "{}", expected_body),
         },
         check_unexpected=True,
     )
@@ -670,7 +682,7 @@ def test_google_cloud_logging_sender():
         config=config,
         googleapiclient_request_builder=requestBuilder
     )
-    sender.send_messages(messages=[
-        b'{"message": "Hello", "PRIORITY": 0, "timestamp": "2020-06-25T06:24:13.787255"}'
-    ], cursor=None)
+    sender.send_messages(
+        messages=[b'{"message": "Hello", "PRIORITY": 0, "timestamp": "2020-06-25T06:24:13.787255"}'], cursor=None
+    )
     assert sender._sent_count == 1  # pylint: disable=protected-access

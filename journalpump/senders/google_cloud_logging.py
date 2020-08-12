@@ -1,5 +1,4 @@
 from .base import LogSender
-
 from googleapiclient.discovery import build
 from googleapiclient.errors import Error as GoogleApiClientError
 from oauth2client.service_account import ServiceAccountCredentials
@@ -23,11 +22,7 @@ class GoogleCloudLoggingSender(LogSender):
     }
 
     def __init__(self, *, config, googleapiclient_request_builder=None, **kwargs):
-        super().__init__(
-            config=config,
-            max_send_interval=config.get("max_send_interval", 0.3),
-            **kwargs
-        )
+        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         credentials = None
         google_service_account = config.get("google_service_account_credentials")
         self.project_id = config["google_cloud_logging_project_id"]
@@ -40,18 +35,9 @@ class GoogleCloudLoggingSender(LogSender):
             credentials = ServiceAccountCredentials.get_application_default()
 
         if googleapiclient_request_builder is not None:
-            self._logs = build(
-                "logging",
-                "v2",
-                credentials=credentials,
-                requestBuilder=googleapiclient_request_builder
-            )
+            self._logs = build("logging", "v2", credentials=credentials, requestBuilder=googleapiclient_request_builder)
         else:
-            self._logs = build(
-                "logging",
-                "v2",
-                credentials=credentials
-            )
+            self._logs = build("logging", "v2", credentials=credentials)
         self.mark_connected()
 
     def send_messages(self, *, messages, cursor):

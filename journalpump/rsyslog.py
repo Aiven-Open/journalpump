@@ -73,8 +73,9 @@ def _generate_format(logline):
 
 
 class SyslogTcpClient:
-    def __init__(self, *, server, port, rfc,
-                 max_msg=2048, protocol=None, cacerts=None, keyfile=None, certfile=None, log_format=None):
+    def __init__(
+        self, *, server, port, rfc, max_msg=2048, protocol=None, cacerts=None, keyfile=None, certfile=None, log_format=None
+    ):
         self.socket = None
         self.server = server
         self.port = port
@@ -92,7 +93,7 @@ class SyslogTcpClient:
         else:
             raise ValueError('Unknown message format "{}" requested'.format(rfc))
         if protocol is None:
-            protocol = 'PLAINTEXT'
+            protocol = "PLAINTEXT"
         if cacerts is not None or protocol == "SSL":
             self.ssl_params = {
                 "ssl_version": ssl.PROTOCOL_TLS,  # pylint: disable=no-member
@@ -136,7 +137,7 @@ class SyslogTcpClient:
             self._connect()
         self.socket.sendall(message[:self.max_msg - 1])
         if len(message) >= self.max_msg:
-            self.socket.sendall(b'\n')
+            self.socket.sendall(b"\n")
 
     def log(self, *, facility, severity, timestamp, hostname, program, pid=None, msgid=None, msg=None, sd=None):
         if 0 <= facility <= 23 and 0 <= severity <= 7:
@@ -159,4 +160,6 @@ class SyslogTcpClient:
                 proc_id=proc_id,
                 msg_id=msg_id,
                 msg=message,
-                sd=sd))
+                sd=sd
+            )
+        )
