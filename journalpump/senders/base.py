@@ -1,8 +1,8 @@
-from threading import Thread, Lock
+from threading import Lock, Thread
 
 import logging
-import time
 import random
+import time
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
 MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2  # 1 MiB
@@ -15,7 +15,7 @@ MAX_ERROR_MESSAGE_LEN = 128
 def _convert_to_health(*, running, connected):
     if running:
         return ("connected", 3) if connected else ("disconnected", 2)
-    return ("stale", 2) if connected else("stopped", 0)
+    return ("stale", 2) if connected else ("stopped", 0)
 
 
 class Tagged:
@@ -64,8 +64,19 @@ class MsgBuffer:
 
 
 class LogSender(Thread, Tagged):
-    def __init__(self, *, name, reader, config, field_filter, stats, max_send_interval,
-                 extra_field_values=None, tags=None, msg_buffer_max_length=50000):
+    def __init__(
+        self,
+        *,
+        name,
+        reader,
+        config,
+        field_filter,
+        stats,
+        max_send_interval,
+        extra_field_values=None,
+        tags=None,
+        msg_buffer_max_length=50000
+    ):
         Thread.__init__(self)
         Tagged.__init__(self, tags, sender=name)
         self.log = logging.getLogger("LogSender:{}".format(reader.name))
@@ -101,8 +112,9 @@ class LogSender(Thread, Tagged):
         self.stats.gauge("journal.last_sent_ago", value=time.monotonic() - self.last_send_time, tags=tags)
         self.stats.gauge("journal.sent_bytes", value=self._sent_bytes, tags=tags)
         self.stats.gauge("journal.sent_lines", value=self._sent_count, tags=tags)
-        self.stats.gauge("journal.status",
-                         value=_convert_to_health(running=self.running, connected=self._connected)[1], tags=tags)
+        self.stats.gauge(
+            "journal.status", value=_convert_to_health(running=self.running, connected=self._connected)[1], tags=tags
+        )
 
     def get_state(self):
         return {
@@ -143,7 +155,7 @@ class LogSender(Thread, Tagged):
         if isinstance(error, str):
             msg = error
         elif isinstance(error, Exception):
-            msg = getattr(error, 'message', repr(error))
+            msg = getattr(error, "message", repr(error))
         else:
             msg = repr(error)
 
@@ -216,6 +228,6 @@ class LogSender(Thread, Tagged):
 
             self.log.debug("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
             self.last_send_time = time.monotonic()
-        except Exception:   # pylint: disable=broad-except
+        except Exception:  # pylint: disable=broad-except
             self.log.exception("Problem sending %r messages", msg_count)
             self._backoff()

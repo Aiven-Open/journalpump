@@ -4,4 +4,5 @@
 # See the file `LICENSE` for details.
 
 from . import journalpump
+
 journalpump.JournalPump.run_exit()

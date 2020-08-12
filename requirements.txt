@@ -1,0 +1,8 @@
+kafka-python
+requests
+boto3
+google-api-python-client
+oauth2client
+geoip2
+https://github.com/systemd/python-systemd/zipball/master
+typing-extensions

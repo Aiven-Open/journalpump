@@ -8,3 +8,7 @@
 /journalpump.egg-info/
 /rpm/
 /venv/
+/.venv/
+/.idea
+*.orig
+

@@ -2,12 +2,12 @@
 #
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
-
 """
 Common Daemon functionality
 
 """
 from systemd import daemon, journal
+
 import json
 import logging
 import os
@@ -54,8 +54,9 @@ class ServiceDaemon:
                 self.journal_handler = journal.JournalHandler(SYSLOG_IDENTIFIER=self.name)
                 logging.root.addHandler(self.journal_handler)
             self.journal_handler.setLevel(self.log_level)
-            self.journal_handler.setFormatter(logging.Formatter(
-                LOG_FORMAT_JOURNAL_MULTI_THREAD if self.multi_threaded else LOG_FORMAT_JOURNAL))
+            self.journal_handler.setFormatter(
+                logging.Formatter(LOG_FORMAT_JOURNAL_MULTI_THREAD if self.multi_threaded else LOG_FORMAT_JOURNAL)
+            )
             logging.root.setLevel(self.log_level)
 
     def sighup(self, signum, frame):  # pylint: disable=unused-argument

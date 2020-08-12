@@ -3,8 +3,8 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 
-import datetime
 import contextlib
+import datetime
 import os
 import requests
 import tempfile

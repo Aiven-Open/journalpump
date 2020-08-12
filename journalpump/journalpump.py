@@ -2,16 +2,18 @@
 #
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
-
 from . import geohash, statsd
 from .daemon import ServiceDaemon
+from .senders import (
+    AWSCloudWatchSender, ElasticsearchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
+)
+from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
+from .types import GeoIPProtocol
 from .util import atomic_replace_file, default_json_serialization
 from functools import reduce
 from systemd.journal import Reader
-from .senders.base import MAX_KAFKA_MESSAGE_SIZE
-from .senders.base import Tagged
-from .senders import (AWSCloudWatchSender, RsyslogSender, LogplexSender, FileSender,
-                      KafkaSender, ElasticsearchSender, GoogleCloudLoggingSender)
+from typing import Type, Union
+
 import copy
 import datetime
 import json
@@ -22,6 +24,7 @@ import systemd.journal
 import time
 import uuid
 
+GeoIPReader: Union[Type[GeoIPProtocol], None]
 try:
     from geoip2.database import Reader as GeoIPReader
 except ImportError:
@@ -100,8 +103,20 @@ class PumpReader(Reader):
 
 
 class JournalReader(Tagged):
-    def __init__(self, *, name, config, field_filters, geoip, stats,
-                 tags=None, seek_to=None, msg_buffer_max_length=50000, searches=None, initial_position=None):
+    def __init__(
+        self,
+        *,
+        name,
+        config,
+        field_filters,
+        geoip,
+        stats,
+        tags=None,
+        seek_to=None,
+        msg_buffer_max_length=50000,
+        searches=None,
+        initial_position=None
+    ):
         Tagged.__init__(self, tags, reader=name)
         self.log = logging.getLogger("JournalReader:{}".format(name))
         self.name = name
@@ -142,14 +157,12 @@ class JournalReader(Tagged):
         sender_over_limit = any(len(sender.msg_buffer) > self.msg_buffer_max_length for sender in self.senders.values())
         if not self.registered_for_poll and not sender_over_limit:
             self.log.info(
-                "Message buffer size under threshold for all senders, starting processing journal for %r",
-                self.name
+                "Message buffer size under threshold for all senders, starting processing journal for %r", self.name
             )
             self.register_for_poll(poller)
         elif self.registered_for_poll and sender_over_limit:
             self.log.info(
-                "Message buffer size for at least one sender over threshold, stopping processing journal for %r",
-                self.name
+                "Message buffer size for at least one sender over threshold, stopping processing journal for %r", self.name
             )
             self.unregister_from_poll(poller)
 
@@ -293,7 +306,8 @@ class JournalReader(Tagged):
         journal_flags = self.config.get("journal_flags")
         if isinstance(journal_flags, list):
             journal_flags = reduce(
-                lambda a, b: a | b,
+                lambda a,
+                b: a | b,
                 [getattr(systemd.journal, flag.strip()) for flag in journal_flags],
             )
 
@@ -304,8 +318,7 @@ class JournalReader(Tagged):
                 path=self.config.get("journal_path"),
             )
         except FileNotFoundError as ex:
-            self.log.warning("journal for %r not available yet: %s: %s",
-                             self.name, ex.__class__.__name__, ex)
+            self.log.warning("journal for %r not available yet: %s: %s", self.name, ex.__class__.__name__, ex)
             return None
 
         if seek_to:
@@ -504,13 +517,14 @@ class JournalObjectHandler:
         return json_entry
 
     def _truncate_long_message(self, json_entry):
-        error = "too large message {} bytes vs maximum {} bytes".format(
-            len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
+        error = "too large message {} bytes vs maximum {} bytes".format(len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
         if not self.error_reported:
-            self.pump.stats.increase("journal.read_error", tags=self.pump.make_tags({
-                "error": "too_long",
-                "reader": self.reader.name,
-            }))
+            self.pump.stats.increase(
+                "journal.read_error", tags=self.pump.make_tags({
+                    "error": "too_long",
+                    "reader": self.reader.name,
+                })
+            )
             self.log.warning("%s: %s ...", error, json_entry[:1024])
             self.error_reported = True
         entry = {
@@ -562,8 +576,7 @@ class JournalPump(ServiceDaemon, Tagged):
             for sender_name, sender in reader_state.get("senders", {}).items():
                 sender_cursor = sender["sent"]["cursor"]
                 if sender_cursor is None:
-                    self.log.info("Sender %r for reader %r needs full sync from beginning",
-                                  sender_name, reader_name)
+                    self.log.info("Sender %r for reader %r needs full sync from beginning", sender_name, reader_name)
                     resume_cursor = None
                     break
 
@@ -610,7 +623,7 @@ class JournalPump(ServiceDaemon, Tagged):
     def sigterm(self, signum, frame):
         try:
             self.save_state()
-        except Exception:   # pylint: disable=broad-except
+        except Exception:  # pylint: disable=broad-except
             self.log.exception("Saving state at shutdown failed")
 
         for reader in self.readers.values():

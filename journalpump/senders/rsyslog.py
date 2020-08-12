@@ -68,7 +68,7 @@ class RsyslogSender(LogSender):
                 severity = int(message.get("PRIORITY", self.default_severity))
                 timestamp = message["timestamp"][:26] + "Z"  # Assume UTC for now
                 hostname = message.get("HOSTNAME")
-                appname = message.get("SYSLOG_IDENTIFIER", message.get("SYSTEMD_UNIT", message.get('PROCESS_NAME')))
+                appname = message.get("SYSLOG_IDENTIFIER", message.get("SYSTEMD_UNIT", message.get("PROCESS_NAME")))
                 progid = message.get("PID")
                 txt = message.get("MESSAGE")
 

@@ -2,7 +2,7 @@
 Copyright (C) 2009 Hiroaki Kawai <kawai@iij.ad.jp>
 """
 
-_base32 = '0123456789bcdefghjkmnpqrstuvwxyz'
+_base32 = "0123456789bcdefghjkmnpqrstuvwxyz"
 _base32_map = {_base32[i]: i for i in range(len(_base32))}
 LONG_ZERO = 0
 
@@ -39,7 +39,7 @@ def _encode_i2c(lat, lon, lat_length, lon_length):
         b = lon
 
     boost = (0, 1, 4, 5, 16, 17, 20, 21)
-    ret = ''
+    ret = ""
     for _ in range(precision):
         ret += _base32[(boost[a & 7] + (boost[b & 3] << 1)) & 0x1F]
         t = a >> 3
