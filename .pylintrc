@@ -1,3 +1,10 @@
+[MASTER]
+load-plugins=pylint_quotes
+
+string-quote=double-avoid-escape
+triple-quote=double
+docstring-quote=double
+
 [MESSAGES CONTROL]
 disable=
     bad-option-value,
@@ -18,7 +25,8 @@ disable=
     too-many-public-methods,
     ungrouped-imports,
     wrong-import-order,
-    wrong-import-position
+    wrong-import-position,
+    bad-continuation,
 
 [FORMAT]
 max-line-length=125

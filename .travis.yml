@@ -1,26 +1,58 @@
 language: python
 dist: xenial
 
+sudo: required
+
 before_install:
   - "sudo apt-get update"
   - "sudo apt-get install -y libsystemd-dev"
 
 python:
-  - "3.4"
-  - "3.5"
   - "3.6"
   - "3.7"
+  - "3.8"
+  - "nightly"
+
+jobs:
+  allow_failures:
+    # Don't require python to succeed
+    - python: nightly
+
+  include:
+    - stage: lint
+      python: 3.8
+      name: fmt
+      script:
+      - make fmt
+      - if [ $(git diff --name-only --diff-filter=ACMR | wc -l ) != 0 ]; then
+          echo "Reformatting failed! Please run make fmt on your commits and resubmit!" 1>&2 ;
+          git diff ;
+          exit 1 ;
+        fi
+
+    - stage: lint
+      python: 3.8
+      name: lint
+      script:
+      - make lint
+
+    - stage: lint
+      python: 3.8
+      name: typecheck
+      script:
+      - make typecheck
 
 install:
-  - "pip install pylint pytest mock flake8 kafka-python coverage coveralls requests responses boto3 google-api-python-client oauth2client"
-  - "pip install https://github.com/systemd/python-systemd/zipball/master"
+  - pip install -r requirements.txt
+  - pip install -r requirements.dev.txt
+  - pip install -e .
+
+stages:
+  - lint
+  - test
 
 script:
-  - "make flake8"
-  - "make pylint"
-  - "make unittest"
-
-sudo: required
+  - make unittest
 
 after_success:
   - coveralls
