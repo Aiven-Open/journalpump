@@ -1,4 +1,6 @@
+from journalpump.statsd import StatsClient, TagsType
 from threading import Lock, Thread
+from typing import Any, Dict, List, Mapping, NewType, Optional, Protocol, Sequence, Tuple
 
 import logging
 import random
@@ -10,51 +12,54 @@ MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2  # 1 MiB
 MAX_ERROR_MESSAGES = 8
 MAX_ERROR_MESSAGE_LEN = 128
 
+# Stub type for handling journal cursor values
+JournalCursor = NewType("JournalCursor", str)
+MessageType = Tuple[Any, JournalCursor]
+
 
 # Map running/_connected to health
-def _convert_to_health(*, running, connected):
+def _convert_to_health(*, running: bool, connected: bool) -> Tuple[str, int]:
     if running:
         return ("connected", 3) if connected else ("disconnected", 2)
     return ("stale", 2) if connected else ("stopped", 0)
 
 
 class Tagged:
-    def __init__(self, tags=None, **kw):
-        self._tags = (tags or {}).copy()
+    def __init__(self, tags: Optional[TagsType] = None, **kw: str):
+        self._tags: Dict[str, str] = dict(tags) if tags is not None else {}
         self._tags.update(kw)
 
-    def make_tags(self, tags=None):
+    def make_tags(self, tags: Optional[TagsType] = None) -> Dict[str, str]:
         output = self._tags.copy()
-        output.update(tags or {})
+        if tags is not None:
+            output.update(tags)
         return output
 
-    def replace_tags(self, tags):
-        self._tags = tags
+    def replace_tags(self, tags: TagsType) -> None:
+        self._tags = dict(tags)
 
 
 class MsgBuffer:
-    def __init__(self):
-        self.log = logging.getLogger("MsgBuffer")
-        self.messages = []
+    def __init__(self) -> None:
+        self.log: logging.Logger = logging.getLogger("MsgBuffer")
+        self.messages: List[MessageType] = []
         self.lock = Lock()
-        self.entry_num = 0
-        self.total_size = 0
-        self.last_journal_msg_time = time.monotonic()
-        self.cursor = None
+        self.entry_num: int = 0
+        self.total_size: int = 0
+        self.last_journal_msg_time: float = time.monotonic()
+        self.cursor: Optional[JournalCursor] = None
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.messages)
 
-    def get_items(self):
-        messages = []
-        with self.lock:  # pylint: disable=not-context-manager
-            if self.messages:
-                messages = self.messages
-                self.messages = []
+    def get_items(self) -> List[MessageType]:
+        with self.lock:
+            messages = self.messages
+            self.messages = []
         return messages
 
-    def add_item(self, *, item, cursor):
-        with self.lock:  # pylint: disable=not-context-manager
+    def add_item(self, *, item: Any, cursor: JournalCursor) -> None:
+        with self.lock:
             self.messages.append((item, cursor))
             self.last_journal_msg_time = time.monotonic()
             self.cursor = cursor
@@ -63,19 +68,25 @@ class MsgBuffer:
         self.total_size += len(item)
 
 
+class _LogSenderReader(Protocol):
+    @property
+    def name(self) -> str:
+        ...
+
+
 class LogSender(Thread, Tagged):
     def __init__(
         self,
         *,
-        name,
-        reader,
-        config,
-        field_filter,
-        stats,
-        max_send_interval,
-        extra_field_values=None,
-        tags=None,
-        msg_buffer_max_length=50000
+        name: str,
+        reader: _LogSenderReader,
+        config: Mapping[str, Any],
+        field_filter: Mapping[str, Any],
+        stats: StatsClient,
+        max_send_interval: float,
+        extra_field_values: Optional[Mapping[str, str]] = None,
+        tags: Optional[TagsType] = None,
+        msg_buffer_max_length: int = 50000
     ):
         Thread.__init__(self)
         Tagged.__init__(self, tags, sender=name)
@@ -83,31 +94,31 @@ class LogSender(Thread, Tagged):
         self.name = name
         self.stats = stats
         self.config = config
-        self.extra_field_values = extra_field_values
+        self.extra_field_values: Dict[str, str] = dict(extra_field_values) if extra_field_values is not None else {}
         self.field_filter = field_filter
         self.msg_buffer_max_length = msg_buffer_max_length
-        self.last_maintenance_fail = 0
+        self.last_maintenance_fail: float = 0
         self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
         self.running = True
-        self._sent_cursor = None
-        self._sent_count = 0
-        self._sent_bytes = 0
+        self._sent_cursor: Optional[JournalCursor] = None
+        self._sent_count: int = 0
+        self._sent_bytes: int = 0
         self._connected = False
         self._connected_changed = time.monotonic()  # last time _connected status changed
-        self._errors = []
-        self.msg_buffer = MsgBuffer()
-        self._backoff_attempt = 0
+        self._errors: List[str] = []
+        self.msg_buffer: MsgBuffer = MsgBuffer()
+        self._backoff_attempt: int = 0
         self.log.info("Initialized %s", self.__class__.__name__)
 
-    def _backoff(self, *, base=0.5, cap=1800.0):
+    def _backoff(self, *, base: float = 0.5, cap: float = 1800.0) -> None:
         self._backoff_attempt += 1
         t = min(cap, base * 2 ** self._backoff_attempt) / 2
         t = random.random() * t + t
         self.log.info("Sleeping for %.0f seconds", t)
         time.sleep(t)
 
-    def refresh_stats(self):
+    def refresh_stats(self) -> None:
         tags = self.make_tags()
         self.stats.gauge("journal.last_sent_ago", value=time.monotonic() - self.last_send_time, tags=tags)
         self.stats.gauge("journal.sent_bytes", value=self._sent_bytes, tags=tags)
@@ -116,7 +127,7 @@ class LogSender(Thread, Tagged):
             "journal.status", value=_convert_to_health(running=self.running, connected=self._connected)[1], tags=tags
         )
 
-    def get_state(self):
+    def get_state(self) -> Mapping[str, Any]:
         return {
             "type": self.__class__.__name__,
             "buffer": {
@@ -137,14 +148,14 @@ class LogSender(Thread, Tagged):
             }
         }
 
-    def mark_connected(self):
+    def mark_connected(self) -> None:
         if not self._connected:
             self._connected_changed = time.monotonic()
         self._connected = True
         self._errors = []
         self._backoff_attempt = 0
 
-    def mark_disconnected(self, error=None):
+    def mark_disconnected(self, error: Optional[Any] = None) -> None:
         if self._connected:
             self._connected_changed = time.monotonic()
         self._connected = False
@@ -154,7 +165,7 @@ class LogSender(Thread, Tagged):
 
         if isinstance(error, str):
             msg = error
-        elif isinstance(error, Exception):
+        elif isinstance(error, BaseException):
             msg = getattr(error, "message", repr(error))
         else:
             msg = repr(error)
@@ -170,23 +181,23 @@ class LogSender(Thread, Tagged):
         if len(self._errors) > MAX_ERROR_MESSAGES:
             self._errors.pop(1)  # always keep the first error message
 
-    def mark_sent(self, *, messages, cursor):
+    def mark_sent(self, *, messages: Sequence[str], cursor: JournalCursor) -> None:
         self._sent_count += len(messages)
         self._sent_bytes += sum(len(m) for m in messages)
         self._sent_cursor = cursor
         self.mark_connected()
 
-    def request_stop(self):
+    def request_stop(self) -> None:
         self.running = False
 
-    def send_messages(self, *, messages, cursor):
+    def send_messages(self, *, messages: Sequence[str], cursor: JournalCursor) -> bool:
         pass
 
-    def maintenance_operations(self):
+    def maintenance_operations(self) -> None:
         # This can be overridden in the classes that inherit this
         pass
 
-    def run(self):
+    def run(self) -> None:
         while self.running:
             try:
                 # Don't run maintenance operations again immediately if it just failed
@@ -203,7 +214,7 @@ class LogSender(Thread, Tagged):
                 time.sleep(0.1)
         self.log.info("Stopping")
 
-    def get_and_send_messages(self):
+    def get_and_send_messages(self) -> None:
         start_time = time.monotonic()
         msg_count = None
         try:
