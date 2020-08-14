@@ -1,15 +1,16 @@
 """
 Copyright (C) 2009 Hiroaki Kawai <kawai@iij.ad.jp>
 """
+from typing import Tuple
 
 _base32 = "0123456789bcdefghjkmnpqrstuvwxyz"
 _base32_map = {_base32[i]: i for i in range(len(_base32))}
 LONG_ZERO = 0
 
 
-def _float_hex_to_int(f):
-    if f < -1.0 or f >= 1.0:
-        return None
+def _float_hex_to_int(f: float) -> Tuple[int, int]:
+    if f < -1.0 or 1.0 <= f:
+        raise ValueError(f"Value must be beten -1.0 and <+1.0: got {f}")
 
     if f == 0.0:
         return 1, 1
@@ -29,7 +30,7 @@ def _float_hex_to_int(f):
     return r, half_len + 1
 
 
-def _encode_i2c(lat, lon, lat_length, lon_length):
+def _encode_i2c(lat: int, lon: int, lat_length: int, lon_length: int) -> str:
     precision = int((lat_length + lon_length) / 5)
     if lat_length < lon_length:
         a = lon
@@ -49,7 +50,7 @@ def _encode_i2c(lat, lon, lat_length, lon_length):
     return ret[::-1]
 
 
-def encode(latitude, longitude, precision=12):
+def encode(latitude: float, longitude: float, precision: int = 12) -> str:
     if latitude >= 90.0 or latitude < -90.0:
         raise Exception("invalid latitude.")
     while longitude < -180.0:
