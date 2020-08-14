@@ -4,7 +4,7 @@
 # See the file `LICENSE` for details.
 from functools import partial
 from mypy_extensions import NamedArg
-from typing import AnyStr, Callable, Dict, Generic, Optional
+from typing import Callable, Dict, Optional
 
 import datetime
 import socket
@@ -12,22 +12,22 @@ import ssl
 import sys
 
 if sys.version_info >= (3, 8):
-    from typing import Protocol, Literal, final, overload, TypedDict
+    from typing import Protocol, Literal, final, overload, TypedDict  # pylint:disable=no-name-in-module
 else:
     from typing_extensions import Protocol, Literal, final, overload, TypedDict
 
 NILVALUE = "-"
 
 FormatterFuncType = Callable[[
-    NamedArg(int, "pri"),
-    NamedArg(Optional[str], "rfc3339date"),
-    NamedArg(Optional[str], "rfc3164date"),
-    NamedArg(str, "hostname"),
-    NamedArg(str, "app_id"),
-    NamedArg(str, "proc_id"),
-    NamedArg(str, "msg_id"),
-    NamedArg(str, "msg"),
-    NamedArg(Optional[str], "sd")
+    NamedArg(int, "pri"),  # noqa:F821
+    NamedArg(Optional[str], "rfc3339date"),  # noqa:F821
+    NamedArg(Optional[str], "rfc3164date"),  # noqa:F821
+    NamedArg(str, "hostname"),  # noqa:F821
+    NamedArg(str, "app_id"),  # noqa:F821
+    NamedArg(str, "proc_id"),  # noqa:F821
+    NamedArg(str, "msg_id"),  # noqa:F821
+    NamedArg(str, "msg"),  # noqa:F821
+    NamedArg(Optional[str], "sd")  # noqa:F821
 ], bytes]
 
 
@@ -190,7 +190,7 @@ class SyslogTcpClient:
         self.server: str = server
         self.port: int = port
         self.max_msg: int = max_msg
-        self.socket_proto: socket.SocketKind = socket.SOCK_STREAM
+        self.socket_proto: "socket.SocketKind" = socket.SOCK_STREAM
         self.ssl_params: Optional[_SSLParams] = None
         self.formatter: FormatterFuncType
         if rfc == "RFC5424":
