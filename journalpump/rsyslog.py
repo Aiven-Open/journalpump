@@ -186,7 +186,7 @@ class SyslogTcpClient:
         certfile: Optional[str] = None,
         log_format: Optional[str] = None
     ):
-        self.socket: Optional[socket.socket] = None
+        self._socket: Optional[socket.socket] = None
         self.server: str = server
         self.port: int = port
         self.max_msg: int = max_msg
@@ -213,6 +213,7 @@ class SyslogTcpClient:
                 "certfile": certfile,
                 "ca_certs": cacerts,
             }
+        # Attempt connection on initial startup
         self._connect()
 
     def _connect(self) -> None:
@@ -221,14 +222,14 @@ class SyslogTcpClient:
             for addr_info in socket.getaddrinfo(self.server, self.port, socket.AF_UNSPEC, self.socket_proto):
                 family, sock_type, sock_proto, _, sock_addr = addr_info
                 try:
-                    self.socket = socket.socket(family, sock_type, sock_proto)
+                    self._socket = socket.socket(family, sock_type, sock_proto)
                     if self.ssl_params is not None:
-                        self.socket = ssl.wrap_socket(self.socket, **self.ssl_params)
-                    self.socket.connect(sock_addr)
+                        self._socket = ssl.wrap_socket(self._socket, **self.ssl_params)
+                    self._socket.connect(sock_addr)
                     return
                 except Exception as ex:  # pylint: disable=broad-except
-                    if self.socket is not None:
-                        self.socket.close()
+                    if self._socket is not None:
+                        self._socket.close()
                     last_connection_error = ex
         except socket.gaierror:
             raise ValueError("Invalid address {}:{}".format(self.server, self.port))
@@ -237,19 +238,23 @@ class SyslogTcpClient:
             raise last_connection_error
 
     def close(self) -> None:
-        if self.socket is None:
+        if self._socket is None:
             return
         try:
-            self.socket.close()
+            self._socket.close()
         finally:
-            self.socket = None
+            self._socket = None
 
     def send(self, message: bytes) -> None:
-        if self.socket is None:
+        if self._socket is None:
             self._connect()
-        self.socket.sendall(message[:self.max_msg - 1])
+
+        if self._socket is None:
+            raise RuntimeError("socket failed to connect without throwing an exception")
+
+        self._socket.sendall(message[:self.max_msg - 1])
         if len(message) >= self.max_msg:
-            self.socket.sendall(b"\n")
+            self._socket.sendall(b"\n")
 
     def log(
         self,
