@@ -3,34 +3,77 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 from functools import partial
+from mypy_extensions import NamedArg
+from typing import AnyStr, Callable, Dict, Generic, Optional
 
 import datetime
 import socket
 import ssl
+import sys
+
+if sys.version_info >= (3, 8):
+    from typing import Protocol, Literal, final, overload, TypedDict
+else:
+    from typing_extensions import Protocol, Literal, final, overload, TypedDict
 
 NILVALUE = "-"
 
+FormatterFuncType = Callable[[
+    NamedArg(int, "pri"),
+    NamedArg(Optional[str], "rfc3339date"),
+    NamedArg(Optional[str], "rfc3164date"),
+    NamedArg(str, "hostname"),
+    NamedArg(str, "app_id"),
+    NamedArg(str, "proc_id"),
+    NamedArg(str, "msg_id"),
+    NamedArg(str, "msg"),
+    NamedArg(Optional[str], "sd")
+], bytes]
+
 
 # pylint: disable=unused-argument
-def _rfc_5424_formatter(*, pri, rfc3339date, rfc3164date, hostname, app_id, proc_id, msg_id, msg, sd):
-    data = "<{}>1 {} {} {} {} {}".format(pri, rfc3339date, hostname, app_id, proc_id, msg_id)
-    if sd is not None:
-        data += " [{}]".format(sd)
-    data += " {}\n".format(msg)
-    return data.encode("utf-8", "replace")
+def _rfc_5424_formatter(
+    *, pri: int, rfc3339date: Optional[str], rfc3164date: Optional[str], hostname: str, app_id: str, proc_id: str,
+    msg_id: str, msg: str, sd: Optional[str]
+) -> bytes:
+    opt_data = f" [{sd}]" if sd is not None else ""
+    return f"<{pri}>1 {rfc3339date} {hostname} {app_id} {proc_id} {msg_id}{opt_data} {msg}\n".encode("utf-8", "replace")
 
 
 # pylint: disable=unused-argument
-def _rfc_3164_formatter(*, pri, rfc3339date, rfc3164date, hostname, app_id, proc_id, msg_id, msg, sd):
-    data = "<{}>{} {} {}[{}]: {}\n".format(pri, rfc3164date, hostname, app_id, proc_id, msg)
-    return data.encode("utf-8", "replace")
+def _rfc_3164_formatter(
+    *, pri: int, rfc3339date: Optional[str], rfc3164date: Optional[str], hostname: str, app_id: str, proc_id: str,
+    msg_id: str, msg: str, sd: Optional[str]
+) -> bytes:
+    return f"<{pri}>{rfc3164date} {hostname} {app_id}[{proc_id}]: {msg}\n".encode("utf-8", "replace")
 
 
-def _custom_formatter(custom, **kwargs):
-    return custom.format(**kwargs).encode("utf-8", "replace")
+class CustomFormatterProtocol(Protocol):
+    def format(
+        self, pri: int, rfc3339date: Optional[str], rfc3164date: Optional[str], hostname: str, app_id: str, proc_id: str,
+        msg_id: str, msg: str, sd: Optional[str]
+    ) -> str:
+        ...
 
 
-_LOGLINE_VARS = {
+def _custom_formatter(
+    custom: CustomFormatterProtocol, pri: int, rfc3339date: Optional[str], rfc3164date: Optional[str], hostname: str,
+    app_id: str, proc_id: str, msg_id: str, msg: str, sd: Optional[str]
+) -> bytes:
+    return custom.format(
+        pri,
+        rfc3339date,
+        rfc3164date,
+        hostname,
+        app_id,
+        proc_id,
+        msg_id,
+        msg,
+        sd,
+    ).encode("utf-8", "replace")
+
+
+_LOGLINE_VARS: Dict[str, str] = {
     "pri": "{pri}",
     "protocol-version": "1",
     "timestamp": "{rfc3164date}",
@@ -45,7 +88,7 @@ _LOGLINE_VARS = {
 }
 
 
-def _generate_format(logline):
+def _generate_format(logline: str) -> str:
     """Simple tokenizer for converting rsyslog format string to python format string"""
     frmt = ""
     in_token = False
@@ -72,16 +115,84 @@ def _generate_format(logline):
     return frmt
 
 
+class _SSLParams(TypedDict):
+    ssl_version: int
+    cert_reqs: int
+    keyfile: Optional[str]
+    certfile: Optional[str]
+    ca_certs: Optional[str]
+
+
 class SyslogTcpClient:
+    @overload
     def __init__(
-        self, *, server, port, rfc, max_msg=2048, protocol=None, cacerts=None, keyfile=None, certfile=None, log_format=None
+        self,
+        *,
+        server: str,
+        port: int,
+        rfc: Literal["CUSTOM"],
+        max_msg: int = ...,
+        protocol: Optional[Literal["PLAINTEXT", "SSL"]] = ...,
+        cacerts: Optional[str] = ...,
+        keyfile: Optional[str] = ...,
+        certfile: Optional[str] = ...,
+        log_format: str
     ):
-        self.socket = None
-        self.server = server
-        self.port = port
-        self.max_msg = max_msg
-        self.socket_proto = socket.SOCK_STREAM
-        self.ssl_params = None
+        ...
+
+    @overload
+    def __init__(
+        self,
+        *,
+        server: str,
+        port: int,
+        rfc: Literal["RFC5424"],
+        max_msg: int = ...,
+        protocol: Optional[Literal["PLAINTEXT", "SSL"]] = ...,
+        cacerts: Optional[str] = ...,
+        keyfile: Optional[str] = ...,
+        certfile: Optional[str] = ...,
+        log_format: Optional[str] = ...
+    ):
+        ...
+
+    @overload
+    def __init__(
+        self,
+        *,
+        server: str,
+        port: int,
+        rfc: Literal["RFC3164"],
+        max_msg: int = ...,
+        protocol: Optional[Literal["PLAINTEXT", "SSL"]] = ...,
+        cacerts: Optional[str] = ...,
+        keyfile: Optional[str] = ...,
+        certfile: Optional[str] = ...,
+        log_format: Optional[str] = ...
+    ):
+        ...
+
+    @final
+    def __init__(
+        self,
+        *,
+        server: str,
+        port: int,
+        rfc: Literal["RFC5424", "RFC3164", "CUSTOM"],
+        max_msg: int = 2048,
+        protocol: Optional[Literal["PLAINTEXT", "SSL"]] = None,
+        cacerts: Optional[str] = None,
+        keyfile: Optional[str] = None,
+        certfile: Optional[str] = None,
+        log_format: Optional[str] = None
+    ):
+        self.socket: Optional[socket.socket] = None
+        self.server: str = server
+        self.port: int = port
+        self.max_msg: int = max_msg
+        self.socket_proto: socket.SocketKind = socket.SOCK_STREAM
+        self.ssl_params: Optional[_SSLParams] = None
+        self.formatter: FormatterFuncType
         if rfc == "RFC5424":
             self.formatter = _rfc_5424_formatter
         elif rfc == "RFC3164":
@@ -104,7 +215,7 @@ class SyslogTcpClient:
             }
         self._connect()
 
-    def _connect(self):
+    def _connect(self) -> None:
         try:
             last_connection_error = None
             for addr_info in socket.getaddrinfo(self.server, self.port, socket.AF_UNSPEC, self.socket_proto):
@@ -124,7 +235,7 @@ class SyslogTcpClient:
 
         raise last_connection_error
 
-    def close(self):
+    def close(self) -> None:
         if self.socket is None:
             return
         try:
@@ -132,14 +243,26 @@ class SyslogTcpClient:
         finally:
             self.socket = None
 
-    def send(self, message):
+    def send(self, message: bytes) -> None:
         if self.socket is None:
             self._connect()
         self.socket.sendall(message[:self.max_msg - 1])
         if len(message) >= self.max_msg:
             self.socket.sendall(b"\n")
 
-    def log(self, *, facility, severity, timestamp, hostname, program, pid=None, msgid=None, msg=None, sd=None):
+    def log(
+        self,
+        *,
+        facility: int,
+        severity: int,
+        timestamp: str,
+        hostname: str,
+        program: str,
+        pid: Optional[str] = None,
+        msgid: Optional[str] = None,
+        msg: Optional[str] = None,
+        sd: Optional[str] = None
+    ) -> None:
         if 0 <= facility <= 23 and 0 <= severity <= 7:
             pri = facility * 8 + severity
         else:
