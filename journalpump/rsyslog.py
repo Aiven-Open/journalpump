@@ -16,6 +16,8 @@ if sys.version_info >= (3, 8):
 else:
     from typing_extensions import Protocol, Literal, final, overload, TypedDict
 
+SUPPORTED_RFCS = ("RFC5424","RFC3164","CUSTOM")
+
 NILVALUE = "-"
 
 FormatterFuncType = Callable[[

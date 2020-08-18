@@ -1,6 +1,6 @@
 from journalpump.statsd import StatsClient, TagsType
 from threading import Lock, Thread
-from typing import Any, Dict, List, Mapping, NewType, Optional, Protocol, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, NewType, Optional, Protocol, Sequence, Tuple, Iterable
 
 import logging
 import random
@@ -23,6 +23,11 @@ def _convert_to_health(*, running: bool, connected: bool) -> Tuple[str, int]:
         return ("connected", 3) if connected else ("disconnected", 2)
     return ("stale", 2) if connected else ("stopped", 0)
 
+class LogSenderError(Exception):
+    """Base exception for LogSender specific error types"""
+
+class LogSenderShutdown(LogSenderError):
+    """Raised when an attempt to use a log sender is made after it is shutdown"""
 
 class Tagged:
     def __init__(self, tags: Optional[TagsType] = None, **kw: str):
@@ -181,7 +186,7 @@ class LogSender(Thread, Tagged):
         if len(self._errors) > MAX_ERROR_MESSAGES:
             self._errors.pop(1)  # always keep the first error message
 
-    def mark_sent(self, *, messages: Sequence[str], cursor: JournalCursor) -> None:
+    def mark_sent(self, *, messages: Sequence[bytes], cursor: JournalCursor) -> None:
         self._sent_count += len(messages)
         self._sent_bytes += sum(len(m) for m in messages)
         self._sent_cursor = cursor
@@ -190,7 +195,7 @@ class LogSender(Thread, Tagged):
     def request_stop(self) -> None:
         self.running = False
 
-    def send_messages(self, *, messages: Sequence[str], cursor: JournalCursor) -> bool:
+    def send_messages(self, *, messages: Sequence[bytes], cursor: JournalCursor) -> bool:
         pass
 
     def maintenance_operations(self) -> None:
