@@ -16,7 +16,19 @@ if sys.version_info >= (3, 8):
 else:
     from typing_extensions import Protocol, Literal, final, overload, TypedDict
 
-SUPPORTED_RFCS = ("RFC5424","RFC3164","CUSTOM")
+RSYSLOG_CONN_ERRORS = (socket.timeout, ConnectionRefusedError)
+SUPPORTED_RFCS = ("RFC5424", "RFC3164", "CUSTOM")
+
+
+def parse_log_format(format_str: str) -> Literal["RFC5424", "RFC3164", "CUSTOM"]:
+    if format_str == "RFC5424":
+        return "RFC5424"
+    elif format_str == "RFC3164":
+        return "RFC3164"
+    elif format_str == "CUSTOM":
+        return "CUSTOM"
+    raise ValueError(f"Unrecognized log format: must be one of {SUPPORTED_RFCS}")
+
 
 NILVALUE = "-"
 
@@ -215,10 +227,8 @@ class SyslogTcpClient:
                 "certfile": certfile,
                 "ca_certs": cacerts,
             }
-        # Attempt connection on initial startup
-        self._connect()
 
-    def _connect(self) -> None:
+    def connect(self) -> None:
         try:
             last_connection_error = None
             for addr_info in socket.getaddrinfo(self.server, self.port, socket.AF_UNSPEC, self.socket_proto):
@@ -232,12 +242,18 @@ class SyslogTcpClient:
                 except Exception as ex:  # pylint: disable=broad-except
                     if self._socket is not None:
                         self._socket.close()
+                    self._socket = None
                     last_connection_error = ex
         except socket.gaierror:
             raise ValueError("Invalid address {}:{}".format(self.server, self.port))
 
         if last_connection_error is not None:
             raise last_connection_error
+
+    @property
+    def connected(self) -> bool:
+        """Boolean as to whether the object is connected"""
+        return self._socket is not None
 
     def close(self) -> None:
         if self._socket is None:
@@ -249,7 +265,7 @@ class SyslogTcpClient:
 
     def send(self, message: bytes) -> None:
         if self._socket is None:
-            self._connect()
+            self.connect()
 
         if self._socket is None:
             raise RuntimeError("socket failed to connect without throwing an exception")
@@ -281,16 +297,29 @@ class SyslogTcpClient:
         message = msg if msg else NILVALUE
         rfc3164date = datetime.datetime.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S").strftime("%b %d %H:%M:%S")
 
-        self.send(
-            self.formatter(
-                pri=pri,
-                rfc3339date=timestamp,
-                rfc3164date=rfc3164date,
-                hostname=hostname,
-                app_id=app_id,
-                proc_id=proc_id,
-                msg_id=msg_id,
-                msg=message,
-                sd=sd
+        try:
+            if not self.connected:
+                self.connect()
+
+            self.send(
+                self.formatter(
+                    pri=pri,
+                    rfc3339date=timestamp,
+                    rfc3164date=rfc3164date,
+                    hostname=hostname,
+                    app_id=app_id,
+                    proc_id=proc_id,
+                    msg_id=msg_id,
+                    msg=message,
+                    sd=sd
+                )
             )
-        )
+        except RSYSLOG_CONN_ERRORS as ex:
+            # On connection error, close the socket down before re-raising to let
+            # client decide what to do.
+            try:
+                if self._socket is not None:
+                    self.close()
+            except Exception:  # pylint: disable=broad-except
+                pass
+            raise ex
