@@ -1,20 +1,16 @@
-from botocore.stub import Stubber
 from collections import OrderedDict
 from datetime import datetime
-from googleapiclient.http import RequestMockBuilder as GoogleApiClientRequestMockBuilder
-from httplib2 import Response as HttpLib2Response
-from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump
+from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump, PumpReader
 from journalpump.senders import (
     AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
 from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer
 from journalpump.util import default_json_serialization
+from test.conftest import StandaloneJournalD
 from time import sleep
 from unittest import mock, TestCase
 
-import boto3
 import json
-import responses
 
 _PRIVATE_KEY = \
     "-----BEGIN PRIVATE KEY-----\n" + \
@@ -232,7 +228,6 @@ def test_journalpump_init_aws_cloudwatch(tmpdir):
                 region_name="us-east-1",
                 aws_access_key_id="key",
                 aws_secret_access_key="secret",
-                aws_session_token=None,
             )
         r.running = False
         for sn, s in r.senders.items():
@@ -268,7 +263,7 @@ def test_journalpump_init_gcp_logging(tmpdir):
                             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                             "token_uri": "https://oauth2.googleapis.com/token",
                             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"
+                            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"  # pylint: disable=line-too-long
                         }
                     }
                 }
@@ -469,239 +464,21 @@ def test_journalpump_state_file(tmpdir):
     assert sender_state["health"]["status"] == "stopped"
 
 
-@responses.activate
-def test_es_sender():
-    url = "http://localhost:1234"
-    with responses.RequestsMock() as rsps:
-        rsps.add(responses.GET, url + "/_aliases", json={})
-        rsps.add(responses.POST, url + "/journalpump-2019-10-07/_bulk")
-        es = ElasticsearchSender(
-            name="es", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"elasticsearch_url": url}
-        )
-        assert es.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
+def test_pump_reader(journald_server: StandaloneJournalD):
+    """Test the pump reader can read from journald at all"""
+    pump_reader = PumpReader(path=journald_server.logs_path().as_posix())
 
+    # Generate some journal entries
+    src_logs = [f"Log {i}" for i in range(100)]
+    for line in src_logs:
+        journald_server.send_log(line)
 
-def test_awscloudwatch_sender():
-    logs = boto3.client("logs", region_name="us-east-1")
+    entries = []
+    while True:
+        entry = pump_reader.get_next()
+        if entry is None:
+            break
+        entries.append(entry)
 
-    with Stubber(logs) as stubber:
-        stubber.add_client_error("create_log_group", service_error_code="ResourceAlreadyExistsException")
-        stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
-        stubber.add_response(
-            "describe_log_streams", {"logStreams": [{
-                "logStreamName": "stream",
-                "uploadSequenceToken": "token"
-            }]}, {"logGroupName": "group"}
-        )
-        sender = AWSCloudWatchSender(
-            name="awscloudwatch",
-            reader=mock.Mock(),
-            stats=mock.Mock(),
-            field_filter=None,
-            config={
-                "aws_cloudwatch_log_group": "group",
-                "aws_cloudwatch_log_stream": "stream"
-            },
-            aws_cloudwatch_logs=logs
-        )
-        assert sender._next_sequence_token == "token"  # pylint: disable=protected-access
-
-    with Stubber(logs) as stubber:
-        stubber.add_response(
-            "put_log_events", {
-                "ResponseMetadata": {
-                    "HTTPStatusCode": 200
-                },
-                "nextSequenceToken": "token1",
-                "rejectedLogEventsInfo": {}
-            }
-        )
-        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
-        assert sender._next_sequence_token == "token1"  # pylint: disable=protected-access
-        assert sender._sent_count == 1  # pylint: disable=protected-access
-
-    with Stubber(logs) as stubber:
-        expected_args = {
-            "logGroupName": "group",
-            "logStreamName": "stream",
-            "logEvents": [{
-                "timestamp": 123456789000,
-                "message": '{"MESSAGE": "Hello World!"}'
-            }],
-            "sequenceToken": "token1"
-        }
-        stubber.add_response(
-            "put_log_events", {
-                "ResponseMetadata": {
-                    "HTTPStatusCode": 200
-                },
-                "nextSequenceToken": "token2",
-                "rejectedLogEventsInfo": {}
-            }, expected_args
-        )
-        with mock.patch("time.time", return_value=123456789):
-            sender.send_messages(messages=[b'{"MESSAGE": "Hello World!"}'], cursor=None)
-        assert sender._next_sequence_token == "token2"  # pylint: disable=protected-access
-        assert sender._sent_count == 2  # pylint: disable=protected-access
-
-    with Stubber(logs) as stubber:
-        expected_args = {
-            "logGroupName": "group",
-            "logStreamName": "stream",
-            "logEvents": [{
-                "timestamp": 1590581737308,
-                "message": '{"REALTIME_TIMESTAMP": 1590581737.308352}'
-            }],
-            "sequenceToken": "token2"
-        }
-        stubber.add_response(
-            "put_log_events", {
-                "ResponseMetadata": {
-                    "HTTPStatusCode": 200
-                },
-                "nextSequenceToken": "token2",
-                "rejectedLogEventsInfo": {}
-            }, expected_args
-        )
-        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
-        assert sender._next_sequence_token == "token2"  # pylint: disable=protected-access
-        assert sender._sent_count == 3  # pylint: disable=protected-access
-
-    with Stubber(logs) as stubber:
-        stubber.add_client_error("put_log_events", service_error_code="ThrottlingException")
-        stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
-        stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
-        stubber.add_response(
-            "describe_log_streams", {"logStreams": [{
-                "logStreamName": "stream",
-                "uploadSequenceToken": "token"
-            }]}, {"logGroupName": "group"}
-        )
-        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
-        assert sender._connected  # pylint: disable=protected-access
-        assert sender._sent_count == 3  # pylint: disable=protected-access
-
-    with Stubber(logs) as stubber:
-        stubber.add_client_error("put_log_events", service_error_code="InternalFailure")
-        stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
-        stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
-        stubber.add_response(
-            "describe_log_streams", {"logStreams": [{
-                "logStreamName": "stream",
-                "uploadSequenceToken": "token"
-            }]}, {"logGroupName": "group"}
-        )
-        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
-        assert sender._connected  # pylint: disable=protected-access
-        assert sender._sent_count == 3  # pylint: disable=protected-access
-
-
-def test_google_cloud_logging_sender():
-    config = {
-        "google_cloud_logging_project_id": "project-id",
-        "google_cloud_logging_log_id": "log-id",
-        "google_cloud_logging_resource_labels": {
-            "location": "us-east-1",
-            "node_id": "my-test-node",
-        },
-        "google_service_account_credentials": {
-            "type": "service_account",
-            "project_id": "project-id",
-            "private_key_id": "abcdefg",
-            "private_key": _PRIVATE_KEY,
-            "client_email": "test@project-id.iam.gserviceaccount.com",
-            "client_id": "123456789",
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"
-        }
-    }
-
-    expected_body = {
-        "logName": "projects/project-id/logs/log-id",
-        "resource": {
-            "type": "generic_node",
-            "labels": {
-                "location": "us-east-1",
-                "node_id": "my-test-node"
-            },
-        },
-        "entries": [{
-            "jsonPayload": {
-                "message": "Hello"
-            }
-        }]
-    }
-    requestBuilder = GoogleApiClientRequestMockBuilder(
-        {
-            "logging.entries.write": (None, "{}", expected_body),
-        },
-        check_unexpected=True,
-    )
-
-    sender = GoogleCloudLoggingSender(
-        name="googlecloudlogging",
-        reader=mock.Mock(),
-        stats=mock.Mock(),
-        field_filter=None,
-        config=config,
-        googleapiclient_request_builder=requestBuilder
-    )
-    sender.send_messages(messages=[b'{"message": "Hello"}'], cursor=None)
-    assert sender._sent_count == 1  # pylint: disable=protected-access
-
-    requestBuilder = GoogleApiClientRequestMockBuilder(
-        {
-            "logging.entries.write": (HttpLib2Response({"status": "400"}), b"", expected_body),
-        },
-        check_unexpected=True,
-    )
-
-    sender = GoogleCloudLoggingSender(
-        name="googlecloudlogging",
-        reader=mock.Mock(),
-        stats=mock.Mock(),
-        field_filter=None,
-        config=config,
-        googleapiclient_request_builder=requestBuilder
-    )
-    sender.send_messages(messages=[b'{"message": "Hello"}'], cursor=None)
-    assert sender._sent_count == 0  # pylint: disable=protected-access
-
-    expected_body = {
-        "logName": "projects/project-id/logs/log-id",
-        "resource": {
-            "type": "generic_node",
-            "labels": {
-                "location": "us-east-1",
-                "node_id": "my-test-node"
-            },
-        },
-        "entries": [{
-            "timestamp": "2020-06-25T06:24:13.787255Z",
-            "severity": "EMERGENCY",
-            "jsonPayload": {
-                "message": "Hello"
-            }
-        }]
-    }
-    requestBuilder = GoogleApiClientRequestMockBuilder(
-        {
-            "logging.entries.write": (None, "{}", expected_body),
-        },
-        check_unexpected=True,
-    )
-
-    sender = GoogleCloudLoggingSender(
-        name="googlecloudlogging",
-        reader=mock.Mock(),
-        stats=mock.Mock(),
-        field_filter=None,
-        config=config,
-        googleapiclient_request_builder=requestBuilder
-    )
-    sender.send_messages(
-        messages=[b'{"message": "Hello", "PRIORITY": 0, "timestamp": "2020-06-25T06:24:13.787255"}'], cursor=None
-    )
-    assert sender._sent_count == 1  # pylint: disable=protected-access
+    assert len(entries) > 0
+    assert {entry.entry["MESSAGE"] for entry in entries}.issuperset(set(src_logs))
