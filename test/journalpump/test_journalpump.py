@@ -47,7 +47,7 @@ _PRIVATE_KEY = \
     "-----END PRIVATE KEY-----\n"
 
 
-def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
+def test_journalpump_init_logplex(tmpdir):
     # Logplex sender
     journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
@@ -88,7 +88,10 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             assert s.field_filter.name == "filter_a"
             assert s.field_filter.fields == ["message"]
 
+
+def test_journalpump_init_kafka(tmpdir):
     # Kafka sender
+    journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
         "readers": {
             "foo": {
@@ -118,7 +121,10 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             s.running = False
             assert isinstance(s, KafkaSender)
 
+
+def test_journalpump_init_elasticsearch(tmpdir):
     # Elasticsearch sender
+    journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
         "readers": {
             "foo": {
@@ -147,7 +153,10 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             s.running = False
             assert isinstance(s, ElasticsearchSender)
 
+
+def test_journalpump_init_rsyslog(tmpdir):
     # rsyslog sender
+    journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
         "readers": {
             "foo": {
@@ -176,7 +185,10 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             s.running = False
             assert isinstance(s, RsyslogSender)
 
+
+def test_journalpump_init_aws_cloudwatch(tmpdir):
     # AWS CloudWatch sender
+    journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
         "readers": {
             "foo": {
@@ -216,7 +228,11 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             r.create_journald_reader_if_missing()
             assert len(r.senders) == 1
             mock_client.assert_called_once_with(
-                "logs", region_name="us-east-1", aws_access_key_id="key", aws_secret_access_key="secret"
+                "logs",
+                region_name="us-east-1",
+                aws_access_key_id="key",
+                aws_secret_access_key="secret",
+                aws_session_token=None,
             )
         r.running = False
         for sn, s in r.senders.items():
@@ -230,7 +246,10 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             # pylint: enable=protected-access
             assert isinstance(s, AWSCloudWatchSender)
 
+
+def test_journalpump_init_gcp_logging(tmpdir):
     # Google Cloud Logging sender
+    journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
         "readers": {
             "foo": {
