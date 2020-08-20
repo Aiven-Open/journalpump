@@ -260,6 +260,11 @@ which the journalpump feeds the configured logsender.
 Path to the directory containing journal files if you want to override the
 default one.
 
+``journal_namespace`` (default ``null`` - read from default systemd namespace)
+
+Journal namespace to read logs from.
+This feature requires latest version of ``python-systemd`` `with namespace support <https://github.com/systemd/python-systemd/pull/87>`_
+
 ``units_to_match`` (default ``[]``)
 
 Require that the logs message matches only against certain _SYSTEMD_UNITs.
