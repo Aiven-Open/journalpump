@@ -255,6 +255,10 @@ which the journalpump feeds the configured logsender.
 Path to the directory containing journal files if you want to override the
 default one.
 
+``journal_namespace`` (default ``null``)
+
+Journal namespace to read logs from.
+
 ``units_to_match`` (default ``[]``)
 
 Require that the logs message matches only against certain _SYSTEMD_UNITs.

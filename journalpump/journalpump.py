@@ -316,6 +316,7 @@ class JournalReader(Tagged):
                 files=self.config.get("journal_files"),
                 flags=journal_flags,
                 path=self.config.get("journal_path"),
+                namespace=self.config.get("journal_namespace"),
             )
         except FileNotFoundError as ex:
             self.log.warning("journal for %r not available yet: %s: %s", self.name, ex.__class__.__name__, ex)
