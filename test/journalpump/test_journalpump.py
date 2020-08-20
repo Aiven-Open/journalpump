@@ -7,7 +7,8 @@ from journalpump.senders import (
 from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer
 from journalpump.util import default_json_serialization
 from test.conftest import StandaloneJournalD
-from time import sleep
+from time import sleep, time
+from typing import List
 from unittest import mock, TestCase
 
 import json
@@ -473,11 +474,18 @@ def test_pump_reader(journald_server: StandaloneJournalD):
     for line in src_logs:
         journald_server.send_log(line)
 
-    entries = []
+    entries: List[JournalObject] = []
+    start_time = time()
     while True:
         entry = pump_reader.get_next()
         if entry is None:
-            break
+            if {entry.entry["MESSAGE"] for entry in entries}.issuperset(set(src_logs)):
+                break
+            # Timeout after 10 seconds.
+            if time() - start_time > 10:
+                break
+            sleep(0.1)
+            continue
         entries.append(entry)
 
     assert len(entries) > 0
