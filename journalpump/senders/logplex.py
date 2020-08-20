@@ -26,12 +26,13 @@ class LogplexSender(LogSender):
             self.structured_data
         )
         pkt += entry["MESSAGE"]
-        pkt = pkt.encode("utf8")
-        return "{} {}".format(len(pkt), pkt)
+        encoded = pkt.encode("utf8")
+        encoded_size = str(len(encoded)).encode("utf8")
+        return b" ".join((encoded_size, encoded))
 
     def send_messages(self, *, messages, cursor):
         auth = ("token", self.logplex_token)
-        msg_data = "".join([self.format_msg(msg) for msg in messages])
+        msg_data = b"".join([self.format_msg(msg) for msg in messages])
         msg_count = len(messages)
         headers = {
             "Content-Type": "application/logplex-1",

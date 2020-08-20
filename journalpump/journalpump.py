@@ -8,11 +8,10 @@ from .senders import (
     AWSCloudWatchSender, ElasticsearchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
-from .types import GeoIPProtocol
 from .util import atomic_replace_file, default_json_serialization
 from functools import reduce
 from systemd.journal import Reader
-from typing import Type, Union
+from typing import Any, Dict, MutableMapping, Optional
 
 import copy
 import datetime
@@ -24,7 +23,7 @@ import systemd.journal
 import time
 import uuid
 
-GeoIPReader: Union[Type[GeoIPProtocol], None]
+GeoIPReader: Any
 try:
     from geoip2.database import Reader as GeoIPReader
 except ImportError:
@@ -75,7 +74,7 @@ class PumpReader(Reader):
         output = {}
         for key, value in entry.items():
             convert = converters.get(key)
-            if convert is not None:
+            if convert is not None and callable(convert):
                 try:
                     value = convert(value)
                 except ValueError:
@@ -135,8 +134,8 @@ class JournalReader(Tagged):
         self.stats = stats
         self.cursor = seek_to
         self.registered_for_poll = False
-        self.journald_reader = None
-        self.last_journald_create_attempt = 0
+        self.journald_reader: Optional[PumpReader] = None
+        self.last_journald_create_attempt = 0.0
         self.running = True
         self.senders = {}
         self._senders_initialized = False
@@ -285,6 +284,8 @@ class JournalReader(Tagged):
             sender.refresh_stats()
 
     def read_next(self):
+        if self.journald_reader is None:
+            return None
         jobject = next(self.journald_reader)
         if jobject.cursor:
             self.cursor = jobject.cursor
@@ -292,7 +293,7 @@ class JournalReader(Tagged):
 
         return jobject
 
-    def get_reader(self, seek_to=None, reinit=False):
+    def get_reader(self, seek_to=None, reinit=False) -> Optional[PumpReader]:
         """Return an initialized reader or None"""
         if not reinit and self.journald_reader:
             return self.journald_reader
@@ -661,11 +662,12 @@ class JournalPump(ServiceDaemon, Tagged):
             return False
         except Exception as ex:  # pylint: disable=broad-except
             self.log.exception("Unexpected exception while handling entry for %s", reader.name)
-            self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
+            if self.stats is not None:
+                self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
             time.sleep(0.5)
             return False
 
-    def read_all_available_messages(self, reader, hits):
+    def read_all_available_messages(self, reader, hits: MutableMapping[str, Any]):
         lines = 0
         while self.read_single_message(reader):
             lines += 1
@@ -696,10 +698,10 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.log.debug("Wrote state file: %r", state_to_save)
 
     def run(self):
-        last_stats_time = 0
+        last_stats_time = 0.0
         while self.running:
             results = self.poller.poll(1000)
-            hits = {}
+            hits: Dict[str, int] = {}
             lines = 0
             for fd, _event in results:
                 for reader in self.readers.values():

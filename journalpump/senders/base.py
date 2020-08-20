@@ -86,7 +86,7 @@ class LogSender(Thread, Tagged):
         self.extra_field_values = extra_field_values
         self.field_filter = field_filter
         self.msg_buffer_max_length = msg_buffer_max_length
-        self.last_maintenance_fail = 0
+        self.last_maintenance_fail = 0.0
         self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
         self.running = True

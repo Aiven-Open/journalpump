@@ -56,6 +56,10 @@ class RsyslogSender(LogSender):
     def send_messages(self, *, messages, cursor):
         if not self.rsyslog_client:
             self._init_rsyslog_client()
+
+        if self.rsyslog_client is None:
+            raise Exception("failed to initialize rsyslog client")
+
         try:
             for msg in messages:
                 message = json.loads(msg.decode("utf8"))

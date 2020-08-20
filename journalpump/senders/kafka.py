@@ -60,6 +60,10 @@ class KafkaSender(LogSender):
     def send_messages(self, *, messages, cursor):
         if not self.kafka_producer:
             self._init_kafka()
+
+        if self.kafka_producer is None:
+            raise Exception("kafka producer could not be initialized")
+
         try:
             for msg in messages:
                 self.kafka_producer.send(topic=self.topic, value=msg, key=self.kafka_msg_key)

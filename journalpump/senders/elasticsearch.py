@@ -11,7 +11,7 @@ class ElasticsearchSender(LogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 10.0), **kwargs)
         self.session_url = self.config.get("elasticsearch_url")
-        self.last_index_check_time = 0
+        self.last_index_check_time = 0.0
         self.request_timeout = self.config.get("elasticsearch_timeout", 10.0)
         self.index_days_max = self.config.get("elasticsearch_index_days_max", 3)
         self.index_name = self.config.get("elasticsearch_index_prefix", "journalpump")

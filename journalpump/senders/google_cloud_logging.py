@@ -2,6 +2,7 @@ from .base import LogSender
 from googleapiclient.discovery import build
 from googleapiclient.errors import Error as GoogleApiClientError
 from oauth2client.service_account import ServiceAccountCredentials
+from typing import Any, Dict, List, Optional
 
 import json
 import logging
@@ -27,7 +28,7 @@ class GoogleCloudLoggingSender(LogSender):
         google_service_account = config.get("google_service_account_credentials")
         self.project_id = config["google_cloud_logging_project_id"]
         self.log_id = config["google_cloud_logging_log_id"]
-        self.resource_labels = config.get("google_cloud_logging_resource_labels", None)
+        self.resource_labels: Optional[Dict[str, str]] = config.get("google_cloud_logging_resource_labels", None)
         if google_service_account:
             credentials = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account)
             self.project_id = google_service_account["project_id"]
@@ -41,17 +42,7 @@ class GoogleCloudLoggingSender(LogSender):
         self.mark_connected()
 
     def send_messages(self, *, messages, cursor):
-        body = {
-            "logName": "projects/%s/logs/%s" % (self.project_id, self.log_id),
-            "resource": {
-                "type": "generic_node",
-            },
-            "entries": []
-        }
-
-        if self.resource_labels is not None:
-            body["resource"]["labels"] = self.resource_labels
-
+        entries: List[Dict[str, Any]] = []
         for message in messages:
             msg_str = message.decode("utf8")
             msg = json.loads(msg_str)
@@ -65,7 +56,18 @@ class GoogleCloudLoggingSender(LogSender):
             if journald_priority is not None:
                 severity = GoogleCloudLoggingSender._SEVERITY_MAPPING.get(journald_priority, "DEFAULT")
                 entry["severity"] = severity
-            body["entries"].append(entry)
+            entries.append(entry)
+
+        body = {
+            "logName": "projects/%s/logs/%s" % (self.project_id, self.log_id),
+            "resource": {
+                "type": "generic_node",
+                "labels": self.resource_labels
+            } if self.resource_labels is not None else {
+                "type": "generic_node"
+            },
+            "entries": entries
+        }
 
         try:
             self._logs.entries().write(body=body).execute()  # pylint: disable=no-member

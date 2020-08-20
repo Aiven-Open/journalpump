@@ -7,6 +7,7 @@ Common Daemon functionality
 
 """
 from systemd import daemon, journal
+from typing import Any, Dict
 
 import json
 import logging
@@ -34,7 +35,7 @@ class ServiceDaemon:
         self.log = logging.getLogger(self.name)
         self.config_path = config_path
         self.config_file_ctime = None
-        self.config = None
+        self.config: Dict[str, Any] = {}
         self.require_config = require_config
         self.reload_config()
         self.running = True

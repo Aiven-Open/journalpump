@@ -122,7 +122,8 @@ class SyslogTcpClient:
         except socket.gaierror:
             raise ValueError("Invalid address {}:{}".format(self.server, self.port))
 
-        raise last_connection_error
+        if last_connection_error is not None:
+            raise last_connection_error
 
     def close(self):
         if self.socket is None:
@@ -135,6 +136,10 @@ class SyslogTcpClient:
     def send(self, message):
         if self.socket is None:
             self._connect()
+
+        if self.socket is None:
+            raise Exception("socket failed to connect")
+
         self.socket.sendall(message[:self.max_msg - 1])
         if len(message) >= self.max_msg:
             self.socket.sendall(b"\n")

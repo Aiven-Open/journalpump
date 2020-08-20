@@ -2,10 +2,11 @@
 #
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
-
 from journalpump.journalpump import JournalPump
+from journalpump.senders.base import LogSender
 from subprocess import Popen
 from time import sleep
+from typing import List, Optional
 
 import json
 import logging
@@ -35,7 +36,7 @@ class _TestRsyslogd:
 
         self.port = port
         self.conffile = "{}/rsyslogd.conf".format(workdir)
-        self.process = None
+        self.process: Optional[Popen] = None
 
         with open(self.conffile, "w") as fp:
             print(RSYSLOGD_TCP_CONF.format(logfile=logfile, port=port), file=fp)
@@ -43,6 +44,8 @@ class _TestRsyslogd:
     def _wait_until_running(self):
         # Wait until the rsyslogd port is available, but if it is not up in
         # five seconds assume that it has failed to start
+        if self.process is None:
+            raise RuntimeError("start must be called before invoking this function")
         attempt = 0
         s = socket.socket()
         while (self.process.poll() is None) and (attempt < 5):
@@ -69,7 +72,7 @@ class _TestRsyslogd:
 
 def _journalpump_initialized(journalpump):
     retry = 0
-    senders = []
+    senders: List[LogSender] = []
     while retry < 3 and not senders:
         sleep(1)
         readers = [reader for _, reader in journalpump.readers.items()]
