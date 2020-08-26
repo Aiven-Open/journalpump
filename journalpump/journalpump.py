@@ -202,6 +202,10 @@ class JournalReader(Tagged):
         for sender in self.senders.values():
             sender.request_stop()
 
+    def close(self):
+        if self.journald_reader:
+            self.journald_reader.close()
+
     def initialize_senders(self):
         if self._senders_initialized:
             return
@@ -628,6 +632,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
         for reader in self.readers.values():
             reader.request_stop()
+            reader.close()
 
         super().sigterm(signum, frame)
 
