@@ -222,8 +222,8 @@ class JournalReader(Tagged):
         for sender_name, sender_config in self.config.get("senders", {}).items():
             try:
                 sender_class = senders[sender_config["output_type"]]
-            except KeyError:
-                raise Exception("Unknown sender type {!r}".format(sender_config["output_type"]))
+            except KeyError as ex:
+                raise Exception("Unknown sender type {!r}".format(sender_config["output_type"])) from ex
 
             field_filter = None
             if sender_config.get("field_filter", None):
@@ -390,8 +390,8 @@ class JournalReader(Tagged):
                     func_name = match.groupdict()["func"]
                     try:
                         f = funcs[func_name]  # pylint: disable=unused-variable
-                    except KeyError:
-                        raise Exception("Unknown tag function {!r} in {!r}".format(func_name, value))
+                    except KeyError as ex:
+                        raise Exception("Unknown tag function {!r} in {!r}".format(func_name, value)) from ex
 
                     args = match.groupdict()["args"].split(",")  # pylint: disable=unused-variable
 

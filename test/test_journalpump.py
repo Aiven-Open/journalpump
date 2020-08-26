@@ -199,7 +199,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
 
     class MockCloudWatch(mock.Mock):
         def __init__(self, *args, **kwargs):
-            super(MockCloudWatch, self).__init__(*args, **kwargs)
+            super().__init__(*args, **kwargs)
             self.create_log_group = mock.Mock(return_value=None)
             self.create_log_stream = mock.Mock(return_value=None)
             self.describe_log_streams = mock.Mock(

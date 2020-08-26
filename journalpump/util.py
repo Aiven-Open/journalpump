@@ -27,12 +27,12 @@ def atomic_replace_file(file_path):
 class TimeoutAdapter(requests.adapters.HTTPAdapter):
     def __init__(self, *args, timeout=None, **kwargs):
         self.timeout = timeout
-        super(TimeoutAdapter, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def send(self, *args, **kwargs):  # pylint: disable=arguments-differ,signature-differs
         if not kwargs.get("timeout"):
             kwargs["timeout"] = self.timeout
-        return super(TimeoutAdapter, self).send(*args, **kwargs)
+        return super().send(*args, **kwargs)
 
 
 def get_requests_session(*, timeout=60):
