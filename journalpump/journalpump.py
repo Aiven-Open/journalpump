@@ -202,6 +202,10 @@ class JournalReader(Tagged):
         for sender in self.senders.values():
             sender.request_stop()
 
+    def close(self):
+        if self.journald_reader:
+            self.journald_reader.close()
+
     def initialize_senders(self):
         if self._senders_initialized:
             return
@@ -218,8 +222,8 @@ class JournalReader(Tagged):
         for sender_name, sender_config in self.config.get("senders", {}).items():
             try:
                 sender_class = senders[sender_config["output_type"]]
-            except KeyError:
-                raise Exception("Unknown sender type {!r}".format(sender_config["output_type"]))
+            except KeyError as ex:
+                raise Exception("Unknown sender type {!r}".format(sender_config["output_type"])) from ex
 
             field_filter = None
             if sender_config.get("field_filter", None):
@@ -386,8 +390,8 @@ class JournalReader(Tagged):
                     func_name = match.groupdict()["func"]
                     try:
                         f = funcs[func_name]  # pylint: disable=unused-variable
-                    except KeyError:
-                        raise Exception("Unknown tag function {!r} in {!r}".format(func_name, value))
+                    except KeyError as ex:
+                        raise Exception("Unknown tag function {!r} in {!r}".format(func_name, value)) from ex
 
                     args = match.groupdict()["args"].split(",")  # pylint: disable=unused-variable
 
@@ -628,6 +632,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
         for reader in self.readers.values():
             reader.request_stop()
+            reader.close()
 
         super().sigterm(signum, frame)
 

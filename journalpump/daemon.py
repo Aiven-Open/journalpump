@@ -76,9 +76,9 @@ class ServiceDaemon:
         file_ctime = None
         try:
             file_ctime = os.path.getctime(self.config_path)
-        except FileNotFoundError:
+        except FileNotFoundError as ex:
             if self.require_config:
-                raise ServiceDaemonError("Cannot start without json config file at {!r}".format(self.config_path))
+                raise ServiceDaemonError("Cannot start without json config file at {!r}".format(self.config_path)) from ex
 
         if file_ctime != self.config_file_ctime:
             daemon.notify("RELOADING=1")
