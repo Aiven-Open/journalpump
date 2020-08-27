@@ -553,6 +553,7 @@ class JournalPump(ServiceDaemon, Tagged):
         self.start_time_str = datetime.datetime.utcnow().isoformat()
         self.configure_field_filters()
         self.configure_readers()
+        self.stale_readers = set()
 
     def configure_field_filters(self):
         filters = self.config.get("field_filters", {})
@@ -567,10 +568,8 @@ class JournalPump(ServiceDaemon, Tagged):
         # replace old readers with new ones
         for reader in self.readers.values():
             reader.request_stop()
-            # Don't close the journald_reader here because it could currently be in use.
-            # This may in some situations leak some resources but possible leak is small
-            # and config reloads are typically quite infrequent.
             reader.unregister_from_poll(self.poller)
+            self.stale_readers.add(reader)
 
         self.readers = {}
         state = self.load_state()
@@ -703,6 +702,11 @@ class JournalPump(ServiceDaemon, Tagged):
     def run(self):
         last_stats_time = 0
         while self.running:
+
+            while self.stale_readers:
+                reader = self.stale_readers.pop()
+                reader.close()
+
             results = self.poller.poll(1000)
             hits = {}
             lines = 0
