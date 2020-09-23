@@ -631,7 +631,8 @@ class JournalPump(ServiceDaemon, Tagged):
 
         for reader in self.readers.values():
             reader.request_stop()
-            reader.close()
+            reader.unregister_from_poll(self.poller)
+            self.stale_readers.add(reader)
 
         super().sigterm(signum, frame)
 
@@ -699,13 +700,15 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.previous_state = state_to_save
                 self.log.debug("Wrote state file: %r", state_to_save)
 
+    def _close_stale_readers(self):
+        while self.stale_readers:
+            reader = self.stale_readers.pop()
+            reader.close()
+
     def run(self):
         last_stats_time = 0
         while self.running:
-
-            while self.stale_readers:
-                reader = self.stale_readers.pop()
-                reader.close()
+            self._close_stale_readers()
 
             results = self.poller.poll(1000)
             hits = {}
@@ -741,6 +744,8 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.log.debug("No new journal lines received")
 
             self.ping_watchdog()
+
+        self._close_stale_readers()
 
 
 if __name__ == "__main__":
