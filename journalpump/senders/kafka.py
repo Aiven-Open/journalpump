@@ -10,6 +10,11 @@ try:
 except ImportError:
     snappy = None
 
+try:
+    import zstandard as zstd
+except ImportError:
+    zstd = None
+
 KAFKA_CONN_ERRORS = tuple(errors.RETRY_ERROR_TYPES) + (
     errors.UnknownError,
     socket.timeout,
@@ -34,11 +39,18 @@ class KafkaSender(LogSender):
             try:
                 if self.kafka_producer:
                     self.kafka_producer.close()
+                # make sure the python client supports it as well
+                if zstd and "zstd" in KafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
+                    compression = "zstd"
+                elif snappy:
+                    compression = "snappy"
+                else:
+                    compression = "gzip"
 
                 self.kafka_producer = KafkaProducer(
                     api_version=self.config.get("kafka_api_version", "0.9"),
                     bootstrap_servers=self.config.get("kafka_address"),
-                    compression_type="snappy" if snappy else "gzip",
+                    compression_type=compression,
                     linger_ms=500,  # wait up 500 ms to see if we can send msgs in a group
                     reconnect_backoff_ms=1000,  # up from the default 50ms to reduce connection attempts
                     reconnect_backoff_max_ms=10000,  # up the upper bound for backoff to 10 seconds
