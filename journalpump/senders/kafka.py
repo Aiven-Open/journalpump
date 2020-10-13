@@ -37,10 +37,13 @@ class KafkaSender(LogSender):
         self.mark_disconnected()
         while self.running:
             try:
+                api_version = self.config.get("kafka_api_version", "0.9")
+                parsed = tuple(map(int, api_version.split(".")))
                 if self.kafka_producer:
                     self.kafka_producer.close()
                 # make sure the python client supports it as well
-                if zstd and "zstd" in KafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
+                # pylint: disable=protected-access
+                if zstd and "zstd" in KafkaProducer._COMPRESSORS and parsed >= (2, 1, 0):
                     compression = "zstd"
                 elif snappy:
                     compression = "snappy"
@@ -48,7 +51,7 @@ class KafkaSender(LogSender):
                     compression = "gzip"
 
                 self.kafka_producer = KafkaProducer(
-                    api_version=self.config.get("kafka_api_version", "0.9"),
+                    api_version=api_version,
                     bootstrap_servers=self.config.get("kafka_address"),
                     compression_type=compression,
                     linger_ms=500,  # wait up 500 ms to see if we can send msgs in a group
