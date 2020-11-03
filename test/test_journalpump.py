@@ -197,17 +197,35 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
+    class MockCloudWatchPaginator(mock.Mock):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            # Paginate over three pages
+            self.paginate = mock.Mock(
+                return_value=[{
+                    "logStreams": [{
+                        "logStreamName": "page1",
+                        "uploadSequenceToken": "page1"
+                    }]
+                }, {
+                    "logStreams": [{
+                        "logStreamName": "stream",
+                        "uploadSequenceToken": "token"
+                    }]
+                }, {
+                    "logStreams": [{
+                        "logStreamName": "page3",
+                        "uploadSequenceToken": "page3"
+                    }]
+                }]
+            )
+
     class MockCloudWatch(mock.Mock):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.create_log_group = mock.Mock(return_value=None)
             self.create_log_stream = mock.Mock(return_value=None)
-            self.describe_log_streams = mock.Mock(
-                return_value={"logStreams": [{
-                    "logStreamName": "stream",
-                    "uploadSequenceToken": "token"
-                }]}
-            )
+            self.get_paginator = MockCloudWatchPaginator()
 
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
@@ -225,7 +243,8 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             # pylint: disable=protected-access
             s._logs.create_log_group.assert_called_once_with(logGroupName="group")
             s._logs.create_log_stream.assert_called_once_with(logGroupName="group", logStreamName="stream")
-            s._logs.describe_log_streams.assert_called_once_with(logGroupName="group")
+            s._logs.get_paginator.assert_called_once_with("describe_log_streams")
+            s._logs.get_paginator().paginate.assert_called_once_with(logGroupName="group")
             assert s._next_sequence_token == "token"
             # pylint: enable=protected-access
             assert isinstance(s, AWSCloudWatchSender)

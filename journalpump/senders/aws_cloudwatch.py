@@ -38,13 +38,18 @@ class AWSCloudWatchSender(LogSender):
         except botocore.exceptions.ClientError as err:
             if err.response["Error"]["Code"] != "ResourceAlreadyExistsException":
                 raise
-        streams = self._logs.describe_log_streams(logGroupName=self.log_group).get("logStreams")
-        if streams is not None:
-            stream_metadata = [stream for stream in streams if stream["logStreamName"] == self.log_stream][0]
-            self._next_sequence_token = stream_metadata.get("uploadSequenceToken")
-            self.mark_connected()
-        else:
-            raise Exception("AWS CloudWatch logs could not update sequence token")
+
+        paginator = self._logs.get_paginator("describe_log_streams")
+        for page in paginator.paginate(logGroupName=self.log_group):
+            streams = page.get("logStreams")
+            if streams is not None:
+                found_stream_metadata = [stream for stream in streams if stream["logStreamName"] == self.log_stream]
+                if found_stream_metadata:
+                    self._next_sequence_token = found_stream_metadata[0].get("uploadSequenceToken")
+                    self.mark_connected()
+                    return
+        self.mark_disconnected()
+        self.log.error("Failed to init sender. AWS CloudWatch logs could not update sequence token.")
 
     def send_messages(self, *, messages, cursor):
         log_events = []
