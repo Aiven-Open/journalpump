@@ -39,26 +39,37 @@ class KafkaSender(LogSender):
             try:
                 if self.kafka_producer:
                     self.kafka_producer.close()
+
+                producer_config = {
+                    "api_version": self.config.get("kafka_api_version", "0.9"),
+                    "bootstrap_servers": self.config.get("kafka_address"),
+                    "linger_ms": 500,  # wait up 500 ms to see if we can send msgs in a group
+                    "reconnect_backoff_ms": 1000,  # up from the default 50ms to reduce connection attempts
+                    "reconnect_backoff_max_ms": 10000,  # up the upper bound for backoff to 10 seconds
+                }
+
+                if self.config.get("ssl"):
+                    producer_config["security_protocol"] = "SSL"
+                    producer_config["ssl_cafile"] = self.config.get("ca")
+                    producer_config["ssl_certfile"] = self.config.get("certfile")
+                    producer_config["ssl_keyfile"] = self.config.get("keyfile")
+                else:
+                    producer_config["security_protocol"] = "PLAINTEXT"
+
                 # make sure the python client supports it as well
                 if zstd and "zstd" in KafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
-                    compression = "zstd"
+                    producer_config["compression_type"] = "zstd"
                 elif snappy:
-                    compression = "snappy"
+                    producer_config["compression_type"] = "snappy"
                 else:
-                    compression = "gzip"
+                    producer_config["compression_type"] = "gzip"
 
-                self.kafka_producer = KafkaProducer(
-                    api_version=self.config.get("kafka_api_version", "0.9"),
-                    bootstrap_servers=self.config.get("kafka_address"),
-                    compression_type=compression,
-                    linger_ms=500,  # wait up 500 ms to see if we can send msgs in a group
-                    reconnect_backoff_ms=1000,  # up from the default 50ms to reduce connection attempts
-                    reconnect_backoff_max_ms=10000,  # up the upper bound for backoff to 10 seconds
-                    security_protocol="SSL" if self.config.get("ssl") is True else "PLAINTEXT",
-                    ssl_cafile=self.config.get("ca"),
-                    ssl_certfile=self.config.get("certfile"),
-                    ssl_keyfile=self.config.get("keyfile"),
-                )
+                if self.config.get("socks5_proxy"):
+                    # Socks5_config is supported by Aiven fork of kafka-python for the time being
+                    producer_config["socks5_proxy"] = self.config.get("socks5_proxy")
+
+                self.kafka_producer = KafkaProducer(**producer_config)
+
                 self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
                 self.mark_connected()
                 break

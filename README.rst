@@ -355,6 +355,11 @@ for partition selection.
 Kafka client key path, needed when you're using Kafka with SSL
 authentication.
 
+``socks5_proxy`` (default ``null``)
+
+Defined socks5 proxy to use for Kafka connections. This feature
+is currently only supported in Aiven fork of kafka-python library.
+
 AWS CloudWatch Logs Sender Configuration
 ----------------------------------------
 ``aws_cloudwatch_log_group``
