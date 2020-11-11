@@ -41,7 +41,7 @@ class KafkaSender(LogSender):
                     self.kafka_producer.close()
 
                 producer_config = {
-                    "api_version": self.config.get("kafka_api_version", "0.9"),
+                    "api_version": self.config.get("kafka_api_version"),
                     "bootstrap_servers": self.config.get("kafka_address"),
                     "linger_ms": 500,  # wait up 500 ms to see if we can send msgs in a group
                     "reconnect_backoff_ms": 1000,  # up from the default 50ms to reduce connection attempts
