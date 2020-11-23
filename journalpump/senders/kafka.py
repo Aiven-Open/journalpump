@@ -65,7 +65,7 @@ class KafkaSender(LogSender):
     def _init_kafka(self) -> None:
         self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
         self.mark_disconnected()
-        while self.running:
+        while self.running and not self._connected:
             producer_config = self._generate_producer_config()
             try:
                 if self.kafka_producer:
@@ -75,7 +75,6 @@ class KafkaSender(LogSender):
 
                 self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
                 self.mark_connected()
-                break
             except KAFKA_CONN_ERRORS as ex:
                 self.mark_disconnected(ex)
                 self.log.warning("Retriable error during Kafka initialization: %s: %s", ex.__class__.__name__, ex)
