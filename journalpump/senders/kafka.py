@@ -3,7 +3,6 @@ from kafka import errors, KafkaProducer
 
 import logging
 import socket
-import time
 
 try:
     import snappy
@@ -63,7 +62,7 @@ class KafkaSender(LogSender):
 
         return producer_config
 
-    def _init_kafka(self):
+    def _init_kafka(self) -> None:
         self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
         self.mark_disconnected()
         while self.running:
@@ -82,7 +81,6 @@ class KafkaSender(LogSender):
                 self.log.warning("Retriable error during Kafka initialization: %s: %s", ex.__class__.__name__, ex)
                 self._backoff()
             self.kafka_producer = None
-            time.sleep(5.0)
 
     def send_messages(self, *, messages, cursor):
         if not self.kafka_producer:
