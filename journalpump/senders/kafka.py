@@ -64,22 +64,26 @@ class KafkaSender(LogSender):
 
     def _init_kafka(self) -> None:
         self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
+
+        if self.kafka_producer:
+            self.kafka_producer.close()
+            self.kafka_producer = None
+
         self.mark_disconnected()
+
         while self.running and not self._connected:
             producer_config = self._generate_producer_config()
+
             try:
-                if self.kafka_producer:
-                    self.kafka_producer.close()
-
-                self.kafka_producer = KafkaProducer(**producer_config)
-
-                self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
-                self.mark_connected()
+                kafka_producer = KafkaProducer(**producer_config)
             except KAFKA_CONN_ERRORS as ex:
                 self.mark_disconnected(ex)
                 self.log.warning("Retriable error during Kafka initialization: %s: %s", ex.__class__.__name__, ex)
                 self._backoff()
-            self.kafka_producer = None
+            else:
+                self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
+                self.kafka_producer = kafka_producer
+                self.mark_connected()
 
     def send_messages(self, *, messages, cursor):
         if not self.kafka_producer:
