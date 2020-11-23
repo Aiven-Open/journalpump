@@ -32,41 +32,45 @@ class KafkaSender(LogSender):
             self.kafka_msg_key = self.kafka_msg_key.encode("utf8")
         self.topic = self.config.get("kafka_topic")
 
+    def _generate_producer_config(self) -> dict:
+        producer_config = {
+            "api_version": self.config.get("kafka_api_version"),
+            "bootstrap_servers": self.config.get("kafka_address"),
+            "linger_ms": 500,  # wait up 500 ms to see if we can send msgs in a group
+            "reconnect_backoff_ms": 1000,  # up from the default 50ms to reduce connection attempts
+            "reconnect_backoff_max_ms": 10000,  # up the upper bound for backoff to 10 seconds
+        }
+
+        if self.config.get("ssl"):
+            producer_config["security_protocol"] = "SSL"
+            producer_config["ssl_cafile"] = self.config.get("ca")
+            producer_config["ssl_certfile"] = self.config.get("certfile")
+            producer_config["ssl_keyfile"] = self.config.get("keyfile")
+        else:
+            producer_config["security_protocol"] = "PLAINTEXT"
+
+        # make sure the python client supports it as well
+        if zstd and "zstd" in KafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
+            producer_config["compression_type"] = "zstd"
+        elif snappy:
+            producer_config["compression_type"] = "snappy"
+        else:
+            producer_config["compression_type"] = "gzip"
+
+        if self.config.get("socks5_proxy"):
+            # Socks5_config is supported by Aiven fork of kafka-python for the time being
+            producer_config["socks5_proxy"] = self.config.get("socks5_proxy")
+
+        return producer_config
+
     def _init_kafka(self):
         self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
         self.mark_disconnected()
         while self.running:
+            producer_config = self._generate_producer_config()
             try:
                 if self.kafka_producer:
                     self.kafka_producer.close()
-
-                producer_config = {
-                    "api_version": self.config.get("kafka_api_version"),
-                    "bootstrap_servers": self.config.get("kafka_address"),
-                    "linger_ms": 500,  # wait up 500 ms to see if we can send msgs in a group
-                    "reconnect_backoff_ms": 1000,  # up from the default 50ms to reduce connection attempts
-                    "reconnect_backoff_max_ms": 10000,  # up the upper bound for backoff to 10 seconds
-                }
-
-                if self.config.get("ssl"):
-                    producer_config["security_protocol"] = "SSL"
-                    producer_config["ssl_cafile"] = self.config.get("ca")
-                    producer_config["ssl_certfile"] = self.config.get("certfile")
-                    producer_config["ssl_keyfile"] = self.config.get("keyfile")
-                else:
-                    producer_config["security_protocol"] = "PLAINTEXT"
-
-                # make sure the python client supports it as well
-                if zstd and "zstd" in KafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
-                    producer_config["compression_type"] = "zstd"
-                elif snappy:
-                    producer_config["compression_type"] = "snappy"
-                else:
-                    producer_config["compression_type"] = "gzip"
-
-                if self.config.get("socks5_proxy"):
-                    # Socks5_config is supported by Aiven fork of kafka-python for the time being
-                    producer_config["socks5_proxy"] = self.config.get("socks5_proxy")
 
                 self.kafka_producer = KafkaProducer(**producer_config)
 
