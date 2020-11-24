@@ -36,6 +36,10 @@ Other::
 
 This will produce an egg file into a dist directory within the same folder.
 
+For a source install the dependency [python-systemd](https://github.com/systemd/python-systemd) has
+to be installed through your distribution's package manager (The PyPI `systemd` package is not the
+same!).
+
 journalpump requires Python 3.4 or newer.
 
 
