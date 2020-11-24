@@ -345,6 +345,19 @@ Which Kafka server API version to use.
 Which Kafka topic do you want the journalpump to write to.
 Required when using output_type ``kafka``.
 
+``kafka_topic_config`` (default ``null``)
+
+If this key is present, its value must be another mapping with the default
+configuration used to create the topic, if it does not exist yet.
+
+The mapping must have these values::
+
+  {
+      "num_partitions": 3,
+      "replication_factor": 3
+  }
+
+
 ``kafka_address`` (default ``null``)
 
 The address of the kafka server which to write to.
