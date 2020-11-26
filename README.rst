@@ -36,7 +36,7 @@ Other::
 
 This will produce an egg file into a dist directory within the same folder.
 
-For a source install the dependency [python-systemd](https://github.com/systemd/python-systemd) has
+For a source install the dependency `python-systemd <https://github.com/systemd/python-systemd>`_ has
 to be installed through your distribution's package manager (The PyPI `systemd` package is not the
 same!).
 
@@ -102,6 +102,7 @@ Top level configuration
 Example::
 
   {
+      "log_level": "INFO",
       "field_filters": {
          ...
       },
@@ -137,7 +138,7 @@ Metrics sending follows the `Telegraf spec`_.
 
 ``log_level`` (default ``"INFO"``)
 
-Determines log level of journalpump.
+Determines log level of journalpump. `Available log levels <https://docs.python.org/3/library/logging.html#logging-levels>`_.
 
 Field filter configuration
 ==========================
@@ -343,6 +344,19 @@ Which Kafka server API version to use.
 
 Which Kafka topic do you want the journalpump to write to.
 Required when using output_type ``kafka``.
+
+``kafka_topic_config`` (default ``null``)
+
+If this key is present, its value must be another mapping with the default
+configuration used to create the topic, if it does not exist yet.
+
+The mapping must have these values::
+
+  {
+      "num_partitions": 3,
+      "replication_factor": 3
+  }
+
 
 ``kafka_address`` (default ``null``)
 
