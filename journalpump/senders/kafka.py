@@ -110,9 +110,16 @@ class KafkaSender(LogSender):
         if not self.kafka_producer:
             self._init_kafka()
         try:
-            for msg in messages:
-                self.kafka_producer.send(topic=self.topic, value=msg, key=self.kafka_msg_key)
+            # Collect return values of send():
+            # FutureRecordMetadata which will trigger when message actually sent (during flush)
+            result_futures = [
+                self.kafka_producer.send(topic=self.topic, value=msg, key=self.kafka_msg_key) for msg in messages
+            ]
             self.kafka_producer.flush()
+            for result_future in result_futures:
+                # get() throws error from future, catch below
+                # flush() above should have sent, getting with 1 sec timeout
+                result_future.get(timeout=1)
             self.mark_sent(messages=messages, cursor=cursor)
             return True
         except KAFKA_CONN_ERRORS as ex:
