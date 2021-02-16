@@ -3,6 +3,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import Error as GoogleApiClientError
 from oauth2client.service_account import ServiceAccountCredentials
 
+import contextlib
 import json
 import logging
 
@@ -57,6 +58,11 @@ class GoogleCloudLoggingSender(LogSender):
             msg = json.loads(msg_str)
             timestamp = msg.pop("timestamp", None)
             journald_priority = msg.pop("PRIORITY", None)
+
+            if "MESSAGE" in msg:
+                with contextlib.suppress(json.JSONDecodeError):
+                    msg["MESSAGE"] = json.loads(msg["MESSAGE"])
+
             entry = {
                 "jsonPayload": msg,
             }
