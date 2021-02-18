@@ -1,8 +1,7 @@
+from .data import GCP_PRIVATE_KEY
 from botocore.stub import Stubber
 from collections import OrderedDict
 from datetime import datetime
-from googleapiclient.http import RequestMockBuilder as GoogleApiClientRequestMockBuilder
-from httplib2 import Response as HttpLib2Response
 from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump
 from journalpump.senders import (
     AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
@@ -15,36 +14,6 @@ from unittest import mock, TestCase
 import boto3
 import json
 import responses
-
-_PRIVATE_KEY = \
-    "-----BEGIN PRIVATE KEY-----\n" + \
-    "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCpvu/5QUyQpYRT\n" + \
-    "t1vAWbCcWOc1xxbGKIjMVZTY+FCaHPeJWWevgGIJnZKL/ZCfkHusZ2LfPFgdxeBr\n" + \
-    "R7qIGYvDv+Ez2Z2JF4UvhLGtvUtabOHu50P9XtGVB53YUisGqlVJqpAeKXR2t0kb\n" + \
-    "DaPgTjiP3wroe1/RpjkAdgny25X6dwk7eBELo7pB8CqqCuOE1gADOr46DmcnPGcr\n" + \
-    "nkyqpoUn8v0fDi4LwP3bQK6F8Yj8oTa2Vm/vXXZ9pLdBfkzm7evKi8Ujtj1i40Wr\n" + \
-    "XQ3VxlqbF/zdn1c4LpT9qQuwwu8eqcyNbzC7lGvhJ9nmGN+Fpb49kTk4EZ32HygS\n" + \
-    "0G5n1zrrAgMBAAECggEAQQpr2gaGx1/cedVmnyfer7Gy+hysYcZTUHQ0YgSXoc2a\n" + \
-    "nbK3s3wOVJ/fcKt6eGF8ud0tedsd6l6RNJoZ459iOeGycVMfdVGhU0lVaXyAPIg+\n" + \
-    "8/MCTrm/tYpjFWm6mcW3g1ALA7ufqANnzCloUwC11I7Cl7z6RJMcAUy5WCiCaaMF\n" + \
-    "U/QDhhkNQwqowiQGamJNbE13L47lSuo50Nu3Ximh1vRZQz11IHIGJMe9N95vUHTI\n" + \
-    "mqViUtpJ2UyPW737cTPfvG4KH/xO7s9y/kAQuXBjF4c+2Z5vk3lDOmRleUusj0Ru\n" + \
-    "5m5aM56WxBucqjn6vsDPCqSyzNuxi3G8YD0mUiSBQQKBgQDlmlW/99g497FuePI0\n" + \
-    "MFoVeENEZQOnb+q9vhaIyYyWvRiQCsK/eKe8kCBMVGOR0bRiprKs+cAQN94lP45h\n" + \
-    "bptMmcUWgF7N1arcKaUdR9EU6BujaEzzJxMSZAdJrqb77/bNuCDF6LTHTLD9muj4\n" + \
-    "TM6IqkZZgOChbqgEP1fXC2bXwQKBgQC9QuRuWD2Bv3E0h7OA6kz46oLQnOeryFlI\n" + \
-    "9MVKvSkUkxwJL+9UrnWQzXhKgWbTqpR9+/l82WZ8DrDAn8P1h7aYW2rB7QSi93A6\n" + \
-    "rRSSkjKoh+peFoZqrH6B2BpKBt5XO26nmZl2hbFkNvoBW4mlXjqC3uxbGXTeI0qC\n" + \
-    "lu+HvsRdqwKBgEDi+eLTjyaiUWFwCrrXA05X+2KjzYGPLl7LDqE/nFypOfzTHbBw\n" + \
-    "z66JaKdJng4CnqDWjV43AqFSuJP8Pyen03m1Zy5xvtkazjuEBWad+ieXZOAsRLre\n" + \
-    "yxQCctDO69/9M9l1dMWZeyVrtgUltzscsa2LuW/n7ROSKydwI0nhrgHBAoGARvsG\n" + \
-    "dwfrEXU+PMhEHy5Abf5tz1V5YajDK6R5Nd2ZwZimpB9xMB46A3O8EJ1Vdj78b/+H\n" + \
-    "gzZ5xD8yNRv2P2iFp8BpWo/M9F2+npL5Kztfemt3D5B9GxbUX1gwC+Flk+u7RWpK\n" + \
-    "7vOXIxGnU8kD55xeb2Sx2jzC4ujzceSvswZt2P8CgYEApjeIYIzvefUq6A1PqRS3\n" + \
-    "6uFBU3jl4MdRVSNK7cZ2XTMVFBotBx6slxhsu0mCmIJGqLng+PBQduv720Rfz29I\n" + \
-    "V3HRVsywgOVHazpYtKppJXB7jy60/U/ARf4ZbysgxhFKUbsjUWAmpdz2Jy1H8XHu\n" + \
-    "Br8FLEY2+iOAvkgZLxZMLbM=\n" + \
-    "-----END PRIVATE KEY-----\n"
 
 
 def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
@@ -262,7 +231,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
                             "type": "service_account",
                             "project_id": "project-id",
                             "private_key_id": "abcdefg",
-                            "private_key": _PRIVATE_KEY,
+                            "private_key": GCP_PRIVATE_KEY,
                             "client_email": "test@project-id.iam.gserviceaccount.com",
                             "client_id": "123456789",
                             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -594,114 +563,3 @@ def test_awscloudwatch_sender():
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._connected  # pylint: disable=protected-access
         assert sender._sent_count == 3  # pylint: disable=protected-access
-
-
-def test_google_cloud_logging_sender():
-    config = {
-        "google_cloud_logging_project_id": "project-id",
-        "google_cloud_logging_log_id": "log-id",
-        "google_cloud_logging_resource_labels": {
-            "location": "us-east-1",
-            "node_id": "my-test-node",
-        },
-        "google_service_account_credentials": {
-            "type": "service_account",
-            "project_id": "project-id",
-            "private_key_id": "abcdefg",
-            "private_key": _PRIVATE_KEY,
-            "client_email": "test@project-id.iam.gserviceaccount.com",
-            "client_id": "123456789",
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"  # pylint:disable=line-too-long
-        }
-    }
-
-    expected_body = {
-        "logName": "projects/project-id/logs/log-id",
-        "resource": {
-            "type": "generic_node",
-            "labels": {
-                "location": "us-east-1",
-                "node_id": "my-test-node"
-            },
-        },
-        "entries": [{
-            "jsonPayload": {
-                "message": "Hello"
-            }
-        }]
-    }
-    requestBuilder = GoogleApiClientRequestMockBuilder(
-        {
-            "logging.entries.write": (None, "{}", expected_body),
-        },
-        check_unexpected=True,
-    )
-
-    sender = GoogleCloudLoggingSender(
-        name="googlecloudlogging",
-        reader=mock.Mock(),
-        stats=mock.Mock(),
-        field_filter=None,
-        config=config,
-        googleapiclient_request_builder=requestBuilder
-    )
-    sender.send_messages(messages=[b'{"message": "Hello"}'], cursor=None)
-    assert sender._sent_count == 1  # pylint: disable=protected-access
-
-    requestBuilder = GoogleApiClientRequestMockBuilder(
-        {
-            "logging.entries.write": (HttpLib2Response({"status": "400"}), b"", expected_body),
-        },
-        check_unexpected=True,
-    )
-
-    sender = GoogleCloudLoggingSender(
-        name="googlecloudlogging",
-        reader=mock.Mock(),
-        stats=mock.Mock(),
-        field_filter=None,
-        config=config,
-        googleapiclient_request_builder=requestBuilder
-    )
-    sender.send_messages(messages=[b'{"message": "Hello"}'], cursor=None)
-    assert sender._sent_count == 0  # pylint: disable=protected-access
-
-    expected_body = {
-        "logName": "projects/project-id/logs/log-id",
-        "resource": {
-            "type": "generic_node",
-            "labels": {
-                "location": "us-east-1",
-                "node_id": "my-test-node"
-            },
-        },
-        "entries": [{
-            "timestamp": "2020-06-25T06:24:13.787255Z",
-            "severity": "EMERGENCY",
-            "jsonPayload": {
-                "message": "Hello"
-            }
-        }]
-    }
-    requestBuilder = GoogleApiClientRequestMockBuilder(
-        {
-            "logging.entries.write": (None, "{}", expected_body),
-        },
-        check_unexpected=True,
-    )
-
-    sender = GoogleCloudLoggingSender(
-        name="googlecloudlogging",
-        reader=mock.Mock(),
-        stats=mock.Mock(),
-        field_filter=None,
-        config=config,
-        googleapiclient_request_builder=requestBuilder
-    )
-    sender.send_messages(
-        messages=[b'{"message": "Hello", "PRIORITY": 0, "timestamp": "2020-06-25T06:24:13.787255"}'], cursor=None
-    )
-    assert sender._sent_count == 1  # pylint: disable=protected-access
