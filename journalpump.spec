@@ -6,10 +6,15 @@ Summary:        Pump messages from systemd journal to Elasticsearch, Kafka, Logp
 License:        ASL 2.0
 Source0:        journalpump-rpm-src.tar.gz
 Requires:       python3-kafka, systemd-python3, python3-requests, python3-boto3, python3-google-api-client
+Requires:       python3-oauth2client, python3-geoip2, python3-typing-extensions
 BuildRequires:  python3-kafka, systemd-python3, python3-requests, python3-boto3, python3-google-api-client
 BuildRequires:  python3-devel, python3-pytest, python3-pylint python3-responses
 BuildArch:      noarch
 Obsoletes:      kafkajournalpump
+
+# The dependency generator uses names which are not compatible with
+# Fedora Packaging naming guidelines
+%{?python_disable_dependency_generator}
 
 %description
 journalpump is a daemon that takes log messages from journald and pumps them
