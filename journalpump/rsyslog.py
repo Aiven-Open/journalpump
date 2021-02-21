@@ -81,7 +81,7 @@ class SyslogTcpClient:
         self.port = port
         self.max_msg = max_msg
         self.socket_proto = socket.SOCK_STREAM
-        self.ssl_params = None
+        self.ssl_context = None
         if rfc == "RFC5424":
             self.formatter = _rfc_5424_formatter
         elif rfc == "RFC3164":
@@ -95,13 +95,13 @@ class SyslogTcpClient:
         if protocol is None:
             protocol = "PLAINTEXT"
         if cacerts is not None or protocol == "SSL":
-            self.ssl_params = {
-                "ssl_version": ssl.PROTOCOL_TLS,  # pylint: disable=no-member
-                "cert_reqs": ssl.CERT_REQUIRED,
-                "keyfile": keyfile,
-                "certfile": certfile,
-                "ca_certs": cacerts,
-            }
+            self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+            self.ssl_context.verify_mode = ssl.CERT_REQUIRED
+            if cacerts:
+                self.ssl_context.load_verify_locations(cacerts)
+            if certfile:
+                self.ssl_context.load_cert_chain(certfile, keyfile)
+
         self._connect()
 
     def _connect(self):
@@ -111,8 +111,8 @@ class SyslogTcpClient:
                 family, sock_type, sock_proto, _, sock_addr = addr_info
                 try:
                     self.socket = socket.socket(family, sock_type, sock_proto)
-                    if self.ssl_params is not None:
-                        self.socket = ssl.wrap_socket(self.socket, **self.ssl_params)
+                    if self.ssl_context is not None:
+                        self.socket = self.ssl_context.wrap_socket(self.socket)
                     self.socket.connect(sock_addr)
                     return
                 except Exception as ex:  # pylint: disable=broad-except
