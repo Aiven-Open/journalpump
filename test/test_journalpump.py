@@ -6,6 +6,7 @@ from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHan
 from journalpump.senders import (
     AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
+from journalpump.senders.aws_cloudwatch import MAX_INIT_TRIES
 from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer, SenderInitializationError
 from journalpump.util import default_json_serialization
 from time import sleep
@@ -13,6 +14,7 @@ from unittest import mock, TestCase
 
 import boto3
 import json
+import pytest
 import responses
 
 
@@ -563,6 +565,93 @@ def test_awscloudwatch_sender():
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._connected  # pylint: disable=protected-access
         assert sender._sent_count == 3  # pylint: disable=protected-access
+
+
+def test_awscloudwatch_sender_init():
+    logs = boto3.client("logs", region_name="us-east-1")
+
+    # Test that AWSCloudWatchSender correctly raises SenderInitializationError after
+    # aws_cloudwatch.MAX_INIT_TRIES attempts
+    with Stubber(logs) as stubber:
+        for _ in range(MAX_INIT_TRIES):
+            stubber.add_client_error(
+                "create_log_group",
+                service_error_code="AccessDeniedException",
+                http_status_code=400,
+            )
+
+        with pytest.raises(SenderInitializationError):
+            AWSCloudWatchSender(
+                name="awscloudwatch",
+                reader=mock.Mock(),
+                stats=mock.Mock(),
+                field_filter=None,
+                config={
+                    "aws_cloudwatch_log_group": "group",
+                    "aws_cloudwatch_log_stream": "stream"
+                },
+                aws_cloudwatch_logs=logs
+            )
+
+    # Test that AWSCloudWatchSender initializes correctly when init is retried
+    # after an AccessDeniedException
+    with Stubber(logs) as stubber:
+        stubber.add_client_error(
+            "create_log_group",
+            service_error_code="AccessDeniedException",
+            http_status_code=400,
+        )
+        stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response(
+            "describe_log_streams", {"logStreams": [{
+                "logStreamName": "stream",
+                "uploadSequenceToken": "token"
+            }]}, {"logGroupName": "group"}
+        )
+        sender = AWSCloudWatchSender(
+            name="awscloudwatch",
+            reader=mock.Mock(),
+            stats=mock.Mock(),
+            field_filter=None,
+            config={
+                "aws_cloudwatch_log_group": "group",
+                "aws_cloudwatch_log_stream": "stream"
+            },
+            aws_cloudwatch_logs=logs
+        )
+        # _connected is set to True after initialization is completed
+        assert sender._connected  # pylint: disable=protected-access
+
+    # Test that AWSCloudWatchSender initializes correctly when init is retried
+    # after a ServiceUnavailable error
+    with Stubber(logs) as stubber:
+        stubber.add_client_error(
+            "create_log_group",
+            service_error_code="ServiceUnavailable",
+            http_status_code=503,
+        )
+        stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response(
+            "describe_log_streams", {"logStreams": [{
+                "logStreamName": "stream",
+                "uploadSequenceToken": "token"
+            }]}, {"logGroupName": "group"}
+        )
+        sender = AWSCloudWatchSender(
+            name="awscloudwatch",
+            reader=mock.Mock(),
+            stats=mock.Mock(),
+            field_filter=None,
+            config={
+                "aws_cloudwatch_log_group": "group",
+                "aws_cloudwatch_log_stream": "stream"
+            },
+            aws_cloudwatch_logs=logs
+        )
+        # _connected is set to True after initialization is completed
+        assert sender._connected  # pylint: disable=protected-access
 
 
 def test_single_sender_init_fail():

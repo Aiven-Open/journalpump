@@ -1,9 +1,11 @@
-from .base import LogSender
+from .base import LogSender, SenderInitializationError
 
 import boto3
 import botocore
 import json
 import time
+
+MAX_INIT_TRIES = 3
 
 
 class AWSCloudWatchSender(LogSender):
@@ -27,17 +29,48 @@ class AWSCloudWatchSender(LogSender):
             if self.config.get("aws_secret_access_key") is not None:
                 kwargs["aws_secret_access_key"] = self.config.get("aws_secret_access_key")
             self._logs = boto3.client("logs", **kwargs)
-        # Create the log group and stream if they don't exist yet
-        try:
-            self._logs.create_log_group(logGroupName=self.log_group)
-        except botocore.exceptions.ClientError as err:
-            if err.response["Error"]["Code"] != "ResourceAlreadyExistsException":
-                raise
-        try:
-            self._logs.create_log_stream(logGroupName=self.log_group, logStreamName=self.log_stream)
-        except botocore.exceptions.ClientError as err:
-            if err.response["Error"]["Code"] != "ResourceAlreadyExistsException":
-                raise
+
+        # Catch access denied exception(e.g. due to erroneous credentials)
+        attempts_left = MAX_INIT_TRIES
+        while attempts_left:
+            attempts_left -= 1
+            try:
+                # Create the log group and stream if they don't exist yet
+                # These are done in separate try-excepts, as both log group
+                # or log stream may already exist
+                try:
+                    self._logs.create_log_group(logGroupName=self.log_group)
+                except botocore.exceptions.ClientError as err:
+                    # Ignore ResourceAlreadyExistsException, raise other errors
+                    if err.response["Error"]["Code"] != "ResourceAlreadyExistsException":
+                        raise
+                try:
+                    self._logs.create_log_stream(logGroupName=self.log_group, logStreamName=self.log_stream)
+                except botocore.exceptions.ClientError as err:
+                    # Ignore ResourceAlreadyExistsException, raise other errors
+                    if err.response["Error"]["Code"] != "ResourceAlreadyExistsException":
+                        raise
+            except botocore.exceptions.ClientError as err:
+                self.stats.unexpected_exception(ex=err, where="sender", tags=self.make_tags({"app": "journalpump"}))
+                # If we get AccessDenied, log and raise SenderInitializationError
+                # if too many attempts. SenderInitializationError is handled by
+                # JournalReader
+                if err.response["Error"]["Code"] == "AccessDeniedException":
+                    self.log.exception(
+                        "Access denied exception when trying to create log group and stream in AWS Cloudwatch."
+                    )
+                    if not attempts_left:
+                        raise SenderInitializationError from err
+                    self._backoff()
+                    continue
+                # If we get some other aws exception, log it and raise if too many attempts.
+                # This is not handled in any special way
+                self.log.exception("AWS ClientError")
+                if not attempts_left:
+                    raise
+                self._backoff()
+            else:
+                break
 
         paginator = self._logs.get_paginator("describe_log_streams")
         for page in paginator.paginate(logGroupName=self.log_group):
