@@ -11,6 +11,10 @@ MAX_ERROR_MESSAGES = 8
 MAX_ERROR_MESSAGE_LEN = 128
 
 
+class SenderInitializationError(Exception):
+    """Error during sender initialization"""
+
+
 # Map running/_connected to health
 def _convert_to_health(*, running, connected):
     if running:

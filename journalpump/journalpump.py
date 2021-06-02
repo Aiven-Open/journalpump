@@ -7,7 +7,7 @@ from .daemon import ServiceDaemon
 from .senders import (
     AWSCloudWatchSender, ElasticsearchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
-from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
+from .senders.base import MAX_KAFKA_MESSAGE_SIZE, SenderInitializationError, Tagged
 from .types import GeoIPProtocol
 from .util import atomic_replace_file, default_json_serialization
 from functools import reduce
@@ -103,6 +103,17 @@ class PumpReader(Reader):
 
 
 class JournalReader(Tagged):
+    # config name <--> class mapping
+    sender_classes = {
+        "elasticsearch": ElasticsearchSender,
+        "kafka": KafkaSender,
+        "logplex": LogplexSender,
+        "file": FileSender,
+        "rsyslog": RsyslogSender,
+        "aws_cloudwatch": AWSCloudWatchSender,
+        "google_cloud_logging": GoogleCloudLoggingSender,
+    }
+
     def __init__(
         self,
         *,
@@ -139,7 +150,7 @@ class JournalReader(Tagged):
         self.last_journald_create_attempt = 0
         self.running = True
         self.senders = {}
-        self._senders_initialized = False
+        self._initialized_senders = set()
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
         self.searches = list(self._build_searches(searches))
@@ -207,21 +218,12 @@ class JournalReader(Tagged):
             self.journald_reader.close()
 
     def initialize_senders(self):
-        if self._senders_initialized:
-            return
-
-        senders = {
-            "elasticsearch": ElasticsearchSender,
-            "kafka": KafkaSender,
-            "logplex": LogplexSender,
-            "file": FileSender,
-            "rsyslog": RsyslogSender,
-            "aws_cloudwatch": AWSCloudWatchSender,
-            "google_cloud_logging": GoogleCloudLoggingSender,
-        }
-        for sender_name, sender_config in self.config.get("senders", {}).items():
+        configured_senders = self.config.get("senders", {})
+        for sender_name, sender_config in configured_senders.items():
+            if sender_name in self._initialized_senders:
+                continue
             try:
-                sender_class = senders[sender_config["output_type"]]
+                sender_class = self.sender_classes[sender_config["output_type"]]
             except KeyError as ex:
                 raise Exception("Unknown sender type {!r}".format(sender_config["output_type"])) from ex
 
@@ -233,21 +235,29 @@ class JournalReader(Tagged):
             if not isinstance(extra_field_values, dict):
                 self.log.warning("extra_field_values: %r not a dictionary object, ignoring", extra_field_values)
                 extra_field_values = {}
+            try:
+                sender = sender_class(
+                    config=sender_config,
+                    field_filter=field_filter,
+                    extra_field_values=extra_field_values,
+                    msg_buffer_max_length=self.msg_buffer_max_length,
+                    name=sender_name,
+                    reader=self,
+                    stats=self.stats,
+                    tags=self.make_tags(),
+                )
+            except SenderInitializationError:
+                # If sender init fails, log exception, don't start() the sender
+                # and don't add it to self.senders dict. A metric about senders that
+                # failed to start is sent at the end of this method
+                self.log.exception("Sender %r failed to initialize", sender_name)
+            else:
+                self._initialized_senders.add(sender_name)
+                sender.start()
+                self.senders[sender_name] = sender
 
-            sender = sender_class(
-                config=sender_config,
-                field_filter=field_filter,
-                extra_field_values=extra_field_values,
-                msg_buffer_max_length=self.msg_buffer_max_length,
-                name=sender_name,
-                reader=self,
-                stats=self.stats,
-                tags=self.make_tags(),
-            )
-            sender.start()
-            self.senders[sender_name] = sender
-
-        self._senders_initialized = True
+        failed_senders = len(configured_senders) - len(self._initialized_senders)
+        self.stats.gauge("sender.failed_to_start", value=failed_senders, tags=self.make_tags())
 
     def get_state(self):
         sender_state = {name: sender.get_state() for name, sender in self.senders.items()}

@@ -2,11 +2,11 @@ from .data import GCP_PRIVATE_KEY
 from botocore.stub import Stubber
 from collections import OrderedDict
 from datetime import datetime
-from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump
+from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader
 from journalpump.senders import (
     AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
-from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer
+from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer, SenderInitializationError
 from journalpump.util import default_json_serialization
 from time import sleep
 from unittest import mock, TestCase
@@ -563,3 +563,77 @@ def test_awscloudwatch_sender():
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._connected  # pylint: disable=protected-access
         assert sender._sent_count == 3  # pylint: disable=protected-access
+
+
+def test_single_sender_init_fail():
+    """Test JournalReader initialize_senders() behavior in the case
+    where a sender fails during init and others don't.
+    """
+    config = {
+        "senders": {
+            "bar": {
+                "output_type": "aws_cloudwatch",
+                "aws_cloudwatch_log_group": "group",
+                "aws_cloudwatch_log_stream": "stream",
+                "aws_region": "us-east-1",
+                "aws_access_key_id": "key",
+                "aws_secret_access_key": "incorrect"
+            },
+            "cafe": {
+                "output_type": "file",
+                "file_output": "/tmp/journalpump_test.log"
+            }
+        }
+    }
+
+    class FailingSender:
+        def __init__(self, **kwargs):
+            raise SenderInitializationError
+
+    class WorkingSender:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def request_stop(self):
+            pass
+
+    # One failing, one working sender
+    JournalReader.sender_classes["aws_cloudwatch"] = FailingSender
+    JournalReader.sender_classes["file"] = WorkingSender
+    journal_reader = JournalReader(
+        name="foo",
+        config=config,
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        searches=[],
+    )
+    # initialize_senders() will eventually get called
+    # during the operation and initializes the senders
+    # We call it here directly
+    journal_reader.initialize_senders()
+    # Only file sender "cafe" should be in senders dict
+    assert len(journal_reader.senders) == 1
+    assert list(journal_reader.senders.keys()) == ["cafe"]
+    assert journal_reader._initialized_senders == {"cafe"}  # pylint: disable=protected-access
+
+    # New config creates new instance of JournalReader, so we can just create a new instance
+    # Two working senders
+    JournalReader.sender_classes["aws_cloudwatch"] = WorkingSender
+    JournalReader.sender_classes["file"] = WorkingSender
+    journal_reader = JournalReader(
+        name="foo",
+        config=config,
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        searches=[],
+    )
+    journal_reader.initialize_senders()
+    # Now we should have both "bar" and "cafe"
+    assert len(journal_reader.senders) == 2
+    assert sorted(list(journal_reader.senders.keys())) == ["bar", "cafe"]
+    assert journal_reader._initialized_senders == {"bar", "cafe"}  # pylint: disable=protected-access
