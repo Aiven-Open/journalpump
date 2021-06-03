@@ -55,6 +55,7 @@ class _TestRsyslogd:
 
     def start(self):
         # Start rsyslogd in the foreground
+        # pylint: disable=consider-using-with
         self.process = Popen([RSYSLOGD, "-f", self.conffile, "-i", "NONE", "-n", "-C"])
         self._wait_until_running()
 
