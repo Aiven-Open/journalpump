@@ -6,9 +6,9 @@ journalpump |BuildStatus|_
 
 journalpump is a daemon that takes log messages from journald and pumps them
 to a given output.  Currently supported outputs are Elasticsearch, Kafka,
-logplex, rsyslog and AWS CloudWatch. It reads messages from journald and
-optionally checks if they match a config rule and forwards them as JSON messages
-to the desired output.
+logplex, rsyslog, websocket and AWS CloudWatch.  It reads messages from
+journald and optionally checks if they match a config rule and forwards them
+as JSON messages to the desired output.
 
 
 Building
@@ -284,7 +284,7 @@ Sender Configuration
 ``output_type`` (default ``null``)
 
 Output to write journal events to.  Options are `elasticsearch`, `kafka`,
-`file` and `logplex`.
+`file`, `websocket` and `logplex`.
 
 ``field_filter`` (default ``null``)
 
@@ -488,6 +488,33 @@ Client key path, required if remote syslog requires SSL authentication.
 ``format`` (default ``rfc5424``)
 
 Format message according to rfc5424 or rfc3164
+
+Websocket Sender Configuration
+--------------------------
+``websocket_uri`` (default ``null``)
+
+Which Websocket URI do you want the journalpump to write to.
+Required when using output_type ``websocket``.
+
+``ca`` (default ``null``)
+
+Websocket Certificate Authority path, needed when you're using SSL
+authentication.
+
+``certfile`` (default ``null``)
+
+Websocket client certificate path, needed when you're using SSL
+authentication.
+
+``keyfile`` (default ``null``)
+
+Websocket client key path, needed when you're using SSL
+authentication.
+
+``socks5_proxy`` (default ``null``)
+
+Defined socks5 proxy to use for Websocket connections.
+
 
 
 License

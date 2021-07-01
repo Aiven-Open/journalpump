@@ -12,6 +12,8 @@ setup(
     install_requires=[
         "kafka-python",
         "requests",
+        "websockets",
+        "aiohttp-socks",
         "boto3",
         "google-api-python-client",
         "oauth2client",
