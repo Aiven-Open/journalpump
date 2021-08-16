@@ -17,7 +17,7 @@ Building
 To build an installation package for your distribution, go to the root
 directory of a journalpump Git checkout and then run:
 
-Debian::
+Debian/Ubuntu::
 
   make deb
 
@@ -48,7 +48,7 @@ Installation
 
 To install it run as root:
 
-Debian::
+Debian/Ubuntu::
 
   dpkg -i ../journalpump*.deb
 
