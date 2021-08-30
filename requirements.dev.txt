@@ -1,11 +1,12 @@
 # Use pip for build requirements to harmonize between OS versions
 mypy
-pylint
+pylint>=2.4.3,<=2.7.2
 pylint-quotes
 pytest
 pytest-mock
 pytest-timeout
 pytest-xdist
+types-requests
 yapf==0.27.0
 flake8
 isort==4.3.21
