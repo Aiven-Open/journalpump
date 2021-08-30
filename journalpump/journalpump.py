@@ -326,11 +326,13 @@ class JournalReader(Tagged):
             )
 
         try:
-            self.journald_reader = PumpReader(
-                files=self.config.get("journal_files"),
-                flags=journal_flags,
-                path=self.config.get("journal_path"),
+            reader_kwargs = dict(
+                files=self.config.get("journal_files"), flags=journal_flags, path=self.config.get("journal_path")
             )
+            namespace = self.config.get("journal_namespace")
+            if namespace:
+                reader_kwargs["namespace"] = namespace
+            self.journald_reader = PumpReader(**reader_kwargs)
         except FileNotFoundError as ex:
             self.log.warning("journal for %r not available yet: %s: %s", self.name, ex.__class__.__name__, ex)
             return None
