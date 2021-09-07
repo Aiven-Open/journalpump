@@ -333,6 +333,13 @@ class JournalReader(Tagged):
             if namespace:
                 reader_kwargs["namespace"] = namespace
             self.journald_reader = PumpReader(**reader_kwargs)
+            if not (self.journald_reader.has_persistent_files() or self.journald_reader.has_runtime_files()):
+                # If journal files are not ready (e.g. files with namespace are not yet created), reader won't fail,
+                # it will silently not deliver anything. We don't want this - return None to re-create reader later
+                self.log.warning("journal files for %r are not yet available", self.name)
+                self.journald_reader.close()
+                self.journald_reader = None
+                return None
         except FileNotFoundError as ex:
             self.log.warning("journal for %r not available yet: %s: %s", self.name, ex.__class__.__name__, ex)
             return None
