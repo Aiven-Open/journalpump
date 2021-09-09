@@ -2,7 +2,7 @@ from .data import GCP_PRIVATE_KEY
 from botocore.stub import Stubber
 from collections import OrderedDict
 from datetime import datetime
-from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader
+from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader, PumpReader
 from journalpump.senders import (
     AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
@@ -49,12 +49,14 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
-        r.create_journald_reader_if_missing()
+        with mock.patch.object(PumpReader, "has_persistent_files", return_value=True):
+            r.create_journald_reader_if_missing()
         assert len(r.senders) == 1
         r.running = False
         for sn, s in r.senders.items():
             assert sn == "bar"
             s.running = False
+            s.join()
             assert isinstance(s, LogplexSender)
             assert s.field_filter.name == "filter_a"
             assert s.field_filter.fields == ["message"]
@@ -81,12 +83,14 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
-        r.create_journald_reader_if_missing()
+        with mock.patch.object(PumpReader, "has_persistent_files", return_value=True):
+            r.create_journald_reader_if_missing()
         assert len(r.senders) == 1
         r.running = False
         for sn, s in r.senders.items():
             assert sn == "bar"
             s.running = False
+            s.join()
             assert isinstance(s, KafkaSender)
 
     # Elasticsearch sender
@@ -110,12 +114,14 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
-        r.create_journald_reader_if_missing()
+        with mock.patch.object(PumpReader, "has_persistent_files", return_value=True):
+            r.create_journald_reader_if_missing()
         assert len(r.senders) == 1
         r.running = False
         for sn, s in r.senders.items():
             assert sn == "bar"
             s.running = False
+            s.join()
             assert isinstance(s, ElasticsearchSender)
 
     # rsyslog sender
@@ -139,12 +145,14 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
-        r.create_journald_reader_if_missing()
+        with mock.patch.object(PumpReader, "has_persistent_files", return_value=True):
+            r.create_journald_reader_if_missing()
         assert len(r.senders) == 1
         r.running = False
         for sn, s in r.senders.items():
             assert sn == "bar"
             s.running = False
+            s.join()
             assert isinstance(s, RsyslogSender)
 
     # AWS CloudWatch sender
@@ -201,7 +209,8 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
-        with mock.patch("boto3.client", new=MockCloudWatch()) as mock_client:
+        with mock.patch("boto3.client", new=MockCloudWatch()) as mock_client, \
+                mock.patch.object(PumpReader, "has_persistent_files", return_value=True):
             r.create_journald_reader_if_missing()
             assert len(r.senders) == 1
             mock_client.assert_called_once_with(
@@ -211,6 +220,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
         for sn, s in r.senders.items():
             assert sn == "bar"
             s.running = False
+            s.join()
             # pylint: disable=protected-access
             s._logs.create_log_group.assert_called_once_with(logGroupName="group")
             s._logs.create_log_stream.assert_called_once_with(logGroupName="group", logStreamName="stream")
@@ -253,12 +263,14 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
-        r.create_journald_reader_if_missing()
+        with mock.patch.object(PumpReader, "has_persistent_files", return_value=True):
+            r.create_journald_reader_if_missing()
         assert len(r.senders) == 1
         r.running = False
         for sn, s in r.senders.items():
             assert sn == "bar"
             s.running = False
+            s.join()
             assert isinstance(s, GoogleCloudLoggingSender)
 
 
@@ -726,3 +738,55 @@ def test_single_sender_init_fail():
     assert len(journal_reader.senders) == 2
     assert sorted(list(journal_reader.senders.keys())) == ["bar", "cafe"]
     assert journal_reader._initialized_senders == {"bar", "cafe"}  # pylint: disable=protected-access
+
+
+@pytest.mark.parametrize(
+    "has_persistent_files,has_runtime_files", ([True, True], [True, False], [False, False], [False, True])
+)
+def test_journalpump_init_journal_files(tmpdir, has_persistent_files, has_runtime_files):
+    journalpump_path = str(tmpdir.join("journalpump.json"))
+    config = {
+        "field_filters": {
+            "filter_a": {
+                "fields": ["message"]
+            }
+        },
+        "readers": {
+            "foo": {
+                "senders": {
+                    "bar": {
+                        "field_filter": "filter_a",
+                        "logplex_token": "foo",
+                        "logplex_log_input_url": "http://logplex.com",
+                        "output_type": "logplex",
+                    },
+                },
+            },
+        },
+    }
+
+    with open(journalpump_path, "w") as fp:
+        fp.write(json.dumps(config))
+    a = JournalPump(journalpump_path)
+
+    assert len(a.field_filters) == 1
+    assert len(a.readers) == 1
+    for rn, r in a.readers.items():
+        assert rn == "foo"
+
+        with mock.patch.object(PumpReader, "has_persistent_files", return_value=has_persistent_files), \
+                mock.patch.object(PumpReader, "has_runtime_files", return_value=has_runtime_files):
+            r.create_journald_reader_if_missing()
+
+        if not has_persistent_files and not has_runtime_files:
+            assert not r.senders
+            assert r.journald_reader is None
+        else:
+            assert len(r.senders) == 1
+            assert r.journald_reader
+            for sn, s in r.senders.items():
+                assert sn == "bar"
+                s.running = False
+                s.join()
+
+        r.running = False
