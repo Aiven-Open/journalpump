@@ -3,9 +3,9 @@ Maintainer: Hannu Valtonen <hannu.valtonen@ohmu.fi>
 Section: python
 Priority: optional
 Build-Depends: debhelper (>= 8), dh-python, dh-systemd,
- python3-all (>= 3.4), python3-setuptools,
+ python3-all (>= 3.7), python3-setuptools,
  python3-requests, python3-systemd
-X-Python3-Version: >= 3.4
+X-Python3-Version: >= 3.7
 Standards-Version: 3.9.4
 Homepage: https://github.com/aiven/journalpump
 

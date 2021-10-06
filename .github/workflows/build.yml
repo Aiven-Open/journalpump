@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # only use one version for the lint step
-        python-version: [3.9]
+        # only use oldest and newest version for the lint step
+        python-version: [3.7, 3.9]
 
     steps:
 
@@ -57,7 +57,7 @@ jobs:
     strategy:
       max-parallel: 4
       matrix:
-        python-version: [3.6, 3.7, 3.8, 3.9]
+        python-version: [3.7, 3.8, 3.9]
 
     steps:
       - id: checkout-code
