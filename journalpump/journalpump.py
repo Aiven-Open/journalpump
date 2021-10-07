@@ -5,7 +5,8 @@
 from . import geohash, statsd
 from .daemon import ServiceDaemon
 from .senders import (
-    AWSCloudWatchSender, ElasticsearchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
+    AWSCloudWatchSender, ElasticsearchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender,
+    RsyslogSender, WebsocketSender
 )
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE, SenderInitializationError, Tagged
 from .types import GeoIPProtocol
@@ -112,6 +113,7 @@ class JournalReader(Tagged):
         "rsyslog": RsyslogSender,
         "aws_cloudwatch": AWSCloudWatchSender,
         "google_cloud_logging": GoogleCloudLoggingSender,
+        "websocket": WebsocketSender,
     }
 
     def __init__(
@@ -184,7 +186,7 @@ class JournalReader(Tagged):
             self.log.info("Registered reader %r with fd %r", self.name, self.journald_reader.fileno())
 
     def unregister_from_poll(self, poller):
-        if self.journald_reader:
+        if self.journald_reader and self.registered_for_poll:
             poller.unregister(self.journald_reader)
             self.registered_for_poll = False
             self.log.info("Unregistered reader %r with fd %r", self.name, self.journald_reader.fileno())
@@ -642,7 +644,7 @@ class JournalPump(ServiceDaemon, Tagged):
         self.configure_field_filters()
         self.configure_readers()
 
-    def sigterm(self, signum, frame):
+    def shutdown(self):
         try:
             self.save_state()
         except Exception:  # pylint: disable=broad-except
@@ -653,6 +655,8 @@ class JournalPump(ServiceDaemon, Tagged):
             reader.unregister_from_poll(self.poller)
             self.stale_readers.add(reader)
 
+    def sigterm(self, signum, frame):
+        self.shutdown()
         super().sigterm(signum, frame)
 
     def load_state(self):

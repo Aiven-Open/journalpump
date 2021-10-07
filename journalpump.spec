@@ -7,8 +7,10 @@ License:        ASL 2.0
 Source0:        journalpump-rpm-src.tar.gz
 Requires:       python3-kafka, systemd-python3, python3-requests, python3-boto3, python3-google-api-client
 Requires:       python3-oauth2client, python3-geoip2, python3-typing-extensions
+Requires:	python3-websockets, python3-aiohttp-socks
 BuildRequires:  python3-kafka, systemd-python3, python3-requests, python3-boto3, python3-google-api-client
 BuildRequires:  python3-devel, python3-pytest, python3-pylint python3-responses
+BuildRequires:	python3-websockets, python3-aiohttp-socks
 BuildArch:      noarch
 Obsoletes:      kafkajournalpump
 
@@ -18,7 +20,7 @@ Obsoletes:      kafkajournalpump
 
 %description
 journalpump is a daemon that takes log messages from journald and pumps them
-to a given output. Currently supported outputs are Elasticsearch, Kafka,
+to a given output. Currently supported outputs are Elasticsearch, Kafka, Websocket,
 logplex, AWS CloudWatch and Google Cloud Logging.  It reads messages from journald
 and optionally checks if they match a config rule and forwards them as JSON
 messages to the desired output.

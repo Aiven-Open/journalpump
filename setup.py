@@ -12,6 +12,8 @@ setup(
     install_requires=[
         "kafka-python",
         "requests",
+        "websockets",
+        "aiohttp-socks",
         "boto3",
         "google-api-python-client",
         "oauth2client",
@@ -31,8 +33,8 @@ setup(
         "Intended Audience :: Developers",
         "Topic :: System :: Logging",
         "License :: OSI Approved :: Apache Software License",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
     ],
 )
