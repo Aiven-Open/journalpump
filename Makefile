@@ -58,12 +58,14 @@ build-dep-fed:
 	sudo dnf -y --best --allowerasing install \
 		python3-flake8 python3-kafka python3-pytest python3-pylint \
 		python3-requests python3-responses systemd-python3 python3-boto3 \
+		python3-websockets python3-aiohttp-socks \
 		python3-google-api-client
 
 build-dep-deb:
 	sudo apt-get install \
 		build-essential devscripts dh-systemd \
 		python-all python-setuptools python3-systemd python3-kafka \
+		python3-websockets python3-aiohttp-socks \
 		python3-boto python3-googleapi
 
 
