@@ -3,21 +3,39 @@ from aiohttp_socks import ProxyConnectionError, ProxyError, ProxyTimeoutError
 from aiohttp_socks.utils import Proxy
 from concurrent.futures import CancelledError, TimeoutError as ConnectionTimeoutError
 from journalpump import __version__
+from journalpump.types import StrEnum
 from journalpump.util import ExponentialBackoff
 from threading import Thread
 from urllib.parse import urlparse
 
 import asyncio
 import contextlib
+import enum
 import logging
+import snappy
 import socket
 import ssl
 import time
 import websockets
 
 
+@enum.unique
+class JournalPumpMessageCompression(StrEnum):
+    none = "none"
+    snappy = "snappy"
+
+
+@enum.unique
+class WebsocketCompression(StrEnum):
+    none = "none"
+    deflate = "deflate"
+
+
 class WebsocketRunner(Thread):
-    def __init__(self, *, websocket_uri, socks5_proxy_url, ssl_enabled, ssl_ca, ssl_key, ssl_cert):
+    def __init__(
+        self, *, websocket_uri, socks5_proxy_url, ssl_enabled, ssl_ca, ssl_key, ssl_cert, websocket_compression, compression,
+        max_batch_size
+    ):
         super().__init__(daemon=True)
         self.log = logging.getLogger(self.__class__.__name__)
         self.websocket_uri = websocket_uri
@@ -33,6 +51,16 @@ class WebsocketRunner(Thread):
         self.stop_event = asyncio.Event()
         self.stopped_event = asyncio.Event()
         self.running = True
+        # Send messages as batches, LogSender base class takes care of batch size.
+        # If batching is disabled, do not adjust the max_batch_size member variable,
+        # so that LogSender will still give us multiple messages in a single send_messages() call.
+        self.batching_enabled = False
+        if max_batch_size > 0:
+            self.max_batch_size = max_batch_size
+            self.batching_enabled = True
+        self.batch_message_overhead = 1
+        self.compression = compression
+        self.websocket_compression = websocket_compression
         self.backoff = ExponentialBackoff(base=10, factor=1.8, maximum=60, jitter=True)
         # prevent websockets from logging message contents when we're otherwise in DEBUG mode
         logging.getLogger("websockets").setLevel(logging.INFO)
@@ -52,7 +80,15 @@ class WebsocketRunner(Thread):
         if not self.connected_event.is_set():
             return False
 
+        if self.batching_enabled:
+            # LogSender has limited the batch size already
+            batch = b"\x00".join(messages)
+            messages = [batch]
+
         for message in messages:
+            if self.compression == JournalPumpMessageCompression.snappy:
+                message = snappy.snappy.compress(message)
+
             try:
                 await self.websocket.send(message)
             except Exception as ex:  # pylint:disable=broad-except
@@ -111,6 +147,11 @@ class WebsocketRunner(Thread):
 
         headers = {"User-Agent": f"journalpump/{__version__}"}
 
+        if self.batching_enabled:
+            headers["Journalpump-Batch-Size"] = str(self.max_batch_size)
+        if self.compression != JournalPumpMessageCompression.none:
+            headers["Journalpump-Compression"] = self.compression
+
         sock = None
         url_parsed = urlparse(self.websocket_uri)
         if self.socks5_proxy:
@@ -119,9 +160,11 @@ class WebsocketRunner(Thread):
             sock = await self.socks5_proxy.connect(dest_host=url_parsed.hostname, dest_port=url_parsed.port)
             self.log.info("Connected via SOCKS5 proxy at %s:%d", socks_url_parsed.hostname, socks_url_parsed.port)
 
+        ws_compr = None if self.websocket_compression == WebsocketCompression.none else str(self.websocket_compression)
         return await websockets.connect(  # pylint:disable=no-member
             self.websocket_uri,
             ssl=ssl_context,
+            compression=ws_compr,
             extra_headers=headers,
             sock=sock,
             server_hostname=url_parsed.hostname if self.ssl_enabled else None,
@@ -222,7 +265,7 @@ class WebsocketRunner(Thread):
 
 class WebsocketSender(LogSender):
     def __init__(self, *, config, **kwargs):
-        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.5), **kwargs)
+        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 1.0), **kwargs)
         self.runner = None
         self.config = config
 
@@ -245,6 +288,13 @@ class WebsocketSender(LogSender):
                     ssl_ca=self.config.get("ca"),
                     ssl_key=self.config.get("keyfile"),
                     ssl_cert=self.config.get("certfile"),
+                    websocket_compression=WebsocketCompression(
+                        self.config.get("websocket_compression", WebsocketCompression.none)
+                    ),
+                    compression=JournalPumpMessageCompression(
+                        self.config.get("compression", JournalPumpMessageCompression.snappy)
+                    ),
+                    max_batch_size=int(self.config.get("max_batch_size", 1024 ** 2)),
                 )
                 runner.start()
             except Exception as ex:  # pylint:disable=broad-except

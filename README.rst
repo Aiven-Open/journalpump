@@ -515,6 +515,26 @@ authentication.
 
 Defined socks5 proxy to use for Websocket connections.
 
+``max_batch_size`` (default ``1048576``)
+
+Adjust message batch size, set to 0 to disable batching.  When batching is
+enabled, multiple journal messages are sent in a single websocket message,
+separated by a single NUL byte.
+
+``compression`` (default ``"snappy"``)
+
+Compress messages on application level using the specified algorithm.
+Decompression is done by an application behind the websocket server,
+allowing end-to-end compression.  When batching is enabled, compression is
+done on complete batches.  Supported values: ``"snappy"``, ``"none"``.
+
+``websocket_compression`` (default ``"none"``)
+
+Enable compression of websocket messages using the ``permessage-deflate``
+extension.  The messages will be decompressed by the websocket server.  When
+batching is enabled, compression is done on complete batches.  Supported
+values: ``"deflate"``, ``"none"``.
+
 
 
 License

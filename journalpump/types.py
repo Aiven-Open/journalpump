@@ -1,4 +1,5 @@
 """JournalPump internal types"""
+import enum
 import sys
 
 if sys.version_info >= (3, 8):
@@ -14,3 +15,8 @@ class GeoIPProtocol(Protocol):
     GeoIP is not a required dependency, but to typecheck we want to ensure
     that we don't escalate the methods without necessity.
     """
+
+
+class StrEnum(str, enum.Enum):
+    def __str__(self):
+        return str(self.value)
