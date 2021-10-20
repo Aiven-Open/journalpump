@@ -6,6 +6,7 @@ from journalpump.senders import WebsocketSender
 import asyncio
 import json
 import logging
+import snappy
 import threading
 import time
 import websockets
@@ -120,32 +121,25 @@ def assert_msgs_found(ws_server, *, messages, timeout):
     assert all(msg in msgs for msg in messages)
 
 
-def test_producer(caplog, tmpdir):
-    caplog.set_level(logging.INFO)
-    ws_server = WebsocketMockServer(port=10111, )
-    ws_server.start()
-
+def setup_pump(tmpdir, sender_config):
     journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
         "readers": {
             "foo": {
                 "senders": {
-                    "bar": {
-                        "output_type": "websocket",
-                        "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
-                    },
+                    "bar": sender_config,
                 },
             },
         },
     }
     with open(journalpump_path, "w") as fp:
         fp.write(json.dumps(config))
-    a = JournalPump(journalpump_path)
+    pump = JournalPump(journalpump_path)
 
     # confirm there's a correct sender set up
     sender = None
-    assert len(a.readers) == 1
-    for rn, r in a.readers.items():
+    assert len(pump.readers) == 1
+    for rn, r in pump.readers.items():
         assert rn == "foo"
         r.create_journald_reader_if_missing()
         assert len(r.senders) == 1
@@ -157,6 +151,22 @@ def test_producer(caplog, tmpdir):
             sender = s
 
     assert sender
+    return pump, sender
+
+
+def test_producer_nobatch(caplog, tmpdir):
+    caplog.set_level(logging.INFO)
+    ws_server = WebsocketMockServer(port=10111, )
+    ws_server.start()
+
+    pump, sender = setup_pump(
+        tmpdir, {
+            "output_type": "websocket",
+            "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
+            "compression": "none",
+            "max_batch_size": 0
+        }
+    )
 
     # send some messages, and confirm they come out on the other end
     messages = [b'{"timestamp": "2019-10-07 14:00:00"}', b'{"timestamp": "2019-10-07 15:00:00"}']
@@ -164,4 +174,28 @@ def test_producer(caplog, tmpdir):
     assert_msgs_found(ws_server, messages=messages, timeout=5)
 
     ws_server.stop()
-    a.shutdown()
+    pump.shutdown()
+
+
+def test_producer_batch(caplog, tmpdir):
+    caplog.set_level(logging.INFO)
+    ws_server = WebsocketMockServer(port=10111, )
+    ws_server.start()
+
+    pump, sender = setup_pump(
+        tmpdir, {
+            "output_type": "websocket",
+            "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
+            "compression": "snappy",
+            "max_batch_size": 1024
+        }
+    )
+
+    # send some messages, and confirm they come out on the other end
+    messages = [b'{"timestamp": "2019-10-07 14:00:00"}', b'{"timestamp": "2019-10-07 15:00:00"}']
+    expected_output = [snappy.snappy.compress(b"\x00".join(messages))]
+    assert sender.send_messages(messages=messages, cursor=None)
+    assert_msgs_found(ws_server, messages=expected_output, timeout=5)
+
+    ws_server.stop()
+    pump.shutdown()

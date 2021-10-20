@@ -93,6 +93,8 @@ class LogSender(Thread, Tagged):
         self.last_maintenance_fail = 0
         self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
+        self.max_batch_size = MAX_KAFKA_MESSAGE_SIZE
+        self.batch_message_overhead = KAFKA_COMPRESSED_MESSAGE_OVERHEAD
         self.running = True
         self._sent_cursor = None
         self._sent_count = 0
@@ -216,11 +218,11 @@ class LogSender(Thread, Tagged):
             self.log.debug("Got %d items from msg_buffer", msg_count)
 
             while self.running and messages:
-                batch_size = len(messages[0][0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
+                batch_size = len(messages[0][0]) + self.batch_message_overhead
                 index = 1
                 while index < len(messages):
-                    item_size = len(messages[index][0]) + KAFKA_COMPRESSED_MESSAGE_OVERHEAD
-                    if batch_size + item_size >= MAX_KAFKA_MESSAGE_SIZE:
+                    item_size = len(messages[index][0]) + self.batch_message_overhead
+                    if batch_size + item_size >= self.max_batch_size:
                         break
                     batch_size += item_size
                     index += 1
