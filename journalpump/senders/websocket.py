@@ -283,7 +283,7 @@ class WebsocketSender(LogSender):
             try:
                 runner = WebsocketRunner(
                     websocket_uri=self.config["websocket_uri"],
-                    socks5_proxy_url=self.config.get("socks5_proxy_url"),
+                    socks5_proxy_url=self.config.get("socks5_proxy"),
                     ssl_enabled=self.config.get("ssl"),
                     ssl_ca=self.config.get("ca"),
                     ssl_key=self.config.get("keyfile"),
