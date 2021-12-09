@@ -2,6 +2,7 @@ from threading import Lock, Thread
 
 import logging
 import random
+import sys
 import time
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
@@ -45,6 +46,7 @@ class MsgBuffer:
         self.total_size = 0
         self.last_journal_msg_time = time.monotonic()
         self.cursor = None
+        self.buffer_size = 0
 
     def __len__(self):
         return len(self.messages)
@@ -55,6 +57,7 @@ class MsgBuffer:
             if self.messages:
                 messages = self.messages
                 self.messages = []
+                self.buffer_size = 0
         return messages
 
     def add_item(self, *, item, cursor):
@@ -62,6 +65,7 @@ class MsgBuffer:
             self.messages.append((item, cursor))
             self.last_journal_msg_time = time.monotonic()
             self.cursor = cursor
+            self.buffer_size += sys.getsizeof(item)
 
         self.entry_num += 1
         self.total_size += len(item)

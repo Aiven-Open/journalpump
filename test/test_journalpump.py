@@ -379,7 +379,7 @@ class TestJournalObjectHandler(TestCase):
     def test_filtered_processing(self):
         jobject = JournalObject(entry=OrderedDict(a=1, b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10)
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
-        assert handler.process() is True
+        assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert ({"a": 1}, 10) in sender_a_msgs
         sender_b_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_b.msg_buffer.messages]
@@ -397,7 +397,7 @@ class TestJournalObjectHandler(TestCase):
         too_large = OrderedDict(a=1, b="x" * MAX_KAFKA_MESSAGE_SIZE)
         jobject = JournalObject(entry=too_large, cursor=10)
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
-        assert handler.process() is True
+        assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert ({"a": 1}, 10) in sender_a_msgs
         assert "too large message" in str(self.sender_b.msg_buffer.messages)

@@ -3,6 +3,7 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 
+from .util import journalpump_initialized
 from journalpump.journalpump import JournalPump
 from subprocess import Popen
 from time import sleep
@@ -68,21 +69,6 @@ class _TestRsyslogd:
             self.process = None
 
 
-def _journalpump_initialized(journalpump):
-    retry = 0
-    senders = []
-    while retry < 3 and not senders:
-        sleep(1)
-        readers = [reader for _, reader in journalpump.readers.items()]
-        senders = []
-        if readers:
-            for reader in readers:
-                senders.extend([sender for _, sender in reader.senders.items()])
-        retry += 1
-
-    return journalpump.running and senders
-
-
 def _run_pump_test(*, config_path, logfile):
     journalpump = None
     threads = []
@@ -92,7 +78,7 @@ def _run_pump_test(*, config_path, logfile):
         pump.start()
         threads.append(pump)
 
-        assert _journalpump_initialized(journalpump), "Failed to initialize journalpump"
+        assert journalpump_initialized(journalpump), "Failed to initialize journalpump"
         identifier = "".join(random.sample(string.ascii_uppercase + string.digits, k=8))
         logger = logging.getLogger("rsyslog-tester")
         logger.info("Info message for %s", identifier)

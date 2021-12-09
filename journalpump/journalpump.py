@@ -12,8 +12,8 @@ from .senders.base import MAX_KAFKA_MESSAGE_SIZE, SenderInitializationError, Tag
 from .types import GeoIPProtocol
 from .util import atomic_replace_file, default_json_serialization
 from functools import reduce
-from systemd.journal import Reader
-from typing import Type, Union
+from systemd import journal
+from typing import cast, NamedTuple, Optional, Type, Union
 
 import copy
 import datetime
@@ -21,7 +21,6 @@ import json
 import logging
 import re
 import select
-import systemd.journal
 import time
 import uuid
 
@@ -30,6 +29,8 @@ try:
     from geoip2.database import Reader as GeoIPReader
 except ImportError:
     GeoIPReader = None
+
+_5_MB = 5 * 1024 * 1024
 
 
 def _convert_uuid(s):
@@ -64,13 +65,23 @@ converters = {
 }
 
 
+class SingleMessageReadResult(NamedTuple):
+    has_more: bool
+    bytes_read: int
+
+
+class MessagesReadResult(NamedTuple):
+    exhausted: bool
+    lines_read: int
+
+
 class JournalObject:
     def __init__(self, cursor=None, entry=None):
         self.cursor = cursor
         self.entry = entry or {}
 
 
-class PumpReader(Reader):
+class PumpReader(journal.Reader):
     def convert_entry(self, entry):
         """Faster journal lib _convert_entry replacement"""
         output = {}
@@ -127,6 +138,7 @@ class JournalReader(Tagged):
         tags=None,
         seek_to=None,
         msg_buffer_max_length=50000,
+        msg_buffer_max_bytes=_5_MB,
         searches=None,
         initial_position=None
     ):
@@ -134,6 +146,7 @@ class JournalReader(Tagged):
         self.log = logging.getLogger("JournalReader:{}".format(name))
         self.name = name
         self.msg_buffer_max_length = msg_buffer_max_length
+        self.msg_buffer_max_bytes = msg_buffer_max_bytes
         self.initial_position = initial_position
         self.read_bytes = 0
         self.read_lines = 0
@@ -147,7 +160,6 @@ class JournalReader(Tagged):
         self.field_filters = field_filters
         self.stats = stats
         self.cursor = seek_to
-        self.registered_for_poll = False
         self.journald_reader = None
         self.last_journald_create_attempt = 0
         self.running = True
@@ -156,40 +168,53 @@ class JournalReader(Tagged):
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
         self.searches = list(self._build_searches(searches))
+        self._is_ready = True
 
-    def create_journald_reader_if_missing(self):
-        if not self.journald_reader and time.monotonic() - self.last_journald_create_attempt > 2:
+    def invalidate(self) -> None:
+        """
+        Should be called when reader has stale information about files present
+        e.g. some journal files were deleted and we need to release file descriptors.
+        """
+        if self.journald_reader:
+            self.journald_reader.close()
+            self.journald_reader = None
+
+    def fileno(self) -> Optional[int]:
+        return self.journald_reader and self.journald_reader.fileno()
+
+    def create_journald_reader_if_missing(self) -> None:
+        if (not self.journald_reader and time.monotonic() - self.last_journald_create_attempt > 2):
             self.last_journald_create_attempt = time.monotonic()
             self.journald_reader = self.get_reader(seek_to=self.cursor)
 
-    def update_poll_registration_status(self, poller):
+    @property
+    def is_ready(self) -> bool:
+        return bool(self.senders and self.journald_reader and self._is_ready)
+
+    def get_write_limit_bytes(self) -> int:
+        return self.msg_buffer_max_bytes - max(s.msg_buffer.buffer_size for s in self.senders.values())
+
+    def get_write_limit_message_count(self) -> int:
+        return self.msg_buffer_max_length - max(len(s.msg_buffer) for s in self.senders.values())
+
+    def update_status(self):
         self.create_journald_reader_if_missing()
-        if not self.journald_reader:
-            return
+        sender_over_limit = self.get_write_limit_message_count() <= 0
+        if self.msg_buffer_max_bytes:
+            sender_over_limit |= self.get_write_limit_bytes() <= 0
 
-        sender_over_limit = any(len(sender.msg_buffer) > self.msg_buffer_max_length for sender in self.senders.values())
-        if not self.registered_for_poll and not sender_over_limit:
+        if not self._is_ready and not sender_over_limit:
             self.log.info(
-                "Message buffer size under threshold for all senders, starting processing journal for %r", self.name
+                "Message buffer size under threshold for all senders, ready to process journal for %r",
+                self.name,
             )
-            self.register_for_poll(poller)
-        elif self.registered_for_poll and sender_over_limit:
+            self._is_ready = True
+        elif self._is_ready and sender_over_limit:
             self.log.info(
-                "Message buffer size for at least one sender over threshold, stopping processing journal for %r", self.name
+                "Message buffer size for at least one sender over threshold, pause processing journal for %r",
+                self.name,
             )
-            self.unregister_from_poll(poller)
-
-    def register_for_poll(self, poller):
-        if self.journald_reader:
-            poller.register(self.journald_reader, self.journald_reader.get_events())
-            self.registered_for_poll = True
-            self.log.info("Registered reader %r with fd %r", self.name, self.journald_reader.fileno())
-
-    def unregister_from_poll(self, poller):
-        if self.journald_reader and self.registered_for_poll:
-            poller.unregister(self.journald_reader)
-            self.registered_for_poll = False
-            self.log.info("Unregistered reader %r with fd %r", self.name, self.journald_reader.fileno())
+            self._is_ready = False
 
     def get_resume_cursor(self):
         """Find the sender cursor location where a new JournalReader instance should resume reading from"""
@@ -201,7 +226,10 @@ class JournalReader(Tagged):
             state = sender.get_state()
             cursor = state["sent"]["cursor"]
             if cursor is None:
-                self.log.info("Sender %r needs a full catchup from beginning, resuming from journal start", sender_name)
+                self.log.warning(
+                    "Sender %r needs a full catchup from beginning, resuming from journal start",
+                    sender_name,
+                )
                 return None
 
             # TODO: pick oldest sent cursor
@@ -235,7 +263,10 @@ class JournalReader(Tagged):
 
             extra_field_values = sender_config.get("extra_field_values", {})
             if not isinstance(extra_field_values, dict):
-                self.log.warning("extra_field_values: %r not a dictionary object, ignoring", extra_field_values)
+                self.log.warning(
+                    "extra_field_values: %r not a dictionary object, ignoring",
+                    extra_field_values,
+                )
                 extra_field_values = {}
             try:
                 sender = sender_class(
@@ -289,7 +320,11 @@ class JournalReader(Tagged):
         self._sent_lines_diff += self.read_lines - self._last_sent_read_lines
         self._sent_bytes_diff += self.read_bytes - self._last_sent_read_bytes
         if now - self.last_stats_print_time > 120:
-            self.log.info("Processed %r journal lines (%r bytes)", self._sent_lines_diff, self._sent_bytes_diff)
+            self.log.info(
+                "Processed %r journal lines (%r bytes)",
+                self._sent_lines_diff,
+                self._sent_bytes_diff,
+            )
             self._sent_lines_diff = 0
             self._sent_bytes_diff = 0
             self.last_stats_print_time = now
@@ -301,7 +336,10 @@ class JournalReader(Tagged):
             sender.refresh_stats()
 
     def read_next(self):
-        jobject = next(self.journald_reader)
+        if not self.journald_reader:
+            return None
+
+        jobject: JournalObject = cast(JournalObject, next(self.journald_reader))
         if jobject.cursor:
             self.cursor = jobject.cursor
             self.last_journal_msg_time = time.monotonic()
@@ -324,12 +362,14 @@ class JournalReader(Tagged):
             journal_flags = reduce(
                 lambda a,
                 b: a | b,
-                [getattr(systemd.journal, flag.strip()) for flag in journal_flags],
+                [getattr(journal, flag.strip()) for flag in journal_flags],
             )
 
         try:
             reader_kwargs = dict(
-                files=self.config.get("journal_files"), flags=journal_flags, path=self.config.get("journal_path")
+                files=self.config.get("journal_files"),
+                flags=journal_flags,
+                path=self.config.get("journal_path"),
             )
             namespace = self.config.get("journal_namespace")
             if namespace:
@@ -343,7 +383,12 @@ class JournalReader(Tagged):
                 self.journald_reader = None
                 return None
         except FileNotFoundError as ex:
-            self.log.warning("journal for %r not available yet: %s: %s", self.name, ex.__class__.__name__, ex)
+            self.log.warning(
+                "journal for %r not available yet: %s: %s",
+                self.name,
+                ex.__class__.__name__,
+                ex,
+            )
             return None
 
         if seek_to:
@@ -487,7 +532,7 @@ class JournalObjectHandler:
         self.pump = pump
         self.reader = reader
 
-    def process(self):
+    def process(self) -> SingleMessageReadResult:
         new_entry = {}
         for key, value in self.jobject.entry.items():
             if isinstance(value, bytes):
@@ -497,24 +542,25 @@ class JournalObjectHandler:
 
         if self.jobject.cursor is None:
             self.log.debug("No more journal entries to read")
-            return False
+            return SingleMessageReadResult(has_more=False, bytes_read=0)
 
         if self.reader.searches:
             if not self.reader.perform_searches(self.jobject):
-                return True
+                return SingleMessageReadResult(has_more=True, bytes_read=0)
 
         if not self.pump.check_match(new_entry):
-            return True
+            return SingleMessageReadResult(has_more=True, bytes_read=0)
 
         for sender in self.reader.senders.values():
             json_entry = self._get_or_generate_json(sender.field_filter, sender.extra_field_values, new_entry)
             sender.msg_buffer.add_item(item=json_entry, cursor=self.jobject.cursor)
 
+        max_bytes = 0
         if self.json_objects:
             max_bytes = max(len(v) for v in self.json_objects.values())
             self.reader.inc_line_stats(journal_bytes=max_bytes, journal_lines=1)
 
-        return True
+        return SingleMessageReadResult(has_more=True, bytes_read=max_bytes)
 
     def _get_or_generate_json(self, field_filter, extra_field_values, data):
         ff_name = "" if field_filter is None else field_filter.name
@@ -545,10 +591,11 @@ class JournalObjectHandler:
         error = "too large message {} bytes vs maximum {} bytes".format(len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
         if not self.error_reported:
             self.pump.stats.increase(
-                "journal.read_error", tags=self.pump.make_tags({
+                "journal.read_error",
+                tags=self.pump.make_tags({
                     "error": "too_long",
                     "reader": self.reader.name,
-                })
+                }),
             )
             self.log.warning("%s: %s ...", error, json_entry[:1024])
             self.error_reported = True
@@ -560,6 +607,8 @@ class JournalObjectHandler:
 
 
 class JournalPump(ServiceDaemon, Tagged):
+    _STALE_FD = object()
+
     def __init__(self, config_path):
         Tagged.__init__(self)
         self.stats = None
@@ -575,6 +624,8 @@ class JournalPump(ServiceDaemon, Tagged):
         self.configure_field_filters()
         self.configure_readers()
         self.stale_readers = set()
+        self.reader_by_fd = {}
+        self.poll_interval_ms = 1000
 
     def configure_field_filters(self):
         filters = self.config.get("field_filters", {})
@@ -594,20 +645,29 @@ class JournalPump(ServiceDaemon, Tagged):
 
         self.readers = {}
         state = self.load_state()
+
         for reader_name, reader_config in new_config.items():
             reader_state = state.get("readers", {}).get(reader_name, {})
             resume_cursor = None
             for sender_name, sender in reader_state.get("senders", {}).items():
                 sender_cursor = sender["sent"]["cursor"]
                 if sender_cursor is None:
-                    self.log.info("Sender %r for reader %r needs full sync from beginning", sender_name, reader_name)
+                    self.log.info(
+                        "Sender %r for reader %r needs full sync from beginning",
+                        sender_name,
+                        reader_name,
+                    )
                     resume_cursor = None
                     break
 
                 # TODO: pick the OLDEST cursor
                 resume_cursor = sender_cursor
 
-            self.log.info("Reader %r resuming from cursor position: %r", reader_name, resume_cursor)
+            self.log.info(
+                "Reader %r resuming from cursor position: %r",
+                reader_name,
+                resume_cursor,
+            )
             initial_position = reader_config.get("initial_position")
             reader = JournalReader(
                 name=reader_name,
@@ -616,6 +676,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 geoip=self.geoip,
                 stats=self.stats,
                 msg_buffer_max_length=self.config.get("msg_buffer_max_length", 50000),
+                msg_buffer_max_bytes=self.config.get("msg_buffer_max_bytes", _5_MB),
                 seek_to=resume_cursor,
                 initial_position=initial_position,
                 tags=self.make_tags(),
@@ -652,7 +713,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
         for reader in self.readers.values():
             reader.request_stop()
-            reader.unregister_from_poll(self.poller)
+            self.unregister_from_poll(reader)
             self.stale_readers.add(reader)
 
     def sigterm(self, signum, frame):
@@ -677,31 +738,53 @@ class JournalPump(ServiceDaemon, Tagged):
             return True
         return False
 
-    def read_single_message(self, reader):
+    def read_single_message(self, reader) -> SingleMessageReadResult:
         try:
-            jobject = reader.read_next()
+            jobject: Optional[JournalObject] = reader.read_next()
             if jobject is None or jobject.entry is None:
-                return False
+                return SingleMessageReadResult(has_more=False, bytes_read=0)
 
             return JournalObjectHandler(jobject, reader, self).process()
         except StopIteration:
             self.log.debug("No more journal entries to read")
-            return False
+            return SingleMessageReadResult(has_more=False, bytes_read=0)
         except Exception as ex:  # pylint: disable=broad-except
             self.log.exception("Unexpected exception while handling entry for %s", reader.name)
             self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
             time.sleep(0.5)
-            return False
+            return SingleMessageReadResult(has_more=False, bytes_read=0)
 
-    def read_all_available_messages(self, reader, hits):
+    def read_messages(self, reader, hits, chunk_size) -> MessagesReadResult:
         lines = 0
-        while self.read_single_message(reader):
+
+        exhausted = False
+
+        limit_bytes = reader.get_write_limit_bytes()
+        limit_count = reader.get_write_limit_message_count()
+
+        for _ in range(chunk_size):
+            if limit_bytes <= 0:
+                return MessagesReadResult(exhausted=False, lines_read=lines)
+
+            if limit_count <= 0:
+                return MessagesReadResult(exhausted=False, lines_read=lines)
+
+            has_more, bytes_read = self.read_single_message(reader)
+
+            if bytes_read:
+                limit_bytes -= bytes_read
+                limit_count -= 1
+
+            if not has_more:
+                exhausted = True
+                break
+
             lines += 1
 
         for search in reader.searches:
             hits[search["name"]] = search.get("hits", 0)
 
-        return lines
+        return MessagesReadResult(exhausted=exhausted, lines_read=lines)
 
     def get_state_file_path(self):
         return self.config.get("json_state_file_path")
@@ -727,28 +810,92 @@ class JournalPump(ServiceDaemon, Tagged):
         while self.stale_readers:
             reader = self.stale_readers.pop()
             reader.close()
+            self.unregister_from_poll(reader)
+
+    def register_for_poll(self, reader: JournalReader) -> bool:
+        fd = reader.fileno()
+        # fd in this case is anonymous inotify node
+        if fd is not None and fd not in self.reader_by_fd:
+            self.log.info("Registered reader %r with fd %r", self.name, fd)
+            self.poller.register(fd)
+            self.reader_by_fd[fd] = reader
+            return True
+
+        return False
+
+    def unregister_from_poll(self, reader: JournalReader) -> None:
+        fd = reader.fileno()
+        if fd is not None and fd in self.reader_by_fd:
+            self.poller.unregister(fd)
+            self.reader_by_fd[fd] = self._STALE_FD
+            self.log.info("Unregistered reader %r with fd %r", self.name, fd)
 
     def run(self):
         last_stats_time = 0
+        poll_timeout = 0
+        buffered_events = {}
+
         while self.running:
             self._close_stale_readers()
 
-            results = self.poller.poll(1000)
+            self.log.debug("Waiting for %dms", poll_timeout)
+            results = self.poller.poll(poll_timeout)
+            iteration_start_time = time.monotonic_ns()
+
             hits = {}
             lines = 0
-            for fd, _event in results:
-                for reader in self.readers.values():
-                    jdr = reader.journald_reader
-                    if not jdr or fd != jdr.fileno():
-                        continue
-                    if jdr.process() == systemd.journal.APPEND:
-                        lines += self.read_all_available_messages(reader, hits)
-                    break
-                else:
+            # We keep valid events in case reader is busy with processing
+            # previous batch and not ready to act on new one
+
+            for fd, _ in results:
+                reader = self.reader_by_fd.get(fd)
+                if reader is self._STALE_FD:
+                    continue
+
+                if reader is None:
                     self.log.error("Could not find reader with fd %r", fd)
+                    continue
+
+                # Call to process clears state, consecutive calls won't return same value
+                process_evt = reader.journald_reader.process()
+                # Can be either 0 - journal.NOP, 1 - journal.APPEND or 2 - journal.INVALIDATE
+                current_evt = buffered_events.get(reader, journal.NOP)
+                buffered_events[reader] = max(current_evt, process_evt)
+
+            # Remove stale reader, it should happen after we processed
+            # batch of events received from poll, because we could
+            # have received stale fds
+            for key, value in list(self.reader_by_fd.items()):
+                if value is self._STALE_FD:
+                    del self.reader_by_fd[key]
+
+            for reader, event in list(buffered_events.items()):
+                if not reader.is_ready:
+                    continue
+
+                # Read messages up to set reader limit
+                exhausted = False
+                if event in [journal.APPEND, journal.INVALIDATE]:
+                    exhausted, line_count = self.read_messages(reader, hits, chunk_size=5000)
+                    lines += line_count
+
+                if event == journal.INVALIDATE:
+                    self.unregister_from_poll(reader)
+                    # If file was deleted we could lose some unread messages here
+                    # but if we are so behind that we reading tail file, we probably
+                    # will never catch up and we want to avoid holding descriptors to
+                    # deleted files
+                    reader.invalidate()
+
+                # Only delete set event when we know that all messages were drained
+                if exhausted:
+                    buffered_events.pop(reader)
 
             for reader in self.readers.values():
-                reader.update_poll_registration_status(self.poller)
+                reader.update_status()
+                if self.register_for_poll(reader):
+                    # Check if there is something to read in newly created reader
+                    buffered_events[reader] = journal.APPEND
 
             if hits and time.monotonic() - last_stats_time > 60.0:
                 self.log.info("search hits stats: %s", hits)
@@ -767,6 +914,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.log.debug("No new journal lines received")
 
             self.ping_watchdog()
+            poll_timeout = max(0, self.poll_interval_ms - (time.monotonic_ns() - iteration_start_time) // 1000)
 
         self._close_stale_readers()
 
