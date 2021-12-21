@@ -1,4 +1,4 @@
-from .base import LogSender
+from .base import ThreadedLogSender
 from io import BytesIO
 from journalpump.util import default_json_serialization, get_requests_session
 
@@ -7,7 +7,7 @@ import requests
 import time
 
 
-class ElasticsearchSender(LogSender):
+class ElasticsearchSender(ThreadedLogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 10.0), **kwargs)
         self.session_url = self.config.get("elasticsearch_url")

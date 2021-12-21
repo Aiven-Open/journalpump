@@ -6,3 +6,4 @@ from .kafka import KafkaSender  # noqa: F401
 from .logplex import LogplexSender  # noqa: F401
 from .rsyslog import RsyslogSender  # noqa: F401
 from .websocket import WebsocketSender  # noqa: F401
+from .kafka_async import AsyncKafkaSender  # noqa: F401

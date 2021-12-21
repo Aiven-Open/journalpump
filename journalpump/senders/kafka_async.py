@@ -1,9 +1,11 @@
-from .base import ThreadedLogSender
-from kafka import errors, KafkaAdminClient, KafkaProducer
-from kafka.admin import NewTopic
+from .base import AsyncLogSender
+from aiokafka import AIOKafkaProducer
+from kafka import errors
 
+import asyncio
 import logging
 import socket
+
 
 try:
     import snappy
@@ -23,7 +25,7 @@ KAFKA_CONN_ERRORS = tuple(errors.RETRY_ERROR_TYPES) + (
 logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
 
 
-class KafkaSender(ThreadedLogSender):
+class AsyncKafkaSender(AsyncLogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self.kafka_producer = None
@@ -38,6 +40,7 @@ class KafkaSender(ThreadedLogSender):
             "bootstrap_servers": self.config.get("kafka_address"),
             "reconnect_backoff_ms": 1000,  # up from the default 50ms to reduce connection attempts
             "reconnect_backoff_max_ms": 10000,  # up the upper bound for backoff to 10 seconds
+            "loop": self.loop,
         }
 
         if self.config.get("ssl"):
@@ -55,7 +58,7 @@ class KafkaSender(ThreadedLogSender):
         producer_config["linger_ms"] = 500  # wait up 500 ms to see if we can send msgs in a group
 
         # make sure the python client supports it as well
-        if zstd and "zstd" in KafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
+        if zstd and "zstd" in AIOKafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
             producer_config["compression_type"] = "zstd"
         elif snappy:
             producer_config["compression_type"] = "snappy"
@@ -68,7 +71,10 @@ class KafkaSender(ThreadedLogSender):
 
         return producer_config
 
-    def _init_kafka(self) -> None:
+    def start(self):
+        self.loop.create_task(self.run())
+
+    async def _init_kafka(self) -> None:
         self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
 
         if self.kafka_producer:
@@ -81,11 +87,12 @@ class KafkaSender(ThreadedLogSender):
             producer_config = self._generate_producer_config()
 
             try:
-                kafka_producer = KafkaProducer(**producer_config)
+                kafka_producer = AIOKafkaProducer(**producer_config)
+                await kafka_producer.start()
             except KAFKA_CONN_ERRORS as ex:
                 self.mark_disconnected(ex)
                 self.log.warning("Retriable error during Kafka initialization: %s: %s", ex.__class__.__name__, ex)
-                self._backoff()
+                await self._backoff()
             else:
                 self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
                 self.kafka_producer = kafka_producer
@@ -94,28 +101,33 @@ class KafkaSender(ThreadedLogSender):
         # Assume that when the topic configuration is provided we should
         # manually create it. This is useful for kafka clusters configured with
         # `auto.create.topics.enable = false`
-        topic_config = self.config.get("kafka_topic_config", dict())
-        num_partitions = topic_config.get("num_partitions")
-        replication_factor = topic_config.get("replication_factor")
-        if num_partitions is not None and replication_factor is not None:
-            kafka_admin = KafkaAdminClient(**self._generate_client_config())
-            try:
-                kafka_admin.create_topics([NewTopic(self.topic, num_partitions, replication_factor)])
-            except errors.TopicAlreadyExistsError:
-                self.log.info("Kafka topic %r already exists", self.topic)
-            else:
-                self.log.info("Create Kafka topic, address: %r", self.topic)
+#        topic_config = self.config.get("kafka_topic_config", dict())
+#        num_partitions = topic_config.get("num_partitions")
+#        replication_factor = topic_config.get("replication_factor")
+#        if num_partitions is not None and replication_factor is not None:
+#            kafka_admin = KafkaAdminClient(**self._generate_client_config())
+#            try:
+#                kafka_admin.create_topics([NewTopic(self.topic, num_partitions, replication_factor)])
+#            except errors.TopicAlreadyExistsError:
+#                self.log.info("Kafka topic %r already exists", self.topic)
+#            else:
+#                self.log.info("Create Kafka topic, address: %r", self.topic)
 
-    def send_messages(self, *, messages, cursor):
+#    def send_messages(self, *, messages, cursor):
+#        task = self.loop.(self._send_messages(messages=messages, cursor=cursor))
+#        await task
+#        return task.result()
+
+    async def send_messages(self, *, messages, cursor):
         if not self.kafka_producer:
-            self._init_kafka()
+            await self._init_kafka()
         try:
             # Collect return values of send():
             # FutureRecordMetadata which will trigger when message actually sent (during flush)
-            result_futures = [
+            result_futures = asyncio.gather(
                 self.kafka_producer.send(topic=self.topic, value=msg, key=self.kafka_msg_key) for msg in messages
-            ]
-            self.kafka_producer.flush()
+            )
+            await self.kafka_producer.flush()
             for result_future in result_futures:
                 # get() throws error from future, catch below
                 # flush() above should have sent, getting with 1 sec timeout
@@ -125,12 +137,14 @@ class KafkaSender(ThreadedLogSender):
         except KAFKA_CONN_ERRORS as ex:
             self.mark_disconnected(ex)
             self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
-            self._backoff()
-            self._init_kafka()
+            if self.running:
+                await self._backoff()
+                await self._init_kafka()
         except Exception as ex:  # pylint: disable=broad-except
             self.mark_disconnected(ex)
             self.log.exception("Unexpected exception during send to kafka")
             self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
-            self._backoff()
-            self._init_kafka()
+            if self.running:
+                await self._backoff()
+                await self._init_kafka()
         return False
