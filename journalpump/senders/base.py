@@ -255,7 +255,7 @@ class ThreadedLogSender(Thread, LogSender):
         try:
             # pop to get free up memory as soon as the send was successful
             while batches:
-                bastch = batches.pop(0)
+                batch = batches.pop(0)
                 # die retrying, backoff is part of sending mechanism
                 while self.running and not self.send_messages(messages=batch[0], cursor=batch[1]):
                     pass
