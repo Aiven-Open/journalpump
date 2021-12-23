@@ -221,9 +221,9 @@ class LogSender(Tagged):
                 batch_size += item_size
                 index += 1
 
-            messages_batch = messages[:index]
-            message_bodies = [m[0] for m in mb]
-            ret.append((message_bodies, message_batch[-1][1]))
+            batch = messages[:index]
+            message_bodies = [m[0] for m in batch]
+            ret.append((message_bodies, batch[-1][1]))
             del messages[:index]
         return ret
     
