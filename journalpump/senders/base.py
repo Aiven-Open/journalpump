@@ -209,15 +209,6 @@ class LogSender(Tagged):
         return len(self.msg_buffer) > 1000 or \
                time.monotonic() - self.last_send_time > self.max_send_interval
 
-    def run(self):
-        while self.running:
-            self.handle_maintenance_operations()
-            if self.should_try_sending_messages():
-                self.get_and_send_messages()
-            else:
-                time.sleep(self._wait_for)
-        self.log.info("Stopping")
-
     def get_message_bodies_and_cursor(self):
         messages = self.msg_buffer.get_items()
         ret = []
@@ -237,6 +228,26 @@ class LogSender(Tagged):
             del messages[:index]
         return ret
     
+
+class ThreadedLogSender(Thread, LogSender):
+    def __init__(self, **kw):
+        Thread.__init__(self)
+        LogSender.__init__(self, **kw)
+
+    def _backoff(self, *, base=0.5, cap=1800.0):
+        t = self._get_backoff_secs(base=base, cap=cap)
+        self.log.info("Sleeping for %.0f seconds", t)
+        time.sleep(t)
+
+    def run(self):
+        while self.running:
+            self.handle_maintenance_operations()
+            if self.should_try_sending_messages():
+                self.get_and_send_messages()
+            else:
+                time.sleep(self._wait_for)
+        self.log.info("Stopping")
+
     def get_and_send_messages(self):
         batches = self.get_message_bodies_and_cursor()
         msg_count = sum(len(batch[0]) for batch in batches)
@@ -255,18 +266,6 @@ class LogSender(Tagged):
             # there is already a broad except handler in send_messages, so why this ?
             self.log.exception("Problem sending %r messages", msg_count)
             self._backoff()
-
-
-class ThreadedLogSender(Thread, LogSender):
-    def __init__(self, **kw):
-        Thread.__init__(self)
-        LogSender.__init__(self, **kw)
-
-    def _backoff(self, *, base=0.5, cap=1800.0):
-        t = self._get_backoff_secs(base=base, cap=cap)
-        self.log.info("Sleeping for %.0f seconds", t)
-        time.sleep(t)
-
 
 class AsyncLogSender(LogSender):
     def __init__(self, **kw):
@@ -293,7 +292,7 @@ class AsyncLogSender(LogSender):
         self.log.info("Stopping")
 
     async def get_and_send_messages(self):
-        batches = self.get_message_bodies_and_cursor(messages)
+        batches = self.get_message_bodies_and_cursor()
         msg_count = sum(len(batch[0]) for batch in batches)
         self.log.debug("Got %d items from msg_buffer", msg_count)
         start_time = time.monotonic()
