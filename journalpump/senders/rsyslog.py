@@ -1,4 +1,4 @@
-from .base import LogSender
+from .base import ThreadedLogSender
 from journalpump.rsyslog import SyslogTcpClient
 
 import json
@@ -8,7 +8,7 @@ import time
 RSYSLOG_CONN_ERRORS = (socket.timeout, ConnectionRefusedError)
 
 
-class RsyslogSender(LogSender):
+class RsyslogSender(ThreadedLogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self.rsyslog_client = None

@@ -1,4 +1,4 @@
-from .base import LogSender, MAX_KAFKA_MESSAGE_SIZE
+from .base import ThreadedLogSender, MAX_KAFKA_MESSAGE_SIZE
 from aiohttp_socks import ProxyConnectionError, ProxyError, ProxyTimeoutError
 from aiohttp_socks.utils import Proxy
 from concurrent.futures import CancelledError, TimeoutError as ConnectionTimeoutError
@@ -51,9 +51,9 @@ class WebsocketRunner(Thread):
         self.stop_event = asyncio.Event()
         self.stopped_event = asyncio.Event()
         self.running = True
-        # Send messages as batches, LogSender base class takes care of batch size.
+        # Send messages as batches, ThreadedLogSender base class takes care of batch size.
         # If batching is disabled, do not adjust the max_batch_size member variable,
-        # so that LogSender will still give us multiple messages in a single send_messages() call.
+        # so that ThreadedLogSender will still give us multiple messages in a single send_messages() call.
         self.batching_enabled = False
         if max_batch_size > 0:
             self.max_batch_size = max_batch_size
@@ -81,7 +81,7 @@ class WebsocketRunner(Thread):
             return False
 
         if self.batching_enabled:
-            # LogSender has limited the batch size already
+            # ThreadedLogSender has limited the batch size already
             batch = b"\x00".join(messages)
             messages = [batch]
 
@@ -263,7 +263,7 @@ class WebsocketRunner(Thread):
         self.log.info("Websocket closed")
 
 
-class WebsocketSender(LogSender):
+class WebsocketSender(ThreadedLogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 1.0), **kwargs)
         self.runner = None
