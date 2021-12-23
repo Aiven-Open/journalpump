@@ -1,5 +1,6 @@
 from threading import Lock, Thread
 
+import asyncio
 import logging
 import random
 import time
@@ -265,3 +266,46 @@ class ThreadedLogSender(Thread, LogSender):
             # there is already a broad except handler in send_messages, so why this ?
             self.log.exception("Problem sending %r messages", msg_count)
             self._backoff()
+
+class AsyncLogSender(LogSender):
+    def __init__(self, **kw):
+        self.loop: asyncio.events.AbstractEventLoop = kw.pop('aio_loop')
+        LogSender.__init__(self, **kw)
+
+    async def _backoff(self, *, base=0.5, cap=1800.0):
+        t = self._get_backoff_secs(base=base, cap=cap)
+        self.log.info("Sleeping for %.0f seconds", t)
+        await asyncio.sleep(t)
+
+    def handle_maintenance_operations(self):
+        async def noop():
+            pass
+        self.loop.create_task(noop())
+
+    async def run(self):
+        while self.running:
+            await self.handle_maintenance_operations()
+            if self.should_try_sending_messages():
+                await self.get_and_send_messages()
+            else:
+                await asyncio.sleep(self._wait_for)
+        self.log.info("Stopping")
+
+    async def get_and_send_messages(self):
+        batches = self.get_message_bodies_and_cursor()
+        msg_count = sum(len(batch[0]) for batch in batches)
+        self.log.debug("Got %d items from msg_buffer", msg_count)
+        start_time = time.monotonic()
+        try:
+            # pop to get free up memory as soon as the send was successful
+            while batches:
+                batch = batches.pop(0)
+                # die retrying, backoff is part of sending mechanism
+                while self.running and not await self.send_messages(messages=batch[0], cursor=batch[1]):
+                    pass
+            self.log.debug("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
+            self.last_send_time = time.monotonic()
+        except Exception:  # pylint: disable=broad-except
+            # there is already a broad except handler in send_messages, so why this ?
+            self.log.exception("Problem sending %r messages", msg_count)
+            await self._backoff()
