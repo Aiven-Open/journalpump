@@ -67,7 +67,7 @@ class MsgBuffer:
         self.total_size += len(item)
 
 
-class LogSender(Thread, Tagged):
+class LogSender(Tagged):
     def __init__(
         self,
         *,
@@ -81,9 +81,9 @@ class LogSender(Thread, Tagged):
         tags=None,
         msg_buffer_max_length=50000
     ):
-        Thread.__init__(self)
         Tagged.__init__(self, tags, sender=name)
         self.log = logging.getLogger("LogSender:{}".format(reader.name))
+        self._wait_for = 0.1
         self.name = name
         self.stats = stats
         self.config = config
@@ -106,12 +106,14 @@ class LogSender(Thread, Tagged):
         self._backoff_attempt = 0
         self.log.info("Initialized %s", self.__class__.__name__)
 
-    def _backoff(self, *, base=0.5, cap=1800.0):
+    def _get_backoff_secs(self, *, base=0.5, cap=1000.0):
         self._backoff_attempt += 1
         t = min(cap, base * 2 ** self._backoff_attempt) / 2
         t = random.random() * t + t
-        self.log.info("Sleeping for %.0f seconds", t)
-        time.sleep(t)
+        return t
+
+    def _backoff(self, *, base=0.5, cap=1800.0):
+        raise NotImplementedError()
 
     def refresh_stats(self):
         tags = self.make_tags()
@@ -192,48 +194,73 @@ class LogSender(Thread, Tagged):
         # This can be overridden in the classes that inherit this
         pass
 
+    def handle_maintenance_operations(self):
+        try:
+            # Don't run maintenance operations again immediately if it just failed
+            if self.last_maintenance_fail or time.monotonic() - self.last_maintenance_fail > 60:
+                self.maintenance_operations()
+        except Exception as ex:  # pylint: disable=broad-except
+            self.log.error("Maintenance operation failed: %r", ex)
+            self.stats.unexpected_exception(ex=ex, where="maintenance_operation")
+            self.last_maintenance_fail = time.monotonic()
+
+    def should_try_sending_messages(self):
+        return len(self.msg_buffer) > 1000 or \
+               time.monotonic() - self.last_send_time > self.max_send_interval
+
+    def get_message_bodies_and_cursor(self):
+        messages = self.msg_buffer.get_items()
+        ret = []
+        while messages:
+            batch_size = len(messages[0][0]) + self.batch_message_overhead
+            index = 1
+            while index < len(messages):
+                item_size = len(messages[index][0]) + self.batch_message_overhead
+                if batch_size + item_size >= self.max_batch_size:
+                    break
+                batch_size += item_size
+                index += 1
+
+            messages_batch = messages[:index]
+            message_bodies = [m[0] for m in mb]
+            ret.append((message_bodies, message_batch[-1][1]))
+            del messages[:index]
+        return ret
+    
+
+class ThreadedLogSender(Thread, LogSender):
+    def __init__(self, **kw):
+        Thread.__init__(self)
+        LogSender.__init__(self, **kw)
+
+    def _backoff(self, *, base=0.5, cap=1800.0):
+        t = self._get_backoff_secs(base=base, cap=cap)
+        self.log.info("Sleeping for %.0f seconds", t)
+        time.sleep(t)
+
     def run(self):
         while self.running:
-            try:
-                # Don't run maintenance operations again immediately if it just failed
-                if not self.last_maintenance_fail or time.monotonic() - self.last_maintenance_fail > 60:
-                    self.maintenance_operations()
-            except Exception as ex:  # pylint: disable=broad-except
-                self.log.error("Maintenance operation failed: %r", ex)
-                self.stats.unexpected_exception(ex=ex, where="maintenance_operation")
-                self.last_maintenance_fail = time.monotonic()
-            if len(self.msg_buffer) > 1000 or \
-               time.monotonic() - self.last_send_time > self.max_send_interval:
+            self.handle_maintenance_operations()
+            if self.should_try_sending_messages():
                 self.get_and_send_messages()
             else:
-                time.sleep(0.1)
+                time.sleep(self._wait_for)
         self.log.info("Stopping")
 
     def get_and_send_messages(self):
+        batches = self.get_message_bodies_and_cursor(messages)
+        msg_count = sum(len(batch[0]) for batch in batches)
+        self.log.debug("Got %d items from msg_buffer", msg_count)
         start_time = time.monotonic()
-        msg_count = None
         try:
-            messages = self.msg_buffer.get_items()
-            msg_count = len(messages)
-            self.log.debug("Got %d items from msg_buffer", msg_count)
-
-            while self.running and messages:
-                batch_size = len(messages[0][0]) + self.batch_message_overhead
-                index = 1
-                while index < len(messages):
-                    item_size = len(messages[index][0]) + self.batch_message_overhead
-                    if batch_size + item_size >= self.max_batch_size:
-                        break
-                    batch_size += item_size
-                    index += 1
-
-                messages_batch = messages[:index]
-                message_bodies = [m[0] for m in messages_batch]
-                if self.send_messages(messages=message_bodies, cursor=messages_batch[-1][1]):
-                    messages = messages[index:]
-
+            # pop to get free up memory as soon as the send was successful
+            for batch in batches.pop(0):
+                # die retrying, backoff is part of sending mechanism
+                while self.running and not self.send_messages(messages=batch[0], cursor=batch[1]):
+                    pass
             self.log.debug("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
             self.last_send_time = time.monotonic()
         except Exception:  # pylint: disable=broad-except
+            # there is already a broad except handler in send_messages, so why this ?
             self.log.exception("Problem sending %r messages", msg_count)
             self._backoff()

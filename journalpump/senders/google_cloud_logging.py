@@ -1,4 +1,4 @@
-from .base import LogSender
+from .base import ThreadedLogSender
 from googleapiclient.discovery import build
 from googleapiclient.errors import Error as GoogleApiClientError
 from oauth2client.service_account import ServiceAccountCredentials
@@ -10,7 +10,7 @@ import logging
 logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
 
 
-class GoogleCloudLoggingSender(LogSender):
+class GoogleCloudLoggingSender(ThreadedLogSender):
     _SEVERITY_MAPPING = {  # mapping from journald priority to cloud logging severity
         7: "DEBUG",
         6: "INFO",
