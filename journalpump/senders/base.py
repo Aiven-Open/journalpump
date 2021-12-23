@@ -248,7 +248,7 @@ class ThreadedLogSender(Thread, LogSender):
         self.log.info("Stopping")
 
     def get_and_send_messages(self):
-        batches = self.get_message_bodies_and_cursor(messages)
+        batches = self.get_message_bodies_and_cursor()
         msg_count = sum(len(batch[0]) for batch in batches)
         self.log.debug("Got %d items from msg_buffer", msg_count)
         start_time = time.monotonic()
