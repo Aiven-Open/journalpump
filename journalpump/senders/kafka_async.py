@@ -36,18 +36,21 @@ class AsyncKafkaSender(AsyncLogSender):
 
     def _generate_client_config(self) -> dict:
         config = {
-            "api_version": self.config.get("kafka_api_version"),
+            #"api_version": self.config.get("kafka_api_version"),
             "bootstrap_servers": self.config.get("kafka_address"),
-            "reconnect_backoff_ms": 1000,  # up from the default 50ms to reduce connection attempts
-            "reconnect_backoff_max_ms": 10000,  # up the upper bound for backoff to 10 seconds
+            #"reconnect_backoff_ms": 1000,  # up from the default 50ms to reduce connection attempts
+            #"reconnect_backoff_max_ms": 10000,  # up the upper bound for backoff to 10 seconds
             "loop": self.loop,
         }
 
         if self.config.get("ssl"):
             config["security_protocol"] = "SSL"
-            config["ssl_cafile"] = self.config.get("ca")
-            config["ssl_certfile"] = self.config.get("certfile")
-            config["ssl_keyfile"] = self.config.get("keyfile")
+            from aiokafka.helpers import create_ssl_context
+            ssl = {}
+            ssl["cafile"] =self.config.get("ca")
+            ssl["certfile"] = self.config.get("certfile")
+            ssl["keyfile"] = self.config.get("keyfile")
+            config["ssl_context"] = create_ssl_context(**ssl)
         else:
             config["security_protocol"] = "PLAINTEXT"
 
@@ -55,24 +58,24 @@ class AsyncKafkaSender(AsyncLogSender):
 
     def _generate_producer_config(self) -> dict:
         producer_config = self._generate_client_config()
-        producer_config["linger_ms"] = 500  # wait up 500 ms to see if we can send msgs in a group
+        #producer_config["linger_ms"] = 500  # wait up 500 ms to see if we can send msgs in a group
 
         # make sure the python client supports it as well
-        if zstd and "zstd" in AIOKafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
-            producer_config["compression_type"] = "zstd"
-        elif snappy:
-            producer_config["compression_type"] = "snappy"
-        else:
-            producer_config["compression_type"] = "gzip"
-
-        if self.config.get("socks5_proxy"):
-            # Socks5_config is supported by Aiven fork of kafka-python for the time being
-            producer_config["socks5_proxy"] = self.config.get("socks5_proxy")
+#        if zstd and "zstd" in AIOKafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
+#            producer_config["compression_type"] = "zstd"
+#        elif snappy:
+#            producer_config["compression_type"] = "snappy"
+#        else:
+#            producer_config["compression_type"] = "gzip"
+#
+#        if self.config.get("socks5_proxy"):
+#            # Socks5_config is supported by Aiven fork of kafka-python for the time being
+#            producer_config["socks5_proxy"] = self.config.get("socks5_proxy")
 
         return producer_config
 
     def start(self):
-        self.loop.create_task(self.run())
+        asyncio.run_coroutine_threadsafe(self.run(), self.loop)
 
     async def _init_kafka(self) -> None:
         self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
@@ -124,15 +127,17 @@ class AsyncKafkaSender(AsyncLogSender):
         try:
             # Collect return values of send():
             # FutureRecordMetadata which will trigger when message actually sent (during flush)
-            result_futures = asyncio.gather(
-                self.kafka_producer.send(topic=self.topic, value=msg, key=self.kafka_msg_key) for msg in messages
-            )
+            tasks = []
+            for msg in messages:
+                tasks.append(self.loop.create_task(self.kafka_producer.send_and_wait(topic=self.topic, value=msg, key=self.kafka_msg_key)))
+                #await self.kafka_producer.send_and_wait(topic=self.topic, value=msg, key=self.kafka_msg_key)
             await self.kafka_producer.flush()
-            for result_future in result_futures:
-                # get() throws error from future, catch below
-                # flush() above should have sent, getting with 1 sec timeout
-                result_future.get(timeout=1)
+#            for result_future in result_futures:
+#                # get() throws error from future, catch below
+#                # flush() above should have sent, getting with 1 sec timeout
+#                await result_future
             self.mark_sent(messages=messages, cursor=cursor)
+            #self.log.info("sent %s messages", len(result_futures))
             return True
         except KAFKA_CONN_ERRORS as ex:
             self.mark_disconnected(ex)

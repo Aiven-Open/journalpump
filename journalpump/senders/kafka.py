@@ -121,6 +121,7 @@ class KafkaSender(ThreadedLogSender):
                 # flush() above should have sent, getting with 1 sec timeout
                 result_future.get(timeout=1)
             self.mark_sent(messages=messages, cursor=cursor)
+            # self.log.info("send %s", len(messages))
             return True
         except KAFKA_CONN_ERRORS as ex:
             self.mark_disconnected(ex)

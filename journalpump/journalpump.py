@@ -26,6 +26,8 @@ import select
 import systemd.journal
 import time
 import uuid
+import random
+import string
 
 GeoIPReader: Union[Type[GeoIPProtocol], None]
 try:
@@ -70,6 +72,96 @@ class JournalObject:
     def __init__(self, cursor=None, entry=None):
         self.cursor = cursor
         self.entry = entry or {}
+
+
+class FakeReader():
+    def _next(self, skip=1):
+        return True
+    def seek_tail(self):
+        pass
+    def seek_head(self):
+        pass
+    def seek_monotonic(self, position):
+        pass
+    def seek_cursor(self, position):
+        pass
+    def add_match(self, _SYSTEMD_UNIT):
+        pass
+    def _get_all(self):
+         return {'_TRANSPORT': b'syslog',
+              'PRIORITY': b'6',
+              'SYSLOG_FACILITY': b'16',
+              'SYSLOG_IDENTIFIER': b'postgres',
+              'SYSLOG_PID': b'1390131',
+              'SYSLOG_TIMESTAMP': b'Sep  3 13:35:35 ',
+              '_PID': b'1390131',
+              '_UID': b'1000',
+              '_GID': b'1000',
+              '_COMM': b'postgres',
+              '_CMDLINE': ''.join(random.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(50)),
+              '_CAP_EFFECTIVE': b'0',
+              '_SELINUX_CONTEXT': b'unconfined_u:system_r:spc_t:s0',
+              '_AUDIT_SESSION': b'57',
+              '_AUDIT_LOGINUID': b'1000',
+              '_SYSTEMD_CGROUP': b'/user.slice/user-1000.slice/user@1000.service/user.slice/libpod-569cb2b97bd0007b6e38ec700914076e15389b43cfbe118b1342a5d77bfdf576.scope/container',
+              '_SYSTEMD_OWNER_UID': b'1000',
+              '_SYSTEMD_UNIT': b'user@1000.service',
+              '_SYSTEMD_USER_UNIT': b'libpod-569cb2b97bd0007b6e38ec700914076e15389b43cfbe118b1342a5d77bfdf576.scope',
+              '_SYSTEMD_SLICE': b'user-1000.slice',
+              '_SYSTEMD_USER_SLICE': b'user.slice',
+              '_SYSTEMD_INVOCATION_ID': b'7c1a81b7730240668264d4edf776eb73',
+              '_BOOT_ID': b'570df2d428404423ad0230d9e09f5087',
+              '_MACHINE_ID': b'6a29399ba2e348a5bfecbb69b82bc44b',
+              '_HOSTNAME': b'localhost.localdomain',
+              'MESSAGE': ''.join(random.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(1000)),
+              #'_SOURCE_REALTIME_TIMESTAMP': b'1630668935639450'
+        }
+
+
+class FakePump(FakeReader):
+    def __init__(self, *k, **kw):
+        pass
+    def has_persistent_files(self):
+        return True
+    def fileno(self):
+        return "Fake"
+    def __next__(self):
+        return self.get_next()
+    def _get_realtime(self):
+        return datetime.datetime.now().microsecond
+    def _get_cursor(self):
+        return "here"
+
+    def convert_entry(self, entry):
+        """Faster journal lib _convert_entry replacement"""
+        output = {}
+        for key, value in entry.items():
+            convert = converters.get(key)
+            if convert is not None:
+                try:
+                    value = convert(value)
+                except ValueError:
+                    pass
+            if isinstance(value, bytes):
+                try:
+                    value = bytes.decode(value)
+                except Exception:  # pylint: disable=broad-except
+                    pass
+
+            output[key] = value
+
+        return output
+
+    def get_next(self, skip=1):
+        # pylint: disable=no-member, protected-access
+        """Private get_next implementation that doesn't store the cursor since we don't want it"""
+        if super()._next(skip):
+            entry = super()._get_all()
+            if entry:
+                entry["__REALTIME_TIMESTAMP"] = self._get_realtime()
+                return JournalObject(cursor=self._get_cursor(), entry=self.convert_entry(entry))
+
+        return None
 
 
 class PumpReader(Reader):
@@ -184,12 +276,15 @@ class JournalReader(Tagged):
 
     def register_for_poll(self, poller):
         if self.journald_reader:
-            poller.register(self.journald_reader, self.journald_reader.get_events())
+            if not isinstance(self.journald_reader, FakePump):
+                poller.register(self.journald_reader, self.journald_reader.get_events())
             self.registered_for_poll = True
             self.log.info("Registered reader %r with fd %r", self.name, self.journald_reader.fileno())
 
     def unregister_from_poll(self, poller):
         if self.journald_reader and self.registered_for_poll:
+            if not isinstance(self.journald_reader, FakePump):
+                poller.register(self.journald_reader, self.journald_reader.get_events())
             poller.unregister(self.journald_reader)
             self.registered_for_poll = False
             self.log.info("Unregistered reader %r with fd %r", self.name, self.journald_reader.fileno())
@@ -250,13 +345,14 @@ class JournalReader(Tagged):
                 stats=self.stats,
                 tags=self.make_tags(),
             )
-            if isinstance(sender_class, AsyncLogSender):
+            print(sender_class)
+            if issubclass(sender_class, AsyncLogSender):
+                def f(loop):
+                    asyncio.set_event_loop(loop)
+                    loop.run_forever()
                 loop = asyncio.get_event_loop()
                 kw["aio_loop"] = loop
-                if not loop.is_running:
-                    # to unbloock the journal reading process
-                    # the same loop can be used for other senders once they become async
-                    Thread(target=loop.run_forever).start()
+                Thread(target=f, args=(loop,)).start()
             try:
                 sender = sender_class(**kw)
             except SenderInitializationError:
@@ -299,7 +395,7 @@ class JournalReader(Tagged):
         self.last_stats_send_time = now
         self._sent_lines_diff += self.read_lines - self._last_sent_read_lines
         self._sent_bytes_diff += self.read_bytes - self._last_sent_read_bytes
-        if now - self.last_stats_print_time > 120:
+        if now - self.last_stats_print_time > 10:
             self.log.info("Processed %r journal lines (%r bytes)", self._sent_lines_diff, self._sent_bytes_diff)
             self._sent_lines_diff = 0
             self._sent_bytes_diff = 0
@@ -345,7 +441,7 @@ class JournalReader(Tagged):
             namespace = self.config.get("journal_namespace")
             if namespace:
                 reader_kwargs["namespace"] = namespace
-            self.journald_reader = PumpReader(**reader_kwargs)
+            self.journald_reader = FakePump(**reader_kwargs)
             if not (self.journald_reader.has_persistent_files() or self.journald_reader.has_runtime_files()):
                 # If journal files are not ready (e.g. files with namespace are not yet created), reader won't fail,
                 # it will silently not deliver anything. We don't want this - return None to re-create reader later
@@ -708,6 +804,8 @@ class JournalPump(ServiceDaemon, Tagged):
         lines = 0
         while self.read_single_message(reader):
             lines += 1
+            if lines >=100:
+                break
 
         for search in reader.searches:
             hits[search["name"]] = search.get("hits", 0)
@@ -757,6 +855,12 @@ class JournalPump(ServiceDaemon, Tagged):
                     break
                 else:
                     self.log.error("Could not find reader with fd %r", fd)
+            else:
+                for reader in self.readers.values():
+                    jdr = reader.journald_reader
+                    if isinstance(jdr, FakePump):
+                        lines += self.read_all_available_messages(reader, hits)
+                    break
 
             for reader in self.readers.values():
                 reader.update_poll_registration_status(self.poller)

@@ -260,7 +260,8 @@ class ThreadedLogSender(Thread, LogSender):
                 # die retrying, backoff is part of sending mechanism
                 while self.running and not self.send_messages(messages=batch[0], cursor=batch[1]):
                     pass
-            self.log.debug("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
+            if msg_count !=0:
+                self.log.info("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
             self.last_send_time = time.monotonic()
         except Exception:  # pylint: disable=broad-except
             # there is already a broad except handler in send_messages, so why this ?
@@ -277,10 +278,8 @@ class AsyncLogSender(LogSender):
         self.log.info("Sleeping for %.0f seconds", t)
         await asyncio.sleep(t)
 
-    def handle_maintenance_operations(self):
-        async def noop():
-            pass
-        self.loop.create_task(noop())
+    async def handle_maintenance_operations(self):
+        pass
 
     async def run(self):
         while self.running:
@@ -303,7 +302,8 @@ class AsyncLogSender(LogSender):
                 # die retrying, backoff is part of sending mechanism
                 while self.running and not await self.send_messages(messages=batch[0], cursor=batch[1]):
                     pass
-            self.log.debug("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
+            if msg_count !=0:
+                self.log.info("Sending %d msgs, took %.4fs", msg_count, time.monotonic() - start_time)
             self.last_send_time = time.monotonic()
         except Exception:  # pylint: disable=broad-except
             # there is already a broad except handler in send_messages, so why this ?
