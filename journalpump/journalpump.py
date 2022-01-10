@@ -192,13 +192,20 @@ class JournalReader(Tagged):
         return bool(self.senders and self.journald_reader and self._is_ready)
 
     def get_write_limit_bytes(self) -> int:
+        if not self.senders:
+            return 0
+
         return self.msg_buffer_max_bytes - max(s.msg_buffer.buffer_size for s in self.senders.values())
 
     def get_write_limit_message_count(self) -> int:
+        if not self.senders:
+            return 0
+
         return self.msg_buffer_max_length - max(len(s.msg_buffer) for s in self.senders.values())
 
     def update_status(self):
         self.create_journald_reader_if_missing()
+
         sender_over_limit = self.get_write_limit_message_count() <= 0
         if self.msg_buffer_max_bytes:
             sender_over_limit |= self.get_write_limit_bytes() <= 0
@@ -809,8 +816,10 @@ class JournalPump(ServiceDaemon, Tagged):
     def _close_stale_readers(self):
         while self.stale_readers:
             reader = self.stale_readers.pop()
-            reader.close()
             self.unregister_from_poll(reader)
+            # closing reader invalidates fileno, so reader should be first
+            # unregistered before closing
+            reader.close()
 
     def register_for_poll(self, reader: JournalReader) -> bool:
         fd = reader.fileno()

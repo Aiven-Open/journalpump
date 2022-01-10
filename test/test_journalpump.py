@@ -790,3 +790,49 @@ def test_journalpump_init_journal_files(tmpdir, has_persistent_files, has_runtim
                 s.join()
 
         r.running = False
+
+
+def test_journal_reader_with_broken_sender_should_return_0_as_limit():
+    config = {
+        "senders": {
+            "bar": {
+                "output_type": "my_sender",
+            },
+        },
+    }
+
+    class FailingSender:
+        def __init__(self, **kwargs):
+            raise SenderInitializationError
+
+    JournalReader.sender_classes["my_sender"] = FailingSender
+
+    journal_reader = JournalReader(
+        name="foo",
+        config=config,
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        searches=[],
+    )
+
+    assert journal_reader.get_write_limit_bytes() == 0
+    assert journal_reader.get_write_limit_message_count() == 0
+
+
+def test_journal_reader_without_senders_should_return_0_as_limit():
+    config = {
+        "senders": {},
+    }
+
+    journal_reader = JournalReader(
+        name="foo",
+        config=config,
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        searches=[],
+    )
+
+    assert journal_reader.get_write_limit_bytes() == 0
+    assert journal_reader.get_write_limit_message_count() == 0
