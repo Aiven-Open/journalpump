@@ -68,7 +68,7 @@ converters = {
 
 class SingleMessageReadResult(NamedTuple):
     has_more: bool
-    bytes_read: int
+    bytes_read: Optional[int]
 
 
 class MessagesReadResult(NamedTuple):
@@ -191,7 +191,7 @@ class JournalReader(Tagged):
 
     @property
     def is_ready(self) -> bool:
-        return bool(self.senders and self.journald_reader and self._is_ready)
+        return bool(self.journald_reader and self._is_ready)
 
     def get_write_limit_bytes(self) -> int:
         if self._failed_senders and not self.senders:
@@ -561,14 +561,14 @@ class JournalObjectHandler:
 
         if self.jobject.cursor is None:
             self.log.debug("No more journal entries to read")
-            return SingleMessageReadResult(has_more=False, bytes_read=0)
+            return SingleMessageReadResult(has_more=False, bytes_read=None)
 
         if self.reader.searches:
             if not self.reader.perform_searches(self.jobject):
-                return SingleMessageReadResult(has_more=True, bytes_read=0)
+                return SingleMessageReadResult(has_more=True, bytes_read=None)
 
         if not self.pump.check_match(new_entry):
-            return SingleMessageReadResult(has_more=True, bytes_read=0)
+            return SingleMessageReadResult(has_more=True, bytes_read=None)
 
         for sender in self.reader.senders.values():
             json_entry = self._get_or_generate_json(sender.field_filter, sender.extra_field_values, new_entry)
@@ -761,17 +761,17 @@ class JournalPump(ServiceDaemon, Tagged):
         try:
             jobject: Optional[JournalObject] = reader.read_next()
             if jobject is None or jobject.entry is None:
-                return SingleMessageReadResult(has_more=False, bytes_read=0)
+                return SingleMessageReadResult(has_more=False, bytes_read=None)
 
             return JournalObjectHandler(jobject, reader, self).process()
         except StopIteration:
             self.log.debug("No more journal entries to read")
-            return SingleMessageReadResult(has_more=False, bytes_read=0)
+            return SingleMessageReadResult(has_more=False, bytes_read=None)
         except Exception as ex:  # pylint: disable=broad-except
             self.log.exception("Unexpected exception while handling entry for %s", reader.name)
             self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
             time.sleep(0.5)
-            return SingleMessageReadResult(has_more=False, bytes_read=0)
+            return SingleMessageReadResult(has_more=False, bytes_read=None)
 
     def read_messages(self, reader, hits, chunk_size) -> MessagesReadResult:
         lines = 0
@@ -790,7 +790,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
             has_more, bytes_read = self.read_single_message(reader)
 
-            if bytes_read:
+            if bytes_read is not None:
                 limit_bytes -= bytes_read
                 limit_count -= 1
 
@@ -855,6 +855,7 @@ class JournalPump(ServiceDaemon, Tagged):
         last_stats_time = 0
         poll_timeout = 0
         buffered_events = {}
+        hits = {}
 
         while self.running:
             self._close_stale_readers()
@@ -863,7 +864,6 @@ class JournalPump(ServiceDaemon, Tagged):
             results = self.poller.poll(poll_timeout)
             iteration_start_time = time.monotonic_ns()
 
-            hits = {}
             lines = 0
             # We keep valid events in case reader is busy with processing
             # previous batch and not ready to act on new one
@@ -921,6 +921,7 @@ class JournalPump(ServiceDaemon, Tagged):
             if hits and time.monotonic() - last_stats_time > 60.0:
                 self.log.info("search hits stats: %s", hits)
                 last_stats_time = time.monotonic()
+                hits = {}
 
             now = time.monotonic()
             if now - self.last_state_save_time > 10.0:
