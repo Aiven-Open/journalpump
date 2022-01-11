@@ -1,5 +1,5 @@
 from .util import journalpump_initialized
-from journalpump.journalpump import JournalPump, JournalReader, PumpReader
+from journalpump.journalpump import JournalPump, JournalReader, PumpReader, statsd
 from journalpump.senders.base import MsgBuffer
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -323,3 +323,63 @@ def test_journalpump_rotated_files_deletion(journalpump_factory, journal_log_dir
         return open_files[log_files[0]] and not open_files[log_files[-1]]
 
     assert _wait_for(_only_head_open, timeout=3), f"Expected {log_files[-1]} to not be open"
+
+
+def test_journalpump_stats_sender(mocker, journalpump_factory, journal_log_dir):
+    stub_sender = StubSender()
+    stats: Dict[str, int] = {}
+
+    class StatStub:
+        def increase(self, name: str, **kwargs):  # pylint: disable=unused-argument
+            stats[name] = stats.get(name, 0) + 1
+
+        def gauge(self, *args, **kwargs):  # pylint: disable=unused-argument
+            pass
+
+        def unexpected_exception(self, *args, **kwargs):  # pylint: disable=unused-argument
+            pass
+
+    mocker.patch.object(statsd, "StatsClient", return_value=StatStub())
+
+    journalpump_factory(
+        stub_sender,
+        pump_conf={
+            "readers": {
+                "my-stats-reader": {
+                    "journal_path": str(journal_log_dir),
+                    "initial_position": "head",
+                    "senders": {},
+                    "searches": [{
+                        "fields": {
+                            "MESSAGE": "Message [123]",
+                        },
+                        "name": "stats-messages",
+                    }],
+                },
+                "my-reader": {
+                    "journal_path": str(journal_log_dir),
+                    "initial_position": "head",
+                    "senders": {
+                        "test-sender": {
+                            "output_type": "stub_sender"
+                        },
+                    },
+                    "searches": [{
+                        "fields": {
+                            "MESSAGE": "Message.*",
+                        },
+                        "name": "test-messages",
+                    }],
+                },
+            },
+        }
+    )
+
+    lf = LogFiles(journal_log_dir)
+
+    lf.rotate()
+    lf.rotate()
+
+    assert _wait_for(
+        lambda: stats.get("stats-messages") == 13, timeout=3
+    ), f"Not enough messages mathing search criteria got {stats.get('stats-messages')}"
