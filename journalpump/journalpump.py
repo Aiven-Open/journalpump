@@ -31,6 +31,7 @@ except ImportError:
     GeoIPReader = None
 
 _5_MB = 5 * 1024 * 1024
+CHUNK_SIZE = 5000
 
 
 def _convert_uuid(s):
@@ -165,6 +166,7 @@ class JournalReader(Tagged):
         self.running = True
         self.senders = {}
         self._initialized_senders = set()
+        self._failed_senders: int = 0
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
         self.searches = list(self._build_searches(searches))
@@ -192,14 +194,24 @@ class JournalReader(Tagged):
         return bool(self.senders and self.journald_reader and self._is_ready)
 
     def get_write_limit_bytes(self) -> int:
-        if not self.senders:
+        if self._failed_senders and not self.senders:
             return 0
+
+        if not self.senders:
+            # Some readers are only used for collecting stats about occurencies
+            # of a pattern string in logs
+            return _5_MB
 
         return self.msg_buffer_max_bytes - max(s.msg_buffer.buffer_size for s in self.senders.values())
 
     def get_write_limit_message_count(self) -> int:
-        if not self.senders:
+        if self._failed_senders and not self.senders:
             return 0
+
+        if not self.senders:
+            # Some readers are only used for collecting stats about occurencies
+            # of a pattern string in logs
+            return CHUNK_SIZE
 
         return self.msg_buffer_max_length - max(len(s.msg_buffer) for s in self.senders.values())
 
@@ -296,8 +308,8 @@ class JournalReader(Tagged):
                 sender.start()
                 self.senders[sender_name] = sender
 
-        failed_senders = len(configured_senders) - len(self._initialized_senders)
-        self.stats.gauge("sender.failed_to_start", value=failed_senders, tags=self.make_tags())
+        self._failed_senders = len(configured_senders) - len(self._initialized_senders)
+        self.stats.gauge("sender.failed_to_start", value=self._failed_senders, tags=self.make_tags())
 
     def get_state(self):
         sender_state = {name: sender.get_state() for name, sender in self.senders.items()}
@@ -885,7 +897,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 # Read messages up to set reader limit
                 exhausted = False
                 if event in [journal.APPEND, journal.INVALIDATE]:
-                    exhausted, line_count = self.read_messages(reader, hits, chunk_size=5000)
+                    exhausted, line_count = self.read_messages(reader, hits, chunk_size=CHUNK_SIZE)
                     lines += line_count
 
                 if event == journal.INVALIDATE:
