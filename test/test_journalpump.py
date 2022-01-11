@@ -2,7 +2,9 @@ from .data import GCP_PRIVATE_KEY
 from botocore.stub import Stubber
 from collections import OrderedDict
 from datetime import datetime
-from journalpump.journalpump import FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader, PumpReader
+from journalpump.journalpump import (
+    _5_MB, CHUNK_SIZE, FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader, PumpReader
+)
 from journalpump.senders import (
     AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
@@ -688,12 +690,12 @@ def test_single_sender_init_fail():
     }
 
     class FailingSender:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs):  # pylint: disable=unused-argument
             raise SenderInitializationError
 
     class WorkingSender:
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, **kwargs):  # pylint: disable=unused-argument
+            self.msg_buffer = MsgBuffer()
 
         def start(self):
             pass
@@ -720,6 +722,8 @@ def test_single_sender_init_fail():
     assert len(journal_reader.senders) == 1
     assert list(journal_reader.senders.keys()) == ["cafe"]
     assert journal_reader._initialized_senders == {"cafe"}  # pylint: disable=protected-access
+    assert journal_reader.get_write_limit_bytes() == _5_MB
+    assert journal_reader.get_write_limit_message_count() == 50000
 
     # New config creates new instance of JournalReader, so we can just create a new instance
     # Two working senders
@@ -738,6 +742,8 @@ def test_single_sender_init_fail():
     assert len(journal_reader.senders) == 2
     assert sorted(list(journal_reader.senders.keys())) == ["bar", "cafe"]
     assert journal_reader._initialized_senders == {"bar", "cafe"}  # pylint: disable=protected-access
+    assert journal_reader.get_write_limit_bytes() == _5_MB
+    assert journal_reader.get_write_limit_message_count() == 50000
 
 
 @pytest.mark.parametrize(
@@ -792,11 +798,11 @@ def test_journalpump_init_journal_files(tmpdir, has_persistent_files, has_runtim
         r.running = False
 
 
-def test_journal_reader_with_broken_sender_should_return_0_as_limit():
+def test_journal_reader_with_single_broken_sender_should_return_0_as_limit():
     config = {
         "senders": {
             "bar": {
-                "output_type": "my_sender",
+                "output_type": "failing_sender",
             },
         },
     }
@@ -805,7 +811,7 @@ def test_journal_reader_with_broken_sender_should_return_0_as_limit():
         def __init__(self, **kwargs):
             raise SenderInitializationError
 
-    JournalReader.sender_classes["my_sender"] = FailingSender
+    JournalReader.sender_classes["failing_sender"] = FailingSender
 
     journal_reader = JournalReader(
         name="foo",
@@ -815,6 +821,7 @@ def test_journal_reader_with_broken_sender_should_return_0_as_limit():
         stats=mock.Mock(),
         searches=[],
     )
+    journal_reader.update_status()
 
     assert journal_reader.get_write_limit_bytes() == 0
     assert journal_reader.get_write_limit_message_count() == 0
@@ -833,6 +840,7 @@ def test_journal_reader_without_senders_should_return_0_as_limit():
         stats=mock.Mock(),
         searches=[],
     )
+    journal_reader.update_status()
 
-    assert journal_reader.get_write_limit_bytes() == 0
-    assert journal_reader.get_write_limit_message_count() == 0
+    assert journal_reader.get_write_limit_bytes() == _5_MB
+    assert journal_reader.get_write_limit_message_count() == CHUNK_SIZE
