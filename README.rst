@@ -5,7 +5,7 @@ journalpump |BuildStatus|_
 .. _BuildStatus: https://github.com/aiven/journalpump/actions
 
 journalpump is a daemon that takes log messages from journald and pumps them
-to a given output.  Currently supported outputs are Elasticsearch, Kafka,
+to a given output.  Currently supported outputs are Elasticsearch, Apache Kafka®,
 logplex, rsyslog, websocket and AWS CloudWatch.  It reads messages from
 journald and optionally checks if they match a config rule and forwards them
 as JSON messages to the desired output.
@@ -329,21 +329,21 @@ Fully qualified elasticsearch url of the form
 Required when using output_type ``elasticsearch``.
 
 
-Kafka Sender Configuration
+Apache Kafka Sender Configuration
 --------------------------
 ``ca`` (default ``null``)
 
-Kafka Certificate Authority path, needed when you're using Kafka with SSL
+Apache Kafka Certificate Authority path, needed when you're using Kafka with SSL
 authentication.
 
 ``certfile`` (default ``null``)
 
-Kafka client certificate path, needed when you're using Kafka with SSL
+Apache Kafka client certificate path, needed when you're using Kafka with SSL
 authentication.
 
 ``kafka_api_version`` (default ``0.9``)
 
-Which Kafka server API version to use.
+Which Apache Kafka server API version to use.
 
 ``kafka_topic`` (default ``null``)
 
@@ -365,7 +365,7 @@ The mapping must have these values::
 
 ``kafka_address`` (default ``null``)
 
-The address of the kafka server which to write to.
+The address of the Kafka server which to write to.
 Required when using output_type ``kafka``.
 
 ``kafka_msg_key`` (default ``null``)
@@ -554,6 +554,15 @@ and is now maintained by Aiven hackers <opensource@aiven.io>.
 Recent contributors are listed on the project's GitHub `contributors page`_.
 
 .. _`contributors page`: https://github.com/aiven/journalpump/graphs/contributors
+
+Trademark
+=========
+
+Apache Kafka is either registered trademark or trademark of the Apache Software 
+Foundation in the United States and/or other countries. Elasticsearch, 
+AWS CloudWatch, logplex and rsyslog are trademarks and property of their respective
+owners. All product and service names used in this website are for identification
+purposes only and do not imply endorsement. 
 
 
 Contact
