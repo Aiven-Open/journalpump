@@ -1,6 +1,5 @@
 from .base import ThreadedLogSender, SenderInitializationError
 
-
 import boto3
 import botocore
 import json

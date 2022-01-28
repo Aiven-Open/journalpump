@@ -6,15 +6,17 @@ from . import geohash, statsd
 from .daemon import ServiceDaemon
 from .senders import (
     AWSCloudWatchSender, ElasticsearchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender,
-    RsyslogSender, WebsocketSender
+    RsyslogSender, WebsocketSender, AsyncKafkaSender
 )
-from .senders.base import MAX_KAFKA_MESSAGE_SIZE, SenderInitializationError, Tagged
+from .senders.base import AsyncLogSender, MAX_KAFKA_MESSAGE_SIZE, SenderInitializationError, Tagged
 from .types import GeoIPProtocol
 from .util import atomic_replace_file, default_json_serialization
 from functools import reduce
 from systemd.journal import Reader
+from threading import Thread
 from typing import Type, Union
 
+import asyncio
 import copy
 import datetime
 import json
@@ -114,6 +116,7 @@ class JournalReader(Tagged):
         "aws_cloudwatch": AWSCloudWatchSender,
         "google_cloud_logging": GoogleCloudLoggingSender,
         "websocket": WebsocketSender,
+        "kafka_async": AsyncKafkaSender,
     }
 
     def __init__(
@@ -237,17 +240,25 @@ class JournalReader(Tagged):
             if not isinstance(extra_field_values, dict):
                 self.log.warning("extra_field_values: %r not a dictionary object, ignoring", extra_field_values)
                 extra_field_values = {}
+            kw = dict(
+                config=sender_config,
+                field_filter=field_filter,
+                extra_field_values=extra_field_values,
+                msg_buffer_max_length=self.msg_buffer_max_length,
+                name=sender_name,
+                reader=self,
+                stats=self.stats,
+                tags=self.make_tags(),
+            )
+            if isinstance(sender_class, AsyncLogSender):
+                loop = asyncio.get_event_loop()
+                kw["aio_loop"] = loop
+                if not loop.is_running:
+                    # to unbloock the journal reading process
+                    # the same loop can be used for other senders once they become async
+                    Thread(target=loop.run_forever).start()
             try:
-                sender = sender_class(
-                    config=sender_config,
-                    field_filter=field_filter,
-                    extra_field_values=extra_field_values,
-                    msg_buffer_max_length=self.msg_buffer_max_length,
-                    name=sender_name,
-                    reader=self,
-                    stats=self.stats,
-                    tags=self.make_tags(),
-                )
+                sender = sender_class(**kw)
             except SenderInitializationError:
                 # If sender init fails, log exception, don't start() the sender
                 # and don't add it to self.senders dict. A metric about senders that
