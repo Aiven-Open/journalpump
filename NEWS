@@ -3,6 +3,10 @@ journalpump 2.4.0 (2022-01-05)
 * Updated polling algorithm to perform better when continiously receiving messages
 * Handle invalidation event to prevent keeping deleted files
 
+journalpump 2.3.6 (2021-10-20)
+==============================
+* Added Websocket sender
+
 journalpump 2.3.0 (2020-06-15)
 ==============================
 * Added Google Cloud Logging logs sender

@@ -61,7 +61,7 @@ class WebsocketRunner(Thread):
         self.batch_message_overhead = 1
         self.compression = compression
         self.websocket_compression = websocket_compression
-        self.backoff = ExponentialBackoff(base=10, factor=1.8, maximum=60, jitter=True)
+        self.backoff = ExponentialBackoff(base=20, factor=1.8, maximum=90, jitter=True)
         # prevent websockets from logging message contents when we're otherwise in DEBUG mode
         logging.getLogger("websockets").setLevel(logging.INFO)
 
@@ -172,7 +172,7 @@ class WebsocketRunner(Thread):
             max_size=MAX_KAFKA_MESSAGE_SIZE * 2,
         )
 
-    async def websocket_connect(self, *, timeout=5):
+    async def websocket_connect(self, *, timeout=30):
         connect_task = asyncio.create_task(self.websocket_connect_coro())
         wait_for_stop_task = asyncio.create_task(self.wait_for_stop_event())
 
