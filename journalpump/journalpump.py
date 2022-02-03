@@ -9,7 +9,7 @@ from .senders import (
     RsyslogSender, WebsocketSender
 )
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE, SenderInitializationError, Tagged
-from .types import GeoIPProtocol
+from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
 from functools import reduce
 from systemd import journal
@@ -136,6 +136,7 @@ class JournalReader(Tagged):
         field_filters,
         geoip,
         stats,
+        unit_log_levels=None,
         tags=None,
         seek_to=None,
         msg_buffer_max_length=50000,
@@ -159,6 +160,7 @@ class JournalReader(Tagged):
         self.geoip = geoip
         self.config = config
         self.field_filters = field_filters
+        self.unit_log_levels = unit_log_levels
         self.stats = stats
         self.cursor = seek_to
         self.journald_reader = None
@@ -280,6 +282,10 @@ class JournalReader(Tagged):
             if sender_config.get("field_filter", None):
                 field_filter = self.field_filters[sender_config["field_filter"]]
 
+            unit_log_levels = None
+            if sender_config.get("unit_log_level", None):
+                unit_log_levels = self.unit_log_levels[sender_config["unit_log_level"]]
+
             extra_field_values = sender_config.get("extra_field_values", {})
             if not isinstance(extra_field_values, dict):
                 self.log.warning(
@@ -291,6 +297,7 @@ class JournalReader(Tagged):
                 sender = sender_class(
                     config=sender_config,
                     field_filter=field_filter,
+                    unit_log_levels=unit_log_levels,
                     extra_field_values=extra_field_values,
                     msg_buffer_max_length=self.msg_buffer_max_length,
                     name=sender_name,
@@ -542,6 +549,24 @@ class FieldFilter:
         return {name: val for name, val in data.items() if (name.lstrip("_").lower() in self.fields) is self.whitelist}
 
 
+class UnitLogLevel:
+    def __init__(self, name, config):
+        self.name = name
+        self.levels = config
+
+    def filter_by_level(self, data):
+        entry = data
+        if isinstance(data, bytes):
+            entry = json.loads(data.decode("utf-8"))
+        if not entry:
+            return {}
+        unit = entry.get("SYSTEMD_UNIT")
+        priority = entry.get("PRIORITY")
+        if (not priority) or (not unit) or (unit in self.levels and priority <= LOG_SEVERITY_MAPPING[self.levels[unit]]):
+            return data
+        return {}
+
+
 class JournalObjectHandler:
     def __init__(self, jobject, reader, pump):
         self.error_reported = False
@@ -571,8 +596,11 @@ class JournalObjectHandler:
             return SingleMessageReadResult(has_more=True, bytes_read=None)
 
         for sender in self.reader.senders.values():
-            json_entry = self._get_or_generate_json(sender.field_filter, sender.extra_field_values, new_entry)
-            sender.msg_buffer.add_item(item=json_entry, cursor=self.jobject.cursor)
+            json_entry = self._get_or_generate_json(
+                sender.field_filter, sender.unit_log_levels, sender.extra_field_values, new_entry
+            )
+            if json_entry:
+                sender.msg_buffer.add_item(item=json_entry, cursor=self.jobject.cursor)
 
         max_bytes = 0
         if self.json_objects:
@@ -581,10 +609,10 @@ class JournalObjectHandler:
 
         return SingleMessageReadResult(has_more=True, bytes_read=max_bytes)
 
-    def _get_or_generate_json(self, field_filter, extra_field_values, data):
+    def _get_or_generate_json(self, field_filter, unit_log_levels, extra_field_values, data):
         ff_name = "" if field_filter is None else field_filter.name
         if ff_name in self.json_objects:
-            return self.json_objects[ff_name]
+            return self._filter_by_log_level(self.json_objects[ff_name], unit_log_levels)
 
         # Always set a timestamp field that gets turned into an ISO timestamp based on REALTIME_TIMESTAMP if available
         if "REALTIME_TIMESTAMP" in data:
@@ -596,6 +624,13 @@ class JournalObjectHandler:
         if extra_field_values:
             data.update(extra_field_values)
 
+        if unit_log_levels:
+            data = self._filter_by_log_level(data, unit_log_levels)
+
+        if not data:
+            # This means the data has been dropped because it did not have an acceptable log level. No reason to proceed.
+            return None
+
         if field_filter:
             data = field_filter.filter_fields(data)
 
@@ -605,6 +640,9 @@ class JournalObjectHandler:
 
         self.json_objects[ff_name] = json_entry
         return json_entry
+
+    def _filter_by_log_level(self, data, unit_log_levels):
+        return unit_log_levels.filter_by_level(data) if unit_log_levels else data
 
     def _truncate_long_message(self, json_entry):
         error = "too large message {} bytes vs maximum {} bytes".format(len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
@@ -636,11 +674,13 @@ class JournalPump(ServiceDaemon, Tagged):
         self.readers_active_config = None
         self.readers = {}
         self.field_filters = {}
+        self.unit_log_levels = {}
         self.previous_state = None
         self.last_state_save_time = time.monotonic()
         ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         self.start_time_str = datetime.datetime.utcnow().isoformat()
         self.configure_field_filters()
+        self.configure_unit_log_levels()
         self.configure_readers()
         self.stale_readers = set()
         self.reader_by_fd = {}
@@ -649,6 +689,10 @@ class JournalPump(ServiceDaemon, Tagged):
     def configure_field_filters(self):
         filters = self.config.get("field_filters", {})
         self.field_filters = {name: FieldFilter(name, config) for name, config in filters.items()}
+
+    def configure_unit_log_levels(self):
+        unit_log_levels = self.config.get("unit_log_levels", {})
+        self.unit_log_levels = {name: UnitLogLevel(name, config) for name, config in unit_log_levels.items()}
 
     def configure_readers(self):
         new_config = self.config.get("readers", {})
@@ -692,6 +736,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 name=reader_name,
                 config=reader_config,
                 field_filters=self.field_filters,
+                unit_log_levels=self.unit_log_levels,
                 geoip=self.geoip,
                 stats=self.stats,
                 msg_buffer_max_length=self.config.get("msg_buffer_max_length", 50000),
@@ -722,6 +767,7 @@ class JournalPump(ServiceDaemon, Tagged):
             self.geoip = GeoIPReader(geoip_db_path)
 
         self.configure_field_filters()
+        self.configure_unit_log_levels()
         self.configure_readers()
 
     def shutdown(self):

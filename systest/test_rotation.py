@@ -115,6 +115,7 @@ class _MsgBuffer(MsgBuffer):
 
 class StubSender:
     field_filter = None
+    unit_log_levels = None
     extra_field_values = None
 
     def __init__(self, *args, **kwargs):  # pylint: disable=unused-argument
