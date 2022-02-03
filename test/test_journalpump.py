@@ -3,13 +3,14 @@ from botocore.stub import Stubber
 from collections import OrderedDict
 from datetime import datetime
 from journalpump.journalpump import (
-    _5_MB, CHUNK_SIZE, FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader, PumpReader
+    _5_MB, CHUNK_SIZE, FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader, PumpReader, UnitLogLevel
 )
 from journalpump.senders import (
     AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 )
 from journalpump.senders.aws_cloudwatch import MAX_INIT_TRIES
 from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer, SenderInitializationError
+from journalpump.types import LOG_SEVERITY_MAPPING
 from journalpump.util import default_json_serialization
 from time import sleep
 from unittest import mock, TestCase
@@ -358,25 +359,100 @@ class TestFieldFilter(TestCase):
         assert data == {"Foo": "a", "_bar": "b", "_zob": "c"}
 
 
+class TestUnitLogLevels(TestCase):
+    def test_empty(self):
+        log_level = "INFO"
+        ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
+        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unit-b"}
+        assert ll.filter_by_level(data) == {}
+
+    def test_matching_level(self):
+        log_level = "INFO"
+        ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
+        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unit-a"}
+        assert ll.filter_by_level(data) == data
+
+    def test_higher_level(self):
+        log_level = "WARNING"
+        ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
+        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level] + 1, "SYSTEMD_UNIT": "unit-a"}
+        assert ll.filter_by_level(data) == {}
+
+    def test_lower_level(self):
+        log_level = "WARNING"
+        ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
+        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level] - 1, "SYSTEMD_UNIT": "unit-a"}
+        assert ll.filter_by_level(data) == data
+
+    def test_no_systemd_unit(self):
+        ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": "CRITICAL"}])
+        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING["INFO"] - 1}
+        # Since we do not have a systemd unit in the log entry, data should appear even though priority is too low
+        assert ll.filter_by_level(data) == data
+
+    def test_no_priority(self):
+        log_level = "WARNING"
+        ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
+        data = {"Foo": "bar", "SYSTEMD_UNIT": "unit-a"}
+        # data does not contain PRIORITY field so it should not be filtered
+        assert ll.filter_by_level(data) == data
+
+    def test_no_priority_or_unit(self):
+        log_level = "WARNING"
+        ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
+        data = {"Foo": "bar"}
+        # Both priority and unit are missing so no filtering should be done here either
+        assert ll.filter_by_level(data) == data
+
+    def test_unit_glob_matching(self):
+        log_level = "INFO"
+        ll = UnitLogLevel("test", [{"service_glob": "unit-a*", "log_level": log_level}])
+        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unit-a-something"}
+        assert ll.filter_by_level(data) == data
+        data2 = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unita-something"}
+        assert ll.filter_by_level(data2) == {}
+
+
 class TestJournalObjectHandler(TestCase):
     def setUp(self):
         self.filter_a = FieldFilter("filter_a", {"fields": ["a"]})
         self.filter_b = FieldFilter("filter_b", {"fields": ["a", "b"]})
         self.sender_a = mock.Mock()
         self.sender_a.field_filter = self.filter_a
+        self.sender_a.unit_log_levels = None
         self.sender_a.extra_field_values = {}
         self.sender_a.msg_buffer = MsgBuffer()
         self.sender_b = mock.Mock()
         self.sender_b.field_filter = self.filter_b
+        self.sender_b.unit_log_levels = None
         self.sender_b.extra_field_values = {}
         self.sender_b.msg_buffer = MsgBuffer()
         self.sender_c = mock.Mock()
         self.sender_c.field_filter = None
+        self.sender_c.unit_log_levels = None
         self.sender_c.extra_field_values = {}
         self.sender_c.msg_buffer = MsgBuffer()
+        self.sender_d = mock.Mock()
+        self.sender_d.field_filter = None
+        self.priority_d = "INFO"
+        self.unit_log_levels_d = UnitLogLevel(
+            "unit_log_levels_d",
+            [{
+                "service_glob": "test-unit",
+                "log_level": self.priority_d
+            }],
+        )
+        self.sender_d.unit_log_levels = self.unit_log_levels_d
+        self.sender_d.extra_field_values = {}
+        self.sender_d.msg_buffer = MsgBuffer()
         self.pump = mock.Mock()
         self.reader = mock.Mock()
-        self.reader.senders = {"sender_a": self.sender_a, "sender_b": self.sender_b, "sender_c": self.sender_c}
+        self.reader.senders = {
+            "sender_a": self.sender_a,
+            "sender_b": self.sender_b,
+            "sender_c": self.sender_c,
+            "sender_d": self.sender_d
+        }
 
     def test_filtered_processing(self):
         jobject = JournalObject(entry=OrderedDict(a=1, b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10)
@@ -405,6 +481,17 @@ class TestJournalObjectHandler(TestCase):
         assert "too large message" in str(self.sender_b.msg_buffer.messages)
 
         self.pump.stats.increase.assert_called_once_with("journal.read_error", tags="tags")
+
+    def test_log_level_filtering(self):
+        expected_results = 0
+        for priority in LOG_SEVERITY_MAPPING.values():
+            if priority <= LOG_SEVERITY_MAPPING[self.priority_d]:
+                expected_results += 1
+            jobject = JournalObject(entry=OrderedDict(SYSTEMD_UNIT="test-unit", PRIORITY=priority), cursor=10)
+            handler = JournalObjectHandler(jobject, self.reader, self.pump)
+            assert handler.process()[0] is True
+        sender_d_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_d.msg_buffer.messages]
+        assert len(sender_d_msgs) == expected_results
 
 
 def test_journalpump_state_file(tmpdir):

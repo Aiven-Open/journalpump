@@ -81,6 +81,7 @@ class LogSender(Thread, Tagged):
         field_filter,
         stats,
         max_send_interval,
+        unit_log_levels=None,
         extra_field_values=None,
         tags=None,
         msg_buffer_max_length=50000
@@ -93,6 +94,7 @@ class LogSender(Thread, Tagged):
         self.config = config
         self.extra_field_values = extra_field_values
         self.field_filter = field_filter
+        self.unit_log_levels = unit_log_levels
         self.msg_buffer_max_length = msg_buffer_max_length
         self.last_maintenance_fail = 0
         self.last_send_time = time.monotonic()
