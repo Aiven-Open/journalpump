@@ -18,6 +18,7 @@ except ImportError:
 KAFKA_CONN_ERRORS = tuple(errors.RETRY_ERROR_TYPES) + (
     errors.UnknownError,
     socket.timeout,
+    TimeoutError,
 )
 
 logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
