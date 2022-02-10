@@ -5,7 +5,7 @@ import json
 import socket
 import time
 
-RSYSLOG_CONN_ERRORS = (socket.timeout, ConnectionRefusedError)
+RSYSLOG_CONN_ERRORS = (socket.timeout, ConnectionRefusedError, TimeoutError)
 
 
 class RsyslogSender(LogSender):
@@ -56,6 +56,7 @@ class RsyslogSender(LogSender):
     def send_messages(self, *, messages, cursor):
         if not self.rsyslog_client:
             self._init_rsyslog_client()
+
         try:
             for msg in messages:
                 message = json.loads(msg.decode("utf8"))
