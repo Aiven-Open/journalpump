@@ -159,18 +159,27 @@ class WebsocketRunner(Thread):
             self.log.info("Connecting via SOCKS5 proxy at %s:%d", socks_url_parsed.hostname, socks_url_parsed.port)
             sock = await self.socks5_proxy.connect(dest_host=url_parsed.hostname, dest_port=url_parsed.port)
             self.log.info("Connected via SOCKS5 proxy at %s:%d", socks_url_parsed.hostname, socks_url_parsed.port)
+        else:
+            sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
+            sock.setblocking(False)
+            await self.websocket_loop.sock_connect(sock=sock, address=(url_parsed.hostname, url_parsed.port))
 
         ws_compr = None if self.websocket_compression == WebsocketCompression.none else str(self.websocket_compression)
-        return await websockets.connect(  # pylint:disable=no-member
-            self.websocket_uri,
-            ssl=ssl_context,
-            compression=ws_compr,
-            extra_headers=headers,
-            sock=sock,
-            server_hostname=url_parsed.hostname if self.ssl_enabled else None,
-            close_timeout=20,
-            max_size=MAX_KAFKA_MESSAGE_SIZE * 2,
-        )
+        try:
+            return await websockets.connect(  # pylint:disable=no-member
+                self.websocket_uri,
+                ssl=ssl_context,
+                compression=ws_compr,
+                extra_headers=headers,
+                sock=sock,
+                server_hostname=url_parsed.hostname if self.ssl_enabled else None,
+                close_timeout=20,
+                max_size=MAX_KAFKA_MESSAGE_SIZE * 2,
+            )
+        except BaseException:
+            sock.shutdown()
+            sock.close()
+            raise
 
     async def websocket_connect(self, *, timeout=30):
         connect_task = asyncio.create_task(self.websocket_connect_coro())
