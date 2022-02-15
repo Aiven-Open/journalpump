@@ -1,5 +1,5 @@
 journalpump |BuildStatus|_
-========================
+==========================
 
 .. |BuildStatus| image:: https://github.com/aiven/journalpump/actions/workflows/build.yml/badge.svg?branch=master
 .. _BuildStatus: https://github.com/aiven/journalpump/actions
@@ -106,6 +106,9 @@ Example::
       "field_filters": {
          ...
       },
+      "unit_log_levels": {
+         ...
+      },
       "json_state_file_path": "/var/lib/journalpump/journalpump_state.json",
       "readers": {
          ...
@@ -170,6 +173,36 @@ excluded (``blacklist``).
 The actual fields to include or exclude. Field name matching is case
 insensitive and underscores in the beginning of the fields are trimmed.
 
+Unit log levels configuration
+=============================
+
+Unit log levels can be used to specify which log levels you want to set on a per unit basis. Matching supports glob
+patterns. For example, to only process messsages for a systemd-unit called ``test-unit`` with severity ``WARNING`` or higher,
+your config could look like this::
+
+  {
+      "unit_log_levels": {
+          "log_level_name": [
+              {
+                  "service_glob": "test-unit*",
+                  "log_level": "WARNING"
+              },
+              {
+                  "service_glob": "*-unit",
+                  "log_level": "INFO"
+              }
+          ]
+      }
+  }
+
+Note that if your unit would match multiple patterns (like "test-unit" would in the example above), the first match will
+get used, i.e "WARNING" in this case.
+
+``log_level_name``
+
+Name of the log level configuration. This can be configured per sender and depending
+on the use case the settings for different senders may vary.
+
 Reader configuration
 ====================
 Reader configuration structure::
@@ -205,11 +238,20 @@ Example configuration for a single reader::
               "type": "blacklist"
           }
       },
+      "unit_log_levels": {
+          "drop_everything_below_warning": [
+              {
+                  "service_glob": "*",
+                  "log_level": "WARNING"
+              }
+          ]
+      },
       "journal_path": "/var/lib/machines/container1/var/log/journal/b09ffd62229f4bd0829e883c6bb12c4e",
       "senders": {
           "k1": {
               "output_type": "kafka",
               "field_filter": "drop_process_id",
+              "unit_log_level": "drop_everything_below_warning",
               "ca": "/etc/journalpump/ca-bundle.crt",
               "certfile": "/etc/journalpump/node.crt",
               "kafka_address": "kafka.somewhere.com:12345",
@@ -330,7 +372,7 @@ Required when using output_type ``elasticsearch``.
 
 
 Apache Kafka Sender Configuration
---------------------------
+---------------------------------
 ``ca`` (default ``null``)
 
 Apache Kafka Certificate Authority path, needed when you're using Kafka with SSL
@@ -490,7 +532,7 @@ Client key path, required if remote syslog requires SSL authentication.
 Format message according to rfc5424 or rfc3164
 
 Websocket Sender Configuration
---------------------------
+------------------------------
 ``websocket_uri`` (default ``null``)
 
 Which Websocket URI do you want the journalpump to write to.
@@ -558,11 +600,11 @@ Recent contributors are listed on the project's GitHub `contributors page`_.
 Trademark
 =========
 
-Apache Kafka is either registered trademark or trademark of the Apache Software 
-Foundation in the United States and/or other countries. Elasticsearch, 
+Apache Kafka is either registered trademark or trademark of the Apache Software
+Foundation in the United States and/or other countries. Elasticsearch,
 AWS CloudWatch, logplex and rsyslog are trademarks and property of their respective
 owners. All product and service names used in this website are for identification
-purposes only and do not imply endorsement. 
+purposes only and do not imply endorsement.
 
 
 Contact
