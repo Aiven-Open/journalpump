@@ -268,6 +268,12 @@ Example configuration for a single reader::
               "name": "journal.oom_killer"
           }
       ],
+      "secret_filter_metrics": true,
+      "secret_filters": [
+        {
+          "pattern": "SENSITIVE",
+          "replacement": "[REDACTED]"
+        }],
       "tags": {
           "type": "container"
       }
@@ -319,6 +325,49 @@ and ``"SYSTEM"`` opens journal files of system services and the kernel, ``"CURRE
 current user; and ``"OS_ROOT"`` is used to open the journal from directories relative to the specified
 directory path or file descriptor. Multiple flags can be OR'ed together using a list:
 ``["LOCAL_ONLY", "CURRENT_USER"]``.
+
+``secret_filters`` (default ``[]``)
+
+Secret filters can be used to redact sensitive data which matches known patterns in logs before forwarding the message along
+to it's final destination. To use: add a number of filters following the pattern below to the reader config. The ``pattern`` is a standard
+python regex, and the matching substring will be subbed with ``replacement``. Patterns are compiled at runtime.
+
+Simple pattern example:
+
+This simple pattern should be used for most cases. It will replace SECRET with [REDACTED] but will leave the rest of the message intact.
+
+"secret_filters": [
+  {
+    "pattern": "SECRET",
+    "replacement": "[REDACTED]"
+  }
+]
+
+Complex pattern example:
+
+For more complex requirements, a python regex with capture groups can be provided, and the contents of the message restructured using backrefs.
+This example will only replace SENSITIVE with [REDACTED] as long as foo and bar are also part of the pattern.
+
+"secret_filters": [
+  {
+    "pattern": "(bar)(SENSITIVE)(foo)",
+    "replacement": "\\1[REDACTED]\\3",
+  }
+]
+
+Using backrefs, the message can also be restructured into a new format.
+"secret_filters": [
+  {
+    "pattern": "(bar)(SENSITIVE)(foo)",
+    "replacement": "\\1\\3 pattern was [REDACTED]",
+  }
+]
+
+
+``secret_filter_metrics`` ( default: ``false``)
+Change this setting to true to emit metrics to the metrics host whenever a secret pattern is matched.
+This matching happens before other filtering to help catch secrets being leaked to disk.
+
 
 
 Sender Configuration
