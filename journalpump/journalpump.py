@@ -173,6 +173,10 @@ class JournalReader(Tagged):
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
         self.searches = list(self._build_searches(searches))
+        self.secret_filter_matches = 0
+        self.secret_filters = self._validate_and_build_secret_filters(config)
+        self.secret_filter_metrics = self._configure_secret_filter_metrics(config)
+        self.secret_filter_metric_last_send = time.monotonic()
         self._is_ready = True
 
     def invalidate(self) -> None:
@@ -330,6 +334,15 @@ class JournalReader(Tagged):
             "total_bytes": self.read_bytes,
         }
 
+    def report_secret_filter_metrics(self):
+        now = time.monotonic()
+        if (now - self.last_stats_send_time) < 10.0:
+            return
+        tags = self.make_tags()
+        self.stats.increase("journal.secret_filter_match", self.secret_filter_matches, tags=tags)
+        self.secret_filter_matches = 0
+        self.secret_filter_metric_last_send = now
+
     def inc_line_stats(self, *, journal_lines, journal_bytes):
         self.read_bytes += journal_bytes
         self.read_lines += journal_lines
@@ -343,6 +356,7 @@ class JournalReader(Tagged):
         self.stats.gauge("journal.last_read_ago", value=now - self.last_journal_msg_time, tags=tags)
         self.stats.gauge("journal.read_lines", value=self.read_lines, tags=tags)
         self.stats.gauge("journal.read_bytes", value=self.read_bytes, tags=tags)
+
         self.last_stats_send_time = now
         self._sent_lines_diff += self.read_lines - self._last_sent_read_lines
         self._sent_bytes_diff += self.read_bytes - self._last_sent_read_bytes
@@ -495,6 +509,36 @@ class JournalReader(Tagged):
 
             yield output
 
+    def _configure_secret_filter_metrics(self, config):
+        secret_filter_metrics = config.get("secret_filter_metrics")
+        if secret_filter_metrics is True:
+            return True
+        return False
+
+    def _validate_and_build_secret_filters(self, config):
+        secret_filters = config.get("secret_filters")
+        if secret_filters is None:
+            return []
+
+        if not isinstance(secret_filters, list):
+            raise ValueError("invalid secret_filters configuration - must be a list")
+
+        for secret_filter in secret_filters:
+            if secret_filter.get("replacement") is None:
+                raise ValueError("invalid secret_filters configuration - missing field 'replacement'")
+
+            if secret_filter.get("pattern") is None:
+                raise ValueError("invalid secret_filters configuration - missing field 'pattern'")
+
+        # Compile / validate regex
+        for idx, sfilter in enumerate(secret_filters):
+            try:
+                secret_filters[idx]["compiled_pattern"] = re.compile(sfilter["pattern"])
+            except re.error as e:
+                raise ValueError("invalid secret_filters configuration - invalid regex") from e
+
+        return secret_filters
+
     def perform_searches(self, jobject):
         entry = jobject.entry
         results = {}
@@ -608,6 +652,10 @@ class JournalObjectHandler:
         if not self.pump.check_match(new_entry):
             return SingleMessageReadResult(has_more=True, bytes_read=None)
 
+        # Redact secrets before other filtering for effective leak detection metrics
+        if self.reader.secret_filters:
+            new_entry = self._apply_secret_filters(new_entry)
+
         for sender in self.reader.senders.values():
             json_entry = self._get_or_generate_json(
                 sender.field_filter, sender.unit_log_levels, sender.extra_field_values, new_entry
@@ -674,6 +722,18 @@ class JournalObjectHandler:
             "partial_data": json_entry[:1024],
         }
         return json.dumps(entry, default=default_json_serialization).encode("utf8")
+
+    def _apply_secret_filters(self, data):
+        msg = data.get("MESSAGE")
+        original_msg = msg
+        if msg:
+            for secret_filter in self.reader.secret_filters:
+                msg = secret_filter["compiled_pattern"].sub(secret_filter["replacement"], msg)
+        if msg != original_msg:
+            if self.reader.secret_filter_metrics:
+                self.reader.secret_filter_matches += 1
+            data["MESSAGE"] = msg
+        return data
 
 
 class JournalPump(ServiceDaemon, Tagged):
@@ -910,7 +970,7 @@ class JournalPump(ServiceDaemon, Tagged):
             self.reader_by_fd[fd] = self._STALE_FD
             self.log.info("Unregistered reader %r with fd %r", self.name, fd)
 
-    def run(self):
+    def run(self):  # pylint: disable=too-many-statements
         last_stats_time = 0
         poll_timeout = 0
         buffered_events = {}
@@ -976,6 +1036,9 @@ class JournalPump(ServiceDaemon, Tagged):
                 if self.register_for_poll(reader):
                     # Check if there is something to read in newly created reader
                     buffered_events[reader] = journal.APPEND
+
+                if reader.secret_filter_metrics:
+                    reader.report_secret_filter_metrics()
 
             if hits and time.monotonic() - last_stats_time > 60.0:
                 self.log.info("search hits stats: %s", hits)

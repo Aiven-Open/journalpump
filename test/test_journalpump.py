@@ -18,6 +18,7 @@ from unittest import mock, TestCase
 import boto3
 import json
 import pytest
+import re
 import responses
 
 
@@ -359,6 +360,227 @@ class TestFieldFilter(TestCase):
         assert data == {"Foo": "a", "_bar": "b", "_zob": "c"}
 
 
+class TestSecretFilter(TestCase):
+    def setUp(self):
+        self.sender_a = mock.Mock()
+        self.sender_a.field_filter = FieldFilter("filter_a", {"fields": ["MESSAGE"]})
+        self.sender_a.msg_buffer = MsgBuffer()
+        self.sender_a.extra_field_values = {}
+        self.sender_a.unit_log_levels = None
+        self.pump = mock.Mock()
+        self.reader = mock.Mock()
+        self.reader.senders = {"sender_a": self.sender_a}
+        self.reader.secret_filters = [{
+            "pattern": "(.*?\\s?)(SECRET)(\\s?.*)",
+            "replacement": "\\1[REDACTED]\\3"
+        }, {
+            "pattern": "(.*?\\s?)(SECOND)(\\s?.*)",
+            "replacement": "\\1[REDACTED TOO]\\3"
+        }, {
+            "pattern": "(.*?\\s?)(THIRD)(\\s?.*)",
+            "replacement": "\\3[REDACTED TOO]\\1"
+        }]
+        self.reader.secret_filter_metrics = True
+        self.reader.secret_filter_matches = 0
+
+        for i, _ in enumerate(self.reader.secret_filters):
+            self.reader.secret_filters[i]["compiled_pattern"] = re.compile(self.reader.secret_filters[i]["pattern"])
+
+        self.reader_b = mock.Mock()
+        self.reader_b.senders = {"sender_a": self.sender_a}
+        self.reader_b.secret_filters = []
+        self.reader_b.secret_filter_metrics = True
+        self.reader_b.secret_filter_matches = 0
+
+        self.reader_c = mock.Mock()
+        self.reader_c.senders = {"sender_a": self.sender_a}
+        self.reader_c.secret_filters = [{
+            "pattern": "SECRET",
+            "replacement": "[REDACTED]"
+        }, {
+            "pattern": "SECOND",
+            "replacement": "[REDACTED TOO]"
+        }]
+        for i, _ in enumerate(self.reader_c.secret_filters):
+            self.reader_c.secret_filters[i]["compiled_pattern"] = re.compile(self.reader_c.secret_filters[i]["pattern"])
+        self.reader_c.secret_filter_metrics = True
+        self.reader_c.secret_filter_matches = 0
+
+    # Simple regex mode
+    def test_secret_at_end_simple(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="This is a field with a trailing SECRET", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "This is a field with a trailing [REDACTED]"}, 10) in sender_a_msgs
+
+    def test_secret_in_middle_simple(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="This is a field with a SECRET data in the middle", b=2, c=3, REALTIME_TIMESTAMP=1),
+            cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "This is a field with a [REDACTED] data in the middle"}, 10) in sender_a_msgs
+
+    def test_secret_at_start_simple(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="SECRET message with sensitive data at the start", b=2, c=3, REALTIME_TIMESTAMP=1),
+            cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "[REDACTED] message with sensitive data at the start"}, 10) in sender_a_msgs
+
+    def test_no_secret_simple(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="message with no sensitive data", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "message with no sensitive data"}, 10) in sender_a_msgs
+
+    # Redact more than one secret in a string
+    def test_multi_secret_simple(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="SECRET message with sensitive SECOND at the start", b=2, c=3, REALTIME_TIMESTAMP=1),
+            cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "[REDACTED] message with sensitive [REDACTED TOO] at the start"}, 10) in sender_a_msgs
+
+    # Complex regex mode
+    def test_secret_at_end(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="This is a field with a trailing SECRET", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "This is a field with a trailing [REDACTED]"}, 10) in sender_a_msgs
+
+    def test_secret_in_middle(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="This is a field with a SECRET data in the middle", b=2, c=3, REALTIME_TIMESTAMP=1),
+            cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "This is a field with a [REDACTED] data in the middle"}, 10) in sender_a_msgs
+
+    def test_secret_at_start(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="SECRET message with sensitive data at the start", b=2, c=3, REALTIME_TIMESTAMP=1),
+            cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "[REDACTED] message with sensitive data at the start"}, 10) in sender_a_msgs
+
+    def test_multi_secret(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="SECRET message with sensitive SECOND at the start", b=2, c=3, REALTIME_TIMESTAMP=1),
+            cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "[REDACTED] message with sensitive [REDACTED TOO] at the start"}, 10) in sender_a_msgs
+
+    def test_multi_secret_restructure(self):
+        jobject = JournalObject(
+            entry=OrderedDict(
+                MESSAGE=" and has been rearranged to make senseTHIRDThis message has a ", b=2, c=3, REALTIME_TIMESTAMP=1
+            ),
+            cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "This message has a [REDACTED TOO] and has been rearranged to make sense"}, 10) in sender_a_msgs
+
+    def test_no_secret(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="message with no sensitive data", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "message with no sensitive data"}, 10) in sender_a_msgs
+
+    def test_empty_secret_filters(self):
+        jobject = JournalObject(
+            entry=OrderedDict(MESSAGE="testing config with no secret filters", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+        )
+        handler = JournalObjectHandler(jobject, self.reader_b, self.pump)
+        assert handler.process()[0] is True
+        sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
+        assert ({"MESSAGE": "testing config with no secret filters"}, 10) in sender_a_msgs
+
+    def test_ex_not_a_list(self):
+        with self.assertRaises(ValueError) as ctx:
+            _ = JournalReader(
+                name="test",
+                config={"secret_filters": {}},
+                field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
+                geoip="10.10.10.10",
+                stats="",
+                searches=[]
+            )
+            self.assertTrue("must be a list" in str(ctx.exception))
+
+    def test_ex_no_pattern(self):
+        secret_filters = self.reader.secret_filters
+        del secret_filters[0]["pattern"]
+        with self.assertRaises(ValueError) as ctx:
+            _ = JournalReader(
+                name="test",
+                config={"secret_filters": secret_filters},
+                field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
+                geoip="10.10.10.10",
+                stats="",
+                searches=[]
+            )
+            self.assertTrue("missing field 'pattern'" in str(ctx.exception))
+
+    def test_ex_no_replacement(self):
+        secret_filters = self.reader.secret_filters
+        del secret_filters[0]["replacement"]
+        with self.assertRaises(ValueError) as ctx:
+            _ = JournalReader(
+                name="test",
+                config={"secret_filters": secret_filters},
+                field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
+                geoip="10.10.10.10",
+                stats="",
+                searches=[]
+            )
+            self.assertTrue("missing field 'replacement'" in str(ctx.exception))
+
+    def test_ex_invalid_regex(self):
+        secret_filters = self.reader.secret_filters
+        secret_filters[0]["pattern"] = "["
+        with self.assertRaises(ValueError) as ctx:
+            _ = JournalReader(
+                name="test",
+                config={"secret_filters": secret_filters},
+                field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
+                geoip="10.10.10.10",
+                stats="",
+                searches=[]
+            )
+            self.assertTrue("invalid regex" in str(ctx.exception))
+
+
 class TestUnitLogLevels(TestCase):
     def test_empty(self):
         log_level = "INFO"
@@ -447,6 +669,7 @@ class TestJournalObjectHandler(TestCase):
         self.sender_d.msg_buffer = MsgBuffer()
         self.pump = mock.Mock()
         self.reader = mock.Mock()
+        self.reader.secret_filters = []
         self.reader.senders = {
             "sender_a": self.sender_a,
             "sender_b": self.sender_b,
