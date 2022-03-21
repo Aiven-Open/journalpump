@@ -5,6 +5,7 @@
 from functools import partial
 
 import datetime
+import errno
 import socket
 import ssl
 
@@ -133,11 +134,26 @@ class SyslogTcpClient:
             self.socket = None
 
     def send(self, message):
-        if self.socket is None:
-            self._connect()
-        self.socket.sendall(message[:self.max_msg - 1])
-        if len(message) >= self.max_msg:
-            self.socket.sendall(b"\n")
+        for retry in [True, False]:
+            try:
+                if self.socket is None:
+                    self._connect()
+
+                self.socket.sendall(message[:self.max_msg - 1])
+                if len(message) >= self.max_msg:
+                    self.socket.sendall(b"\n")
+
+                break
+            except Exception as ex:  # pylint: disable=broad-except
+                self.close()
+
+                if not (retry and self._should_retry(ex=ex)):
+                    raise
+
+    def _should_retry(self, *, ex):
+        if isinstance(ex, OSError):
+            return ex.errno == errno.EPIPE
+        return False
 
     def log(self, *, facility, severity, timestamp, hostname, program, pid=None, msgid=None, msg=None, sd=None):
         if 0 <= facility <= 23 and 0 <= severity <= 7:
