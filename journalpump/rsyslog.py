@@ -152,7 +152,7 @@ class SyslogTcpClient:
 
     def _should_retry(self, *, ex):
         if isinstance(ex, OSError):
-            return ex.errno == errno.EPIPE
+            return ex.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT)
         return False
 
     def log(self, *, facility, severity, timestamp, hostname, program, pid=None, msgid=None, msg=None, sd=None):
