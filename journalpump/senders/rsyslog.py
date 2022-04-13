@@ -1,6 +1,7 @@
 from .base import LogSender
 from journalpump.rsyslog import SyslogTcpClient
 
+import datetime
 import json
 import socket
 import time
@@ -10,7 +11,12 @@ RSYSLOG_CONN_ERRORS = (socket.timeout, ConnectionRefusedError, TimeoutError)
 
 class RsyslogSender(LogSender):
     def __init__(self, *, config, **kwargs):
-        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
+        super().__init__(
+            config=config,
+            max_heartbeat_interval=config.get("max_heartbeat_interval"),
+            max_send_interval=config.get("max_send_interval", 0.3),
+            **kwargs
+        )
         self.rsyslog_client = None
         self.sd = None
         self.default_facility = 1
@@ -52,6 +58,27 @@ class RsyslogSender(LogSender):
                 self._backoff()
             self.rsyslog_client = None
             time.sleep(5.0)
+
+    def send_heartbeat(self):
+        if not self.rsyslog_client:
+            self._init_rsyslog_client()
+
+        try:
+            self.rsyslog_client.log(
+                facility=self.config.get("heartbeat_facility", 5),
+                severity=self.config.get("heartbeat_severity", 7),
+                timestamp=datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                hostname=self.config.get("heartbeat_hostname", socket.gethostname()),
+                program=self.config.get("heartbeat_program", "journalpump"),
+                msg=self.config.get("heartbeat_message", "HEARTBEAT"),
+            )
+        except RSYSLOG_CONN_ERRORS as ex:
+            self.mark_disconnected(ex)
+            raise ex
+        except Exception as ex:  # pylint: disable=broad-except
+            self.mark_disconnected(ex)
+            self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
+            raise ex
 
     def send_messages(self, *, messages, cursor):
         if not self.rsyslog_client:

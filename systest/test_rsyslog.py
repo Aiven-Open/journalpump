@@ -108,13 +108,23 @@ def _run_pump_test(*, config_path, logfile):
     found = 0
     with open(logfile, "r") as fp:
         lines = fp.readlines()
+
     for txt in ["Info", "Warning", "Error", "Critical"]:
         m = re.compile(r".*{} message for {}.*".format(txt, identifier))
         for line in lines:
             if m.match(line):
                 found += 1
                 break
+
     assert found == 4, "Expected messages not found in syslog"
+
+    # Check heartbeats
+    heartbeats = 0
+    for line in lines:
+        if "TEST HEARTBEAT" in line:
+            heartbeats += 1
+
+    assert heartbeats == 5, "Expected heartbeats not found in syslog"
 
 
 def test_rsyslogd_tcp_sender(tmpdir):
@@ -133,6 +143,8 @@ def test_rsyslogd_tcp_sender(tmpdir):
                             "rsyslog_port": 5140,
                             "format": "custom",
                             "logline": "<%pri%>%timestamp% %HOSTNAME% %app-name%[%procid%]: %msg% {%%} %not-valid-tag%",
+                            "max_heartbeat_interval": 1,
+                            "heartbeat_message": "TEST HEARTBEAT",
                         },
                     },
                 },

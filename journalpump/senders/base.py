@@ -81,6 +81,7 @@ class LogSender(Thread, Tagged):
         field_filter,
         stats,
         max_send_interval,
+        max_heartbeat_interval=None,
         unit_log_levels=None,
         extra_field_values=None,
         tags=None,
@@ -100,6 +101,8 @@ class LogSender(Thread, Tagged):
         self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
         self.max_batch_size = MAX_KAFKA_MESSAGE_SIZE
+        self.last_heartbeat_time = time.monotonic()
+        self.max_heartbeat_interval = max_heartbeat_interval
         self.batch_message_overhead = KAFKA_COMPRESSED_MESSAGE_OVERHEAD
         self.running = True
         self._sent_cursor = None
@@ -192,28 +195,62 @@ class LogSender(Thread, Tagged):
         self.running = False
 
     def send_messages(self, *, messages, cursor):
+        # This should be overridden in the classes that inherit this
         pass
 
     def maintenance_operations(self):
         # This can be overridden in the classes that inherit this
         pass
 
+    def send_heartbeat(self):
+        # This can be overridden in the classes that inherit this
+        pass
+
     def run(self):
+        self.log.info("Starting")
         while self.running:
-            try:
-                # Don't run maintenance operations again immediately if it just failed
-                if not self.last_maintenance_fail or time.monotonic() - self.last_maintenance_fail > 60:
-                    self.maintenance_operations()
-            except Exception as ex:  # pylint: disable=broad-except
-                self.log.error("Maintenance operation failed: %r", ex)
-                self.stats.unexpected_exception(ex=ex, where="maintenance_operation")
-                self.last_maintenance_fail = time.monotonic()
-            if len(self.msg_buffer) > 1000 or \
-               time.monotonic() - self.last_send_time > self.max_send_interval:
+            if self.should_perform_maintenance():
+                self.perform_maintenance()
+
+            if self.should_send_hearbeat():
+                self.do_send_heartbeat()
+
+            if self.should_send_messages():
                 self.get_and_send_messages()
             else:
                 time.sleep(0.1)
+
         self.log.info("Stopping")
+
+    def should_perform_maintenance(self):
+        # Don't run maintenance operations again immediately if it just failed
+        return not self.last_maintenance_fail or time.monotonic() - self.last_maintenance_fail > 60
+
+    def should_send_messages(self):
+        max_send_interval_exceeded = time.monotonic() - self.last_send_time > self.max_send_interval
+        buffer_size_over_send_threshold = len(self.msg_buffer) > 1000
+        return buffer_size_over_send_threshold or max_send_interval_exceeded
+
+    def should_send_hearbeat(self):
+        return self.max_heartbeat_interval and time.monotonic() - self.last_heartbeat_time > self.max_heartbeat_interval
+
+    def perform_maintenance(self):
+        self.log.info("Performing maintenance")
+        try:
+            self.maintenance_operations()
+        except Exception as ex:  # pylint: disable=broad-except
+            self.log.error("Maintenance operation failed: %r", ex)
+            self.stats.unexpected_exception(ex=ex, where="maintenance_operation")
+            self.last_maintenance_fail = time.monotonic()
+
+    def do_send_heartbeat(self):
+        self.log.info("Sending heartbeat message")
+        try:
+            self.send_heartbeat()
+        except Exception as ex:  # pylint: disable=broad-except
+            self.log.warning("Problem sending heartbeat message: %r", ex)
+        finally:
+            self.last_heartbeat_time = time.monotonic()
 
     def get_and_send_messages(self):
         start_time = time.monotonic()
