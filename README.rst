@@ -580,31 +580,6 @@ Client key path, required if remote syslog requires SSL authentication.
 
 Format message according to rfc5424 or rfc3164
 
-``max_heartbeat_interval`` (default ``null``)
-
-The amount of seconds to wait between sending heartbeat messages. Heartbeats will only be sent if
-this field is not null.
-
-``heartbeat_hostname`` (default ``socket.gethostname()``)
-
-The hostname to use for heartbeat messages.
-
-``heartbeat_facility`` (default ``5``)
-
-The facility to use for heartbeat messages.
-
-``heartbeat_severity`` (default ``7``)
-
-The facility to use for heartbeat messages.
-
-``heartbeat_program`` (default ``journalpump``)
-
-The program to use for heartbeat messages.
-
-``heartbeat_message`` (default ``HEARTBEAT``)
-
-The program to use for heartbeat messages.
-
 Websocket Sender Configuration
 ------------------------------
 ``websocket_uri`` (default ``null``)

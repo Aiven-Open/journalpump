@@ -130,6 +130,8 @@ class SyslogTcpClient:
             return
         try:
             self.socket.close()
+        except Exception:  # pylint: disable=broad-except
+            pass
         finally:
             self.socket = None
 
@@ -152,7 +154,7 @@ class SyslogTcpClient:
 
     def _should_retry(self, *, ex):
         if isinstance(ex, OSError):
-            return ex.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT)
+            return ex.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT, errno.ECONNABORTED)
         return False
 
     def log(self, *, facility, severity, timestamp, hostname, program, pid=None, msgid=None, msg=None, sd=None):

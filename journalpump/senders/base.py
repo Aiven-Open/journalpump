@@ -81,7 +81,6 @@ class LogSender(Thread, Tagged):
         field_filter,
         stats,
         max_send_interval,
-        max_heartbeat_interval=None,
         unit_log_levels=None,
         extra_field_values=None,
         tags=None,
@@ -101,8 +100,6 @@ class LogSender(Thread, Tagged):
         self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
         self.max_batch_size = MAX_KAFKA_MESSAGE_SIZE
-        self.last_heartbeat_time = time.monotonic()
-        self.max_heartbeat_interval = max_heartbeat_interval
         self.batch_message_overhead = KAFKA_COMPRESSED_MESSAGE_OVERHEAD
         self.running = True
         self._sent_cursor = None
@@ -202,18 +199,11 @@ class LogSender(Thread, Tagged):
         # This can be overridden in the classes that inherit this
         pass
 
-    def send_heartbeat(self):
-        # This can be overridden in the classes that inherit this
-        pass
-
     def run(self):
         self.log.info("Starting")
         while self.running:
             if self.should_perform_maintenance():
                 self.perform_maintenance()
-
-            if self.should_send_hearbeat():
-                self.do_send_heartbeat()
 
             if self.should_send_messages():
                 self.get_and_send_messages()
@@ -231,9 +221,6 @@ class LogSender(Thread, Tagged):
         buffer_size_over_send_threshold = len(self.msg_buffer) > 1000
         return buffer_size_over_send_threshold or max_send_interval_exceeded
 
-    def should_send_hearbeat(self):
-        return self.max_heartbeat_interval and time.monotonic() - self.last_heartbeat_time > self.max_heartbeat_interval
-
     def perform_maintenance(self):
         self.log.info("Performing maintenance")
         try:
@@ -242,15 +229,6 @@ class LogSender(Thread, Tagged):
             self.log.error("Maintenance operation failed: %r", ex)
             self.stats.unexpected_exception(ex=ex, where="maintenance_operation")
             self.last_maintenance_fail = time.monotonic()
-
-    def do_send_heartbeat(self):
-        self.log.info("Sending heartbeat message")
-        try:
-            self.send_heartbeat()
-        except Exception as ex:  # pylint: disable=broad-except
-            self.log.warning("Problem sending heartbeat message: %r", ex)
-        finally:
-            self.last_heartbeat_time = time.monotonic()
 
     def get_and_send_messages(self):
         start_time = time.monotonic()
