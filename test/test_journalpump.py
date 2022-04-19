@@ -1154,6 +1154,17 @@ def test_awscloudwatch_sender_init():
         assert sender._connected  # pylint: disable=protected-access
 
 
+class WorkingSender:
+    def __init__(self, **kwargs):  # pylint: disable=unused-argument
+        self.msg_buffer = MsgBuffer()
+
+    def start(self):
+        pass
+
+    def request_stop(self):
+        pass
+
+
 def test_single_sender_init_fail():
     """Test JournalReader initialize_senders() behavior in the case
     where a sender fails during init and others don't.
@@ -1175,16 +1186,6 @@ def test_single_sender_init_fail():
     class FailingSender:
         def __init__(self, **kwargs):  # pylint: disable=unused-argument
             raise SenderInitializationError
-
-    class WorkingSender:
-        def __init__(self, **kwargs):  # pylint: disable=unused-argument
-            self.msg_buffer = MsgBuffer()
-
-        def start(self):
-            pass
-
-        def request_stop(self):
-            pass
 
     # One failing, one working sender
     senders.output_type_to_sender_class["aws_cloudwatch"] = FailingSender
@@ -1334,3 +1335,26 @@ def test_journal_reader_without_senders_should_return_0_as_limit():
 
     assert journal_reader.get_write_limit_bytes() == _5_MB
     assert journal_reader.get_write_limit_message_count() == CHUNK_SIZE
+
+
+def test_broken_reader(mocker, caplog):
+    config = {
+        "senders": {"cafe": {"output_type": "file", "file_output": "/tmp/journalpump_test.log"}},
+    }
+
+    journal_reader = JournalReader(
+        name="foo",
+        config=config,
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        initial_position="tail",
+        searches=[],
+    )
+
+    mocker.patch.object(PumpReader, "__next__", side_effect=OSError("Bad message"))
+    senders.output_type_to_sender_class["file"] = WorkingSender
+
+    caplog.clear()
+    journal_reader.create_journald_reader_if_missing()
+    assert ["Corrupted log entry in foo"] == [r.message for r in caplog.records]
