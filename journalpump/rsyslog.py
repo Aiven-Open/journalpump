@@ -130,6 +130,8 @@ class SyslogTcpClient:
             return
         try:
             self.socket.close()
+        except Exception:  # pylint: disable=broad-except
+            pass
         finally:
             self.socket = None
 
