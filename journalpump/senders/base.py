@@ -86,7 +86,9 @@ class LogSender(Thread, Tagged):
         tags=None,
         msg_buffer_max_length=50000
     ):
-        Thread.__init__(self)
+        # Set as daemon, so that an exception in the main thread will not cause the
+        # program to hang indefinitely. It's preferable to exit (and get restarted by systemd).
+        Thread.__init__(self, daemon=True)
         Tagged.__init__(self, tags, sender=name)
         self.log = logging.getLogger("LogSender:{}".format(reader.name))
         self.name = name
