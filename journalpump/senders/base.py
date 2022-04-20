@@ -114,7 +114,8 @@ class LogSender(Thread, Tagged):
 
     def _backoff(self, *, base=0.5, cap=1800.0):
         self._backoff_attempt += 1
-        t = min(cap, base * 2 ** self._backoff_attempt) / 2
+        # multiplier of 2**1024 would overflow a float, so limit to 100
+        t = min(cap, base * 2 ** min(100, self._backoff_attempt)) / 2
         t = random.random() * t + t
         self.log.info("Sleeping for %.0f seconds", t)
         time.sleep(t)
