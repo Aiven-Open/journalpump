@@ -1,11 +1,11 @@
-from .base import LogSender
+from .base import ThreadedLogSender
 from journalpump.util import get_requests_session
 
 import datetime
 import json
 
 
-class LogplexSender(LogSender):
+class LogplexSender(ThreadedLogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 5.0), **kwargs)
         self.logplex_input_url = config["logplex_log_input_url"]

@@ -1,4 +1,5 @@
-from .base import LogSender, SenderInitializationError
+from .base import ThreadedLogSender, SenderInitializationError
+
 
 import boto3
 import botocore
@@ -8,7 +9,7 @@ import time
 MAX_INIT_TRIES = 3
 
 
-class AWSCloudWatchSender(LogSender):
+class AWSCloudWatchSender(ThreadedLogSender):
     def __init__(self, *, config, aws_cloudwatch_logs=None, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self._logs = aws_cloudwatch_logs

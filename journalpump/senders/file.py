@@ -1,7 +1,7 @@
-from .base import LogSender
+from .base import ThreadedLogSender
 
 
-class FileSender(LogSender):
+class FileSender(ThreadedLogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self.mark_disconnected()

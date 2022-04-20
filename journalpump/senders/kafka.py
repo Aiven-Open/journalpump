@@ -1,4 +1,4 @@
-from .base import LogSender
+from .base import ThreadedLogSender
 from kafka import errors, KafkaAdminClient, KafkaProducer
 from kafka.admin import NewTopic
 
@@ -24,7 +24,7 @@ KAFKA_CONN_ERRORS = tuple(errors.RETRY_ERROR_TYPES) + (
 logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
 
 
-class KafkaSender(LogSender):
+class KafkaSender(ThreadedLogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         self.kafka_producer = None
