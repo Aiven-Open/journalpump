@@ -6,12 +6,14 @@ Supports telegraf's statsd protocol extension for 'key=value' tags:
   https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
 
 """
+import logging
 import socket
 
 
 class StatsClient:
     def __init__(self, host="127.0.0.1", port=8125, tags=None):
         self._dest_addr = (host, port)
+        self.log = logging.getLogger("StatsClient")
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._tags = tags or {}
 
@@ -44,4 +46,7 @@ class StatsClient:
         for tag, tag_value in send_tags.items():
             parts.insert(1, ",{}={}".format(tag, tag_value).encode("utf-8"))
 
-        self._socket.sendto(b"".join(parts), self._dest_addr)
+        try:
+            self._socket.sendto(b"".join(parts), self._dest_addr)
+        except OSError as ex:
+            self.log.info("Stats UDP send failed: %s", ex)
