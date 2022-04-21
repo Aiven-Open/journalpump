@@ -1,3 +1,12 @@
+journalpump 2.4.3 (2022-04-21)
+==============================
+* Add a feature for secret/credential filtering by regular expressions
+* Make log levels configurable by unit
+* Fix bugs where journalpump would get stuck on unexpected exceptions,
+  along with handling some of those exceptions gracefully
+* Make rsyslog client more reliable by making more errors retriable
+  and by ignoring additional errors
+
 journalpump 2.4.0 (2022-01-05)
 ==============================
 * Updated polling algorithm to perform better when continiously receiving messages
