@@ -46,22 +46,20 @@ class ElasticsearchSender(LogSender):
         self.mark_connected()
         return True
 
-    def create_index_and_mappings(self, index_name):
+    def create_index_and_mappings(self, *, index_name):
         try:
             self.log.info("Creating index: %r", index_name)
             res = self.session.put(
-                self.session_url + "/{}?include_type_name=true".format(index_name),
+                self.session_url + f"/{index_name}",
                 json={
                     "mappings": {
-                        "journal_msg": {
-                            "properties": {
-                                "SYSTEMD_SESSION": {
-                                    "type": "text"
-                                },
-                                "SESSION_ID": {
-                                    "type": "text"
-                                },
-                            }
+                        "properties": {
+                            "SYSTEMD_SESSION": {
+                                "type": "text"
+                            },
+                            "SESSION_ID": {
+                                "type": "text"
+                            },
                         }
                     },
                 },
@@ -71,7 +69,8 @@ class ElasticsearchSender(LogSender):
                 self.indices.add(index_name)
             else:
                 self.mark_disconnected('Cannot create index "{index_name}" ({res.status_code} {res.text})')
-                self.log.warning("Could not create index mappings for: %r, %r %r", index_name, res.text, res.status_code)
+                self.log.warning("Could not create index mappings for: %r, %r %r", index_name, res.text,
+                                 res.status_code)
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as ex:
             self.mark_disconnected(ex)
             self.log.error("Problem creating index %r: %s: %s", index_name, ex.__class__.__name__, ex)
@@ -120,13 +119,12 @@ class ElasticsearchSender(LogSender):
                 # ISO datetime's first 10 characters are equivalent to the date we need i.e. '2018-04-14'
                 index_name = "{}-{}".format(self.index_name, message["timestamp"][:10])
                 if index_name not in self.indices:
-                    self.create_index_and_mappings(index_name)
+                    self.create_index_and_mappings(index_name=index_name)
 
                 header = {
                     "index": {
                         "_index": index_name,
-                        "_type": "journal_msg",
-                    }
+                    },
                 }
                 self.format_message_for_es(buf, header, msg)
 
@@ -154,7 +152,8 @@ class ElasticsearchSender(LogSender):
 
                 self.mark_sent(messages=messages, cursor=cursor)
                 self.log.info(
-                    "Sent %d log events to ES successfully: %r, took: %.2fs", len(messages), res.status_code in {200, 201},
+                    "Sent %d log events to ES successfully: %r, took: %.2fs", len(messages),
+                    res.status_code in {200, 201},
                     time.monotonic() - start_time
                 )
         except Exception as ex:  # pylint: disable=broad-except
