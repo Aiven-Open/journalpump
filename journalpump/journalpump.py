@@ -5,13 +5,13 @@
 from . import geohash, statsd
 from .daemon import ServiceDaemon
 from .senders import (
-    AWSCloudWatchSender, ElasticsearchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender,
-    RsyslogSender, WebsocketSender
+    AWSCloudWatchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender, WebsocketSender
 )
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE, SenderInitializationError, Tagged
 from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
 from functools import lru_cache, reduce
+from journalpump.senders.elasticsearch_opensearch_sender import ElasticsearchSender, OpenSearchSender
 from systemd import journal
 from typing import cast, Dict, List, NamedTuple, Optional, Type, Union
 
@@ -120,6 +120,7 @@ class JournalReader(Tagged):
     # config name <--> class mapping
     sender_classes = {
         "elasticsearch": ElasticsearchSender,
+        "opensearch": OpenSearchSender,
         "kafka": KafkaSender,
         "logplex": LogplexSender,
         "file": FileSender,
