@@ -5,11 +5,10 @@ from datetime import datetime
 from journalpump.journalpump import (
     _5_MB, CHUNK_SIZE, FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader, PumpReader, UnitLogLevel
 )
-from journalpump.senders import (
-    AWSCloudWatchSender, ElasticsearchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
-)
+from journalpump.senders import AWSCloudWatchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
 from journalpump.senders.aws_cloudwatch import MAX_INIT_TRIES
 from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer, SenderInitializationError
+from journalpump.senders.elasticsearch_opensearch_sender import ElasticsearchSender, OpenSearchSender
 from journalpump.types import LOG_SEVERITY_MAPPING
 from journalpump.util import default_json_serialization
 from time import sleep
@@ -774,6 +773,18 @@ def test_es_sender():
             name="es", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"elasticsearch_url": url}
         )
         assert es.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
+
+
+@responses.activate
+def test_os_sender():
+    url = "http://localhost:1234"
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.GET, url + "/_aliases", json={})
+        rsps.add(responses.POST, url + "/journalpump-2019-10-07/_bulk")
+        opensearch_sender = OpenSearchSender(
+            name="os", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"opensearch_url": url}
+        )
+        assert opensearch_sender.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
 
 
 def test_awscloudwatch_sender():
