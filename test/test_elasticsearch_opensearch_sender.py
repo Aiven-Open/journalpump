@@ -1,8 +1,29 @@
-from journalpump.senders.elasticsearch_opensearch_sender import Config, ElasticsearchSender, OpenSearchSender, SenderType
+from journalpump.senders.elasticsearch_opensearch_sender import (
+    Config, ElasticsearchSender, OpenSearchSender, SenderType, Version
+)
 from typing import Any, Dict
 from unittest import mock
 
+import logging
 import pytest
+
+logging.getLogger("elasticsearch_opensearch_sender").setLevel(logging.DEBUG)
+
+_JSON_MESSAGE = {
+    "field1": 42,
+    "field2": True,
+    "field3": 42.0,
+    "field4": "aaa bbb ccc",
+    "field5": None,
+    "field6": {
+        "a": 1,
+        "b": 2.0,
+        "c": True,
+        "d": "dddd",
+        "e": None,
+    },
+    "field7": [1, 2],
+}
 
 
 @pytest.mark.parametrize("sender_type", [
@@ -92,3 +113,162 @@ def test_sender_set_max_send_interval_config(clazz: type, sender_type: SenderTyp
         field_filter=None,
     )
     assert custom_sender.max_send_interval == 42
+
+
+@pytest.mark.parametrize(
+    "clazz, sender_type, version",
+    [
+        (OpenSearchSender, SenderType.opensearch, Version(major=1, minor=2, patch=4)),
+        (ElasticsearchSender, SenderType.elasticsearch, Version(major=8, minor=0, patch=0)),
+    ],
+)
+def test_index_message_header_without_type(clazz: type, sender_type: SenderType, version: Version) -> None:
+    # pylint:disable=protected-access
+    sender = clazz(
+        config={f"{sender_type.value}_url": "http://aaa"},
+        name=sender_type.value,
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+    )
+    sender._version = version
+    header = sender._message_header("some_index")
+    assert {
+        "index": {
+            "_index": "some_index",
+        }
+    } == header
+
+
+@pytest.mark.parametrize(
+    "clazz, sender_type, version",
+    [
+        (OpenSearchSender, SenderType.opensearch, Version(major=1, minor=2, patch=4)),
+        (ElasticsearchSender, SenderType.elasticsearch, Version(major=8, minor=0, patch=0)),
+    ],
+)
+def test_index_mapping_without_type(clazz: type, sender_type: SenderType, version: Version) -> None:
+    # pylint:disable=protected-access
+    sender = clazz(
+        config={f"{sender_type.value}_url": "http://aaa"},
+        name=sender_type.value,
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+    )
+    sender._version = version
+    mapping = sender._create_mapping(_JSON_MESSAGE)
+    assert {
+        "mappings": {
+            "properties": {
+                "SYSTEMD_SESSION": {
+                    "type": "text"
+                },
+                "SESSION_ID": {
+                    "type": "text"
+                },
+                "field1": {
+                    "type": "integer"
+                },
+                "field2": {
+                    "type": "boolean"
+                },
+                "field3": {
+                    "type": "float"
+                },
+                "field4": {
+                    "type": "text"
+                },
+                "field6": {
+                    "properties": {
+                        "a": {
+                            "type": "integer"
+                        },
+                        "b": {
+                            "type": "float"
+                        },
+                        "c": {
+                            "type": "boolean"
+                        },
+                        "d": {
+                            "type": "text"
+                        },
+                    },
+                },
+            },
+        },
+    } == mapping
+
+
+def test_elasticsearch_message_header_with_type() -> None:
+    # pylint:disable=protected-access
+    sender = ElasticsearchSender(
+        config={"elasticsearch_url": "http://aaa"},
+        name="Additional mapping fields",
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+    )
+    sender._version = Version(major=7, minor=10, patch=2)
+    header = sender._message_header("some_index")
+    assert {
+        "index": {
+            "_index": "some_index",
+            "_type": ElasticsearchSender._LEGACY_TYPE,
+        }
+    } == header
+
+
+def test_elasticsearch_index_mapping_with_type() -> None:
+    # pylint:disable=protected-access
+    sender = ElasticsearchSender(
+        config={"elasticsearch_url": "http://aaa"},
+        name="Additional mapping fields",
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+    )
+    sender._version = Version(major=7, minor=10, patch=2)
+    mapping = sender._create_mapping(_JSON_MESSAGE)
+    assert {
+        "mappings": {
+            "journal_msg": {
+                "properties": {
+                    "SYSTEMD_SESSION": {
+                        "type": "text"
+                    },
+                    "SESSION_ID": {
+                        "type": "text"
+                    },
+                    "field1": {
+                        "type": "integer"
+                    },
+                    "field2": {
+                        "type": "boolean"
+                    },
+                    "field3": {
+                        "type": "float"
+                    },
+                    "field4": {
+                        "type": "text"
+                    },
+                    "field6": {
+                        "properties": {
+                            "a": {
+                                "type": "integer"
+                            },
+                            "b": {
+                                "type": "float"
+                            },
+                            "c": {
+                                "type": "boolean"
+                            },
+                            "d": {
+                                "type": "text"
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    } == mapping

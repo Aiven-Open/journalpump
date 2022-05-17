@@ -766,25 +766,71 @@ def test_journalpump_state_file(tmpdir):
 @responses.activate
 def test_es_sender():
     url = "http://localhost:1234"
-    with responses.RequestsMock() as rsps:
-        rsps.add(responses.GET, url + "/_aliases", json={})
-        rsps.add(responses.POST, url + "/journalpump-2019-10-07/_bulk")
-        es = ElasticsearchSender(
-            name="es", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"elasticsearch_url": url}
-        )
-        assert es.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
+    responses.add(
+        responses.Response(
+            method=responses.GET,
+            url=f"{url}",
+            json={
+                "name": "eeee",
+                "cluster_name": "im_cluster",
+                "version": {
+                    "number": "7.10.2"
+                }
+            },
+        ),
+    )
+    responses.add(
+        responses.Response(
+            method=responses.GET,
+            url=f"{url}/_aliases",
+            json={},
+        ),
+    )
+    responses.add(
+        responses.Response(
+            method=responses.POST,
+            url=f"{url}/journalpump-2019-10-07/_bulk",
+        ),
+    )
+    es = ElasticsearchSender(
+        name="es", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"elasticsearch_url": url}
+    )
+    assert es.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
 
 
 @responses.activate
 def test_os_sender():
     url = "http://localhost:1234"
-    with responses.RequestsMock() as rsps:
-        rsps.add(responses.GET, url + "/_aliases", json={})
-        rsps.add(responses.POST, url + "/journalpump-2019-10-07/_bulk")
-        opensearch_sender = OpenSearchSender(
-            name="os", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"opensearch_url": url}
-        )
-        assert opensearch_sender.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
+    responses.add(
+        responses.Response(
+            method=responses.GET,
+            url=f"{url}",
+            json={
+                "name": "oooo",
+                "cluster_name": "im_cluster",
+                "version": {
+                    "number": "1.2.4"
+                }
+            },
+        ),
+    )
+    responses.add(
+        responses.Response(
+            method=responses.GET,
+            url=f"{url}/_aliases",
+            json={},
+        ),
+    )
+    responses.add(
+        responses.Response(
+            method=responses.POST,
+            url=f"{url}/journalpump-2019-10-07/_bulk",
+        ),
+    )
+    opensearch_sender = OpenSearchSender(
+        name="os", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"opensearch_url": url}
+    )
+    assert opensearch_sender.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
 
 
 def test_awscloudwatch_sender():
