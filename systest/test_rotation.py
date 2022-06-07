@@ -1,4 +1,5 @@
 from .util import journalpump_initialized
+from journalpump import senders
 from journalpump.journalpump import JournalPump, JournalReader, PumpReader, statsd
 from journalpump.senders.base import MsgBuffer
 from pathlib import Path
@@ -160,7 +161,7 @@ def fixture_journalpump_factory(mocker, tmp_path, journal_log_dir):
 
         mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
         mocker.patch.object(PumpReader, "has_runtime_files", return_value=True)
-        mocker.patch.object(JournalReader, "sender_classes", {"stub_sender": sender})
+        senders.output_type_to_sender_class["stub_sender"] = sender
 
         config_path = tmp_path / "journalpump.json"
         with open(config_path, "w") as fp:

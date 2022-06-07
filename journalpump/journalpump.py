@@ -4,14 +4,11 @@
 # See the file `LICENSE` for details.
 from . import geohash, statsd
 from .daemon import ServiceDaemon
-from .senders import (
-    AWSCloudWatchSender, FileSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender, WebsocketSender
-)
+from .senders import get_sender_class
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE, SenderInitializationError, Tagged
 from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
 from functools import lru_cache, reduce
-from journalpump.senders.elasticsearch_opensearch_sender import ElasticsearchSender, OpenSearchSender
 from systemd import journal
 from typing import cast, Dict, List, NamedTuple, Optional, Type, Union
 
@@ -117,19 +114,6 @@ class PumpReader(journal.Reader):
 
 
 class JournalReader(Tagged):
-    # config name <--> class mapping
-    sender_classes = {
-        "elasticsearch": ElasticsearchSender,
-        "opensearch": OpenSearchSender,
-        "kafka": KafkaSender,
-        "logplex": LogplexSender,
-        "file": FileSender,
-        "rsyslog": RsyslogSender,
-        "aws_cloudwatch": AWSCloudWatchSender,
-        "google_cloud_logging": GoogleCloudLoggingSender,
-        "websocket": WebsocketSender,
-    }
-
     def __init__(
         self,
         *,
@@ -279,10 +263,7 @@ class JournalReader(Tagged):
         for sender_name, sender_config in configured_senders.items():
             if sender_name in self._initialized_senders:
                 continue
-            try:
-                sender_class = self.sender_classes[sender_config["output_type"]]
-            except KeyError as ex:
-                raise Exception("Unknown sender type {!r}".format(sender_config["output_type"])) from ex
+            sender_class = get_sender_class(sender_config["output_type"])
 
             field_filter = None
             if sender_config.get("field_filter", None):

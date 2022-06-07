@@ -2,13 +2,17 @@ from .data import GCP_PRIVATE_KEY
 from botocore.stub import Stubber
 from collections import OrderedDict
 from datetime import datetime
+from journalpump import senders
 from journalpump.journalpump import (
     _5_MB, CHUNK_SIZE, FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader, PumpReader, UnitLogLevel
 )
-from journalpump.senders import AWSCloudWatchSender, GoogleCloudLoggingSender, KafkaSender, LogplexSender, RsyslogSender
-from journalpump.senders.aws_cloudwatch import MAX_INIT_TRIES
+from journalpump.senders.aws_cloudwatch import AWSCloudWatchSender, MAX_INIT_TRIES
 from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer, SenderInitializationError
 from journalpump.senders.elasticsearch_opensearch_sender import ElasticsearchSender, OpenSearchSender
+from journalpump.senders.google_cloud_logging import GoogleCloudLoggingSender
+from journalpump.senders.kafka import KafkaSender
+from journalpump.senders.logplex import LogplexSender
+from journalpump.senders.rsyslog import RsyslogSender
 from journalpump.types import LOG_SEVERITY_MAPPING
 from journalpump.util import default_json_serialization
 from time import sleep
@@ -1071,8 +1075,8 @@ def test_single_sender_init_fail():
             pass
 
     # One failing, one working sender
-    JournalReader.sender_classes["aws_cloudwatch"] = FailingSender
-    JournalReader.sender_classes["file"] = WorkingSender
+    senders.output_type_to_sender_class["aws_cloudwatch"] = FailingSender
+    senders.output_type_to_sender_class["file"] = WorkingSender
     journal_reader = JournalReader(
         name="foo",
         config=config,
@@ -1094,8 +1098,8 @@ def test_single_sender_init_fail():
 
     # New config creates new instance of JournalReader, so we can just create a new instance
     # Two working senders
-    JournalReader.sender_classes["aws_cloudwatch"] = WorkingSender
-    JournalReader.sender_classes["file"] = WorkingSender
+    senders.output_type_to_sender_class["aws_cloudwatch"] = WorkingSender
+    senders.output_type_to_sender_class["file"] = WorkingSender
     journal_reader = JournalReader(
         name="foo",
         config=config,
@@ -1165,6 +1169,12 @@ def test_journalpump_init_journal_files(tmpdir, has_persistent_files, has_runtim
         r.running = False
 
 
+def test_journalpump_sender_classes_importable():
+    # Ensure get_sender_class works with all defined output types
+    for output_type in senders.output_type_to_sender_class_path:
+        assert senders.get_sender_class(output_type)
+
+
 def test_journal_reader_with_single_broken_sender_should_return_0_as_limit():
     config = {
         "senders": {
@@ -1178,7 +1188,7 @@ def test_journal_reader_with_single_broken_sender_should_return_0_as_limit():
         def __init__(self, **kwargs):
             raise SenderInitializationError
 
-    JournalReader.sender_classes["failing_sender"] = FailingSender
+    senders.output_type_to_sender_class["failing_sender"] = FailingSender
 
     journal_reader = JournalReader(
         name="foo",

@@ -1,7 +1,7 @@
 # Copyright (c) 2021 Aiven, Helsinki, Finland. https://aiven.io/
 from collections import deque
 from journalpump.journalpump import JournalPump
-from journalpump.senders import WebsocketSender
+from journalpump.senders.websocket import WebsocketSender
 
 import asyncio
 import json

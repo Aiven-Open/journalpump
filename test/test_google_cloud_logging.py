@@ -1,7 +1,7 @@
 from .data import GCP_PRIVATE_KEY
 from googleapiclient.http import RequestMockBuilder as GoogleApiClientRequestMockBuilder
 from httplib2 import Response as HttpLib2Response
-from journalpump.senders import GoogleCloudLoggingSender
+from journalpump.senders.google_cloud_logging import GoogleCloudLoggingSender
 from typing import Dict, List
 from unittest import mock
 
