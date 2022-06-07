@@ -22,12 +22,6 @@ import select
 import time
 import uuid
 
-GeoIPReader: Union[Type[GeoIPProtocol], None]
-try:
-    from geoip2.database import Reader as GeoIPReader
-except ImportError:
-    GeoIPReader = None
-
 _5_MB = 5 * 1024 * 1024
 CHUNK_SIZE = 5000
 
@@ -817,8 +811,11 @@ class JournalPump(ServiceDaemon, Tagged):
         geoip_db_path = self.config.get("geoip_database")
         if geoip_db_path:
             self.log.info("Loading GeoIP data from %r", geoip_db_path)
-            if GeoIPReader is None:
-                raise ValueError("geoip_database configured but geoip2 module not available")
+            GeoIPReader: Union[Type[GeoIPProtocol], None]
+            try:
+                from geoip2.database import Reader as GeoIPReader  # pylint: disable=import-outside-toplevel
+            except ImportError as ex:
+                raise ValueError("geoip_database configured but geoip2 module not available") from ex
             self.geoip = GeoIPReader(geoip_db_path)
 
         self.configure_field_filters()
