@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         # only use oldest and newest version for the lint step
-        python-version: [3.7, 3.9]
+        python-version: ["3.10"]
 
     steps:
 
@@ -34,22 +34,8 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements.dev.txt
 
-      - id: pylint
-        run: |
-          make lint
-
-      - id: typecheck
-        run: |
-          make typecheck
-
-      - id: validate-style
-        run: |
-          make fmt
-          if [ $(git diff --name-only --diff-filter=ACMR | wc -l ) != 0 ]; then
-            echo "Reformatting failed! Please run make fmt on your commits and resubmit!" 1>&2;
-            git diff;
-            exit 1;
-          fi
+      - id: pre-commit
+        run: pre-commit run --all
 
   test:
     runs-on: ubuntu-latest
@@ -57,7 +43,7 @@ jobs:
     strategy:
       max-parallel: 4
       matrix:
-        python-version: [3.7, 3.8, 3.9]
+        python-version: [3.8, "3.10"]
 
     steps:
       - id: checkout-code
