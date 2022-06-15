@@ -12,5 +12,6 @@ flake8
 isort==4.3.21
 coverage
 coveralls
+pre-commit
 responses
 unify
