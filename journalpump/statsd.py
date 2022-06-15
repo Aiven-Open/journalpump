@@ -40,7 +40,13 @@ class StatsClient:
             return
 
         # format: "user.logins,service=payroll,region=us-west:1|c"
-        parts = [metric.encode("utf-8"), b":", str(value).encode("utf-8"), b"|", metric_type]
+        parts = [
+            metric.encode("utf-8"),
+            b":",
+            str(value).encode("utf-8"),
+            b"|",
+            metric_type,
+        ]
         send_tags = self._tags.copy()
         send_tags.update(tags or {})
         for tag, tag_value in send_tags.items():

@@ -1,10 +1,4 @@
 [MASTER]
-load-plugins=pylint_quotes
-
-string-quote=double-avoid-escape
-triple-quote=double
-docstring-quote=double
-
 [MESSAGES CONTROL]
 disable=
     bad-option-value,

@@ -20,11 +20,11 @@ def _float_hex_to_int(f):
     p = h.find("p")
     assert p > 0
 
-    half_len = len(h[x + 4:p]) * 4 - int(h[p + 1:])
+    half_len = len(h[x + 4 : p]) * 4 - int(h[p + 1 :])
     if x == 0:
-        r = (1 << half_len) + ((1 << (len(h[x + 4:p]) * 4)) + int(h[x + 4:p], 16))
+        r = (1 << half_len) + ((1 << (len(h[x + 4 : p]) * 4)) + int(h[x + 4 : p], 16))
     else:
-        r = (1 << half_len) - ((1 << (len(h[x + 4:p]) * 4)) + int(h[x + 4:p], 16))
+        r = (1 << half_len) - ((1 << (len(h[x + 4 : p]) * 4)) + int(h[x + 4 : p], 16))
 
     return r, half_len + 1
 

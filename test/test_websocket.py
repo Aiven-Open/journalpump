@@ -156,20 +156,26 @@ def setup_pump(tmpdir, sender_config):
 
 def test_producer_nobatch(caplog, tmpdir):
     caplog.set_level(logging.INFO)
-    ws_server = WebsocketMockServer(port=10111, )
+    ws_server = WebsocketMockServer(
+        port=10111,
+    )
     ws_server.start()
 
     pump, sender = setup_pump(
-        tmpdir, {
+        tmpdir,
+        {
             "output_type": "websocket",
             "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
             "compression": "none",
-            "max_batch_size": 0
-        }
+            "max_batch_size": 0,
+        },
     )
 
     # send some messages, and confirm they come out on the other end
-    messages = [b'{"timestamp": "2019-10-07 14:00:00"}', b'{"timestamp": "2019-10-07 15:00:00"}']
+    messages = [
+        b'{"timestamp": "2019-10-07 14:00:00"}',
+        b'{"timestamp": "2019-10-07 15:00:00"}',
+    ]
     assert sender.send_messages(messages=messages, cursor=None)
     assert_msgs_found(ws_server, messages=messages, timeout=5)
 
@@ -179,20 +185,26 @@ def test_producer_nobatch(caplog, tmpdir):
 
 def test_producer_batch(caplog, tmpdir):
     caplog.set_level(logging.INFO)
-    ws_server = WebsocketMockServer(port=10111, )
+    ws_server = WebsocketMockServer(
+        port=10111,
+    )
     ws_server.start()
 
     pump, sender = setup_pump(
-        tmpdir, {
+        tmpdir,
+        {
             "output_type": "websocket",
             "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
             "compression": "snappy",
-            "max_batch_size": 1024
-        }
+            "max_batch_size": 1024,
+        },
     )
 
     # send some messages, and confirm they come out on the other end
-    messages = [b'{"timestamp": "2019-10-07 14:00:00"}', b'{"timestamp": "2019-10-07 15:00:00"}']
+    messages = [
+        b'{"timestamp": "2019-10-07 14:00:00"}',
+        b'{"timestamp": "2019-10-07 15:00:00"}',
+    ]
     expected_output = [snappy.snappy.compress(b"\x00".join(messages))]
     assert sender.send_messages(messages=messages, cursor=None)
     assert_msgs_found(ws_server, messages=expected_output, timeout=5)

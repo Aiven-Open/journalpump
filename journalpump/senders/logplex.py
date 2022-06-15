@@ -22,8 +22,12 @@ class LogplexSender(LogSender):
         hostname = entry.get("_HOSTNAME", "localhost")
         pid = entry.get("_PID", "localhost")
         pkt = "<190>1 {} {} {} {} {} {}".format(
-            datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S+00:00 "), hostname, self.logplex_token, pid, self.msg_id,
-            self.structured_data
+            datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S+00:00 "),
+            hostname,
+            self.logplex_token,
+            pid,
+            self.msg_id,
+            self.structured_data,
         )
         pkt += entry["MESSAGE"]
         pkt = pkt.encode("utf8")
@@ -38,6 +42,11 @@ class LogplexSender(LogSender):
             "Logplex-Msg-Count": msg_count,
         }
         self.session.post(
-            self.logplex_input_url, auth=auth, headers=headers, data=msg_data, timeout=self.request_timeout, verify=False
+            self.logplex_input_url,
+            auth=auth,
+            headers=headers,
+            data=msg_data,
+            timeout=self.request_timeout,
+            verify=False,
         )
         self.mark_sent(messages=messages, cursor=cursor)

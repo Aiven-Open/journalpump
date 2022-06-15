@@ -4,4 +4,3 @@ export PYBUILD_NAME=journalpump
 
 %:
 	dh $@ --with python3 --with systemd --buildsystem=pybuild
-

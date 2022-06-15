@@ -36,7 +36,12 @@ class GoogleCloudLoggingSender(LogSender):
             credentials = ServiceAccountCredentials.get_application_default()
 
         if googleapiclient_request_builder is not None:
-            self._logs = build("logging", "v2", credentials=credentials, requestBuilder=googleapiclient_request_builder)
+            self._logs = build(
+                "logging",
+                "v2",
+                credentials=credentials,
+                requestBuilder=googleapiclient_request_builder,
+            )
         else:
             self._logs = build("logging", "v2", credentials=credentials)
         self.mark_connected()
@@ -47,7 +52,7 @@ class GoogleCloudLoggingSender(LogSender):
             "resource": {
                 "type": "generic_node",
             },
-            "entries": []
+            "entries": [],
         }
 
         if self.resource_labels is not None:

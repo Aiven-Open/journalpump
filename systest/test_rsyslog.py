@@ -122,22 +122,25 @@ def test_rsyslogd_tcp_sender(tmpdir):
     logfile = "{}/test.log".format(workdir)
     config_path = "{}/journalpump.json".format(workdir)
     with open(config_path, "w") as fp:
-        json.dump({
-            "readers": {
-                "syslog-tcp": {
-                    "initial_position": "tail",
-                    "senders": {
-                        "rsyslog": {
-                            "output_type": "rsyslog",
-                            "rsyslog_server": "127.0.0.1",
-                            "rsyslog_port": 5140,
-                            "format": "custom",
-                            "logline": "<%pri%>%timestamp% %HOSTNAME% %app-name%[%procid%]: %msg% {%%} %not-valid-tag%",
+        json.dump(
+            {
+                "readers": {
+                    "syslog-tcp": {
+                        "initial_position": "tail",
+                        "senders": {
+                            "rsyslog": {
+                                "output_type": "rsyslog",
+                                "rsyslog_server": "127.0.0.1",
+                                "rsyslog_port": 5140,
+                                "format": "custom",
+                                "logline": "<%pri%>%timestamp% %HOSTNAME% %app-name%[%procid%]: %msg% {%%} %not-valid-tag%",
+                            },
                         },
                     },
                 },
             },
-        }, fp)
+            fp,
+        )
     rsyslogd = _TestRsyslogd(workdir=workdir, logfile=logfile, port=5140)
     try:
         rsyslogd.start()

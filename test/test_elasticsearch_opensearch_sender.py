@@ -1,5 +1,9 @@
 from journalpump.senders.elasticsearch_opensearch_sender import (
-    Config, ElasticsearchSender, OpenSearchSender, SenderType, Version
+    Config,
+    ElasticsearchSender,
+    OpenSearchSender,
+    SenderType,
+    Version,
 )
 from typing import Any, Dict
 from unittest import mock
@@ -26,10 +30,13 @@ _JSON_MESSAGE = {
 }
 
 
-@pytest.mark.parametrize("sender_type", [
-    SenderType.elasticsearch,
-    SenderType.opensearch,
-])
+@pytest.mark.parametrize(
+    "sender_type",
+    [
+        SenderType.elasticsearch,
+        SenderType.opensearch,
+    ],
+)
 def test_config(sender_type: SenderType) -> None:
     # pylint:disable=protected-access
     default_config = Config.create(
@@ -58,10 +65,13 @@ def test_config(sender_type: SenderType) -> None:
     assert custom_config.index_name == "some_idx_prefix"
 
 
-@pytest.mark.parametrize("sender_type", [
-    SenderType.elasticsearch,
-    SenderType.opensearch,
-])
+@pytest.mark.parametrize(
+    "sender_type",
+    [
+        SenderType.elasticsearch,
+        SenderType.opensearch,
+    ],
+)
 def test_request_url(sender_type: SenderType) -> None:
     config = Config.create(
         sender_type=sender_type,
@@ -74,10 +84,13 @@ def test_request_url(sender_type: SenderType) -> None:
     assert config.request_url("b/c?d") == "http://aaa/b/c?d"
 
 
-@pytest.mark.parametrize("sender_type", [
-    SenderType.elasticsearch,
-    SenderType.opensearch,
-])
+@pytest.mark.parametrize(
+    "sender_type",
+    [
+        SenderType.elasticsearch,
+        SenderType.opensearch,
+    ],
+)
 def test_config_raises_value_error_for_empty_url(sender_type: SenderType) -> None:
     with pytest.raises(ValueError, match=f"{sender_type.value}_url hasn't been defined"):
         Config.create(sender_type=sender_type, config={})
@@ -102,9 +115,11 @@ def test_sender_set_max_send_interval_config(clazz: type, sender_type: SenderTyp
     )
     assert default_sender.max_send_interval == default_sender._DEFAULT_MAX_SENDER_INTERVAL
 
-    config.update({
-        "max_send_interval": 42,
-    })
+    config.update(
+        {
+            "max_send_interval": 42,
+        }
+    )
     custom_sender = clazz(
         config=config,
         name=sender_type.value,
@@ -119,7 +134,11 @@ def test_sender_set_max_send_interval_config(clazz: type, sender_type: SenderTyp
     "clazz, sender_type, version",
     [
         (OpenSearchSender, SenderType.opensearch, Version(major=1, minor=2, patch=4)),
-        (ElasticsearchSender, SenderType.elasticsearch, Version(major=8, minor=0, patch=0)),
+        (
+            ElasticsearchSender,
+            SenderType.elasticsearch,
+            Version(major=8, minor=0, patch=0),
+        ),
     ],
 )
 def test_index_message_header_without_type(clazz: type, sender_type: SenderType, version: Version) -> None:
@@ -144,7 +163,11 @@ def test_index_message_header_without_type(clazz: type, sender_type: SenderType,
     "clazz, sender_type, version",
     [
         (OpenSearchSender, SenderType.opensearch, Version(major=1, minor=2, patch=4)),
-        (ElasticsearchSender, SenderType.elasticsearch, Version(major=8, minor=0, patch=0)),
+        (
+            ElasticsearchSender,
+            SenderType.elasticsearch,
+            Version(major=8, minor=0, patch=0),
+        ),
     ],
 )
 def test_index_mapping_without_type(clazz: type, sender_type: SenderType, version: Version) -> None:
@@ -161,38 +184,18 @@ def test_index_mapping_without_type(clazz: type, sender_type: SenderType, versio
     assert {
         "mappings": {
             "properties": {
-                "SYSTEMD_SESSION": {
-                    "type": "text"
-                },
-                "SESSION_ID": {
-                    "type": "text"
-                },
-                "field1": {
-                    "type": "integer"
-                },
-                "field2": {
-                    "type": "boolean"
-                },
-                "field3": {
-                    "type": "float"
-                },
-                "field4": {
-                    "type": "text"
-                },
+                "SYSTEMD_SESSION": {"type": "text"},
+                "SESSION_ID": {"type": "text"},
+                "field1": {"type": "integer"},
+                "field2": {"type": "boolean"},
+                "field3": {"type": "float"},
+                "field4": {"type": "text"},
                 "field6": {
                     "properties": {
-                        "a": {
-                            "type": "integer"
-                        },
-                        "b": {
-                            "type": "float"
-                        },
-                        "c": {
-                            "type": "boolean"
-                        },
-                        "d": {
-                            "type": "text"
-                        },
+                        "a": {"type": "integer"},
+                        "b": {"type": "float"},
+                        "c": {"type": "boolean"},
+                        "d": {"type": "text"},
                     },
                 },
             },
@@ -234,38 +237,18 @@ def test_elasticsearch_index_mapping_with_type() -> None:
         "mappings": {
             "journal_msg": {
                 "properties": {
-                    "SYSTEMD_SESSION": {
-                        "type": "text"
-                    },
-                    "SESSION_ID": {
-                        "type": "text"
-                    },
-                    "field1": {
-                        "type": "integer"
-                    },
-                    "field2": {
-                        "type": "boolean"
-                    },
-                    "field3": {
-                        "type": "float"
-                    },
-                    "field4": {
-                        "type": "text"
-                    },
+                    "SYSTEMD_SESSION": {"type": "text"},
+                    "SESSION_ID": {"type": "text"},
+                    "field1": {"type": "integer"},
+                    "field2": {"type": "boolean"},
+                    "field3": {"type": "float"},
+                    "field4": {"type": "text"},
                     "field6": {
                         "properties": {
-                            "a": {
-                                "type": "integer"
-                            },
-                            "b": {
-                                "type": "float"
-                            },
-                            "c": {
-                                "type": "boolean"
-                            },
-                            "d": {
-                                "type": "text"
-                            },
+                            "a": {"type": "integer"},
+                            "b": {"type": "float"},
+                            "c": {"type": "boolean"},
+                            "d": {"type": "text"},
                         },
                     },
                 },

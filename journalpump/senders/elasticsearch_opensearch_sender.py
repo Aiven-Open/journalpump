@@ -61,7 +61,10 @@ class Config:
             session_url=str(config[f"{sender_type.value}_url"]).rstrip("/"),
             request_timeout=config.get(f"{sender_type.value}_timeout", Config._DEFAULT_REQUEST_TIMEOUT),
             index_name=config.get(f"{sender_type.value}_index_prefix", Config._DEFAULT_INDEX_PREFIX),
-            index_lifetime_in_days=config.get(f"{sender_type.value}_index_days_max", Config._DEFAULT_INDEX_LIFETIME_IN_DAYS),
+            index_lifetime_in_days=config.get(
+                f"{sender_type.value}_index_days_max",
+                Config._DEFAULT_INDEX_LIFETIME_IN_DAYS,
+            ),
         )
 
 
@@ -106,7 +109,12 @@ class _EsOsLogSenderBase(LogSender):
             self.mark_disconnected(ex)
             if ex.__class__ != self._last_es_error.__class__:
                 # only log these errors once, not every 10 seconds
-                self.log.warning("Connection error to %s: %s: %s", self._config.sender_type, ex.__class__.__name__, ex)
+                self.log.warning(
+                    "Connection error to %s: %s: %s",
+                    self._config.sender_type,
+                    ex.__class__.__name__,
+                    ex,
+                )
 
             self._last_es_error = ex
             return False
@@ -233,10 +241,20 @@ class _EsOsLogSenderBase(LogSender):
                 self._indices.add(index_name)
             else:
                 self.mark_disconnected(f"""Cannot create index "{index_name}" ({res.status_code} {res.text})""")
-                self.log.warning("Could not create index mappings for: %r, %r %r", index_name, res.text, res.status_code)
+                self.log.warning(
+                    "Could not create index mappings for: %r, %r %r",
+                    index_name,
+                    res.text,
+                    res.status_code,
+                )
         except (RequestsConnectionError, RequestsTimeout) as ex:
             self.mark_disconnected(ex)
-            self.log.error("Problem creating index %r: %s: %s", index_name, ex.__class__.__name__, ex)
+            self.log.error(
+                "Problem creating index %r: %s: %s",
+                index_name,
+                ex.__class__.__name__,
+                ex,
+            )
             self.stats.unexpected_exception(ex, where="es_pump_create_index_and_mappings")
             self._backoff()
 
@@ -244,12 +262,8 @@ class _EsOsLogSenderBase(LogSender):
         return {
             "mappings": {
                 "properties": {
-                    "SYSTEMD_SESSION": {
-                        "type": "text"
-                    },
-                    "SESSION_ID": {
-                        "type": "text"
-                    },
+                    "SYSTEMD_SESSION": {"type": "text"},
+                    "SESSION_ID": {"type": "text"},
                     **self._message_fields(message),
                 },
             },
@@ -305,11 +319,11 @@ class ElasticsearchSender(_EsOsLogSenderBase):
         if not self._version:
             raise ValueError("Version has not been set")
         if self._version.major <= self._VERSION_WITH_MAPPING_TYPE_SUPPORT:
-            mapping["mappings"].update({
-                self._LEGACY_TYPE: {
-                    "properties": deepcopy(mapping["mappings"]["properties"])
-                },
-            })
+            mapping["mappings"].update(
+                {
+                    self._LEGACY_TYPE: {"properties": deepcopy(mapping["mappings"]["properties"])},
+                }
+            )
             del mapping["mappings"]["properties"]
         return mapping
 
