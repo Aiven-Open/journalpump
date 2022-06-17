@@ -10,7 +10,11 @@ MAX_INIT_TRIES = 3
 
 class AWSCloudWatchSender(LogSender):
     def __init__(self, *, config, aws_cloudwatch_logs=None, **kwargs):
-        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
+        super().__init__(
+            config=config,
+            max_send_interval=config.get("max_send_interval", 0.3),
+            **kwargs,
+        )
         self._logs = aws_cloudwatch_logs
         self.log_group = self.config.get("aws_cloudwatch_log_group")
         self.log_stream = self.config.get("aws_cloudwatch_log_stream")

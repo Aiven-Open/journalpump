@@ -5,12 +5,12 @@
 from . import geohash, statsd
 from .daemon import ServiceDaemon
 from .senders import get_sender_class
-from .senders.base import MAX_KAFKA_MESSAGE_SIZE, SenderInitializationError, Tagged
+from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
 from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
 from functools import lru_cache, reduce
 from systemd import journal
-from typing import cast, Dict, List, NamedTuple, Optional, Type, Union
+from typing import cast, Dict, List, NamedTuple, Optional, Tuple, Type, Union
 
 import copy
 import datetime
@@ -122,7 +122,7 @@ class JournalReader(Tagged):
         msg_buffer_max_length=50000,
         msg_buffer_max_bytes=_5_MB,
         searches=None,
-        initial_position=None
+        initial_position=None,
     ):
         Tagged.__init__(self, tags, reader=name)
         self.log = logging.getLogger("JournalReader:{}".format(name))
@@ -151,6 +151,7 @@ class JournalReader(Tagged):
         self._failed_senders: int = 0
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
+        self.persistent_gauges: Dict[str, Tuple[int, Dict[str, str]]] = dict()
         self.searches = list(self._build_searches(searches))
         self.secret_filter_matches = 0
         self.secret_filters = self._validate_and_build_secret_filters(config)
@@ -254,6 +255,7 @@ class JournalReader(Tagged):
 
     def initialize_senders(self):
         configured_senders = self.config.get("senders", {})
+        tags: Dict[str, str] = dict()
         for sender_name, sender_config in configured_senders.items():
             if sender_name in self._initialized_senders:
                 continue
@@ -268,6 +270,7 @@ class JournalReader(Tagged):
                 unit_log_levels = self.unit_log_levels[sender_config["unit_log_level"]]
 
             extra_field_values = sender_config.get("extra_field_values", {})
+
             if not isinstance(extra_field_values, dict):
                 self.log.warning(
                     "extra_field_values: %r not a dictionary object, ignoring",
@@ -286,7 +289,7 @@ class JournalReader(Tagged):
                     stats=self.stats,
                     tags=self.make_tags(),
                 )
-            except SenderInitializationError:
+            except Exception:  # pylint: disable=broad-except
                 # If sender init fails, log exception, don't start() the sender
                 # and don't add it to self.senders dict. A metric about senders that
                 # failed to start is sent at the end of this method
@@ -297,7 +300,18 @@ class JournalReader(Tagged):
                 self.senders[sender_name] = sender
 
         self._failed_senders = len(configured_senders) - len(self._initialized_senders)
-        self.stats.gauge("sender.failed_to_start", value=self._failed_senders, tags=self.make_tags())
+
+        # We might not re-emit this metrics for a long time, as it depends on the user
+        # modifying their configuration file. This metric should stay current until
+        # this occurs, or we exit.
+        self.set_persistent_gauge(metric="sender.failed_to_start", value=self._failed_senders, tags=self.make_tags(tags))
+
+    def set_persistent_gauge(self, *, metric: str, value: int, tags: Dict[str, str]):
+        """Set/update a metric level (and tags) for a given metric.
+        These values will be periodically re-sent, ensuring the value
+        is not discarded by the statsd server.
+        """
+        self.persistent_gauges[metric] = (value, tags)
 
     def get_state(self):
         sender_state = {name: sender.get_state() for name, sender in self.senders.items()}
@@ -955,6 +969,12 @@ class JournalPump(ServiceDaemon, Tagged):
             self.reader_by_fd[fd] = self._STALE_FD
             self.log.info("Unregistered reader %r with fd %r", self.name, fd)
 
+    def refresh_gauges(self) -> None:
+        if self.stats:
+            for reader in self.readers.values():
+                for metric, (value, tags) in reader.persistent_gauges.items():
+                    self.stats.gauge(metric=metric, value=value, tags=tags)
+
     def run(self):  # pylint: disable=too-many-statements
         last_stats_time = 0
         poll_timeout = 0
@@ -1034,6 +1054,7 @@ class JournalPump(ServiceDaemon, Tagged):
             if now - self.last_state_save_time > 10.0:
                 self.save_state()
                 self.last_state_save_time = now
+                self.refresh_gauges()
 
             if not lines:
                 for reader in self.readers.values():
