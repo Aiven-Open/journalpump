@@ -811,9 +811,7 @@ class JournalPump(ServiceDaemon, Tagged):
         """Called by ServiceDaemon when config has changed"""
         stats = self.config.get("statsd") or {}
         self.stats = statsd.StatsClient(
-            host=stats.get("host"),
-            port=stats.get("port"),
-            tags=stats.get("tags"),
+            host=stats.get("host"), port=stats.get("port"), tags=stats.get("tags"), prefix=stats.get("prefix", "")
         )
         self.replace_tags(self.config.get("tags", {}))
         geoip_db_path = self.config.get("geoip_database")

@@ -135,6 +135,8 @@ Enables metrics sending to a statsd daemon that supports the influxdb-statsd
 
 The ``tags`` setting can be used to enter optional tag values for the metrics.
 
+The ``prefix`` setting can be used to enter an optional prefix for all metric names.
+
 Metrics sending follows the `Telegraf spec`_.
 
 .. _`Telegraf spec`: https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
