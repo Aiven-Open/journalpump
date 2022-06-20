@@ -591,6 +591,12 @@ class TestUnitLogLevels(TestCase):
         data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unit-b"}
         assert ll.filter_by_level(data) == {}
 
+    def test_empty_log_levels(self):
+        log_level = "INFO"
+        ll = UnitLogLevel("test", [])
+        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unit-b"}
+        assert ll.filter_by_level(data) == data
+
     def test_matching_level(self):
         log_level = "INFO"
         ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])

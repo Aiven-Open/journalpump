@@ -587,6 +587,10 @@ class UnitLogLevel:
             # If entry does not contain unit or priority we return it as is
             return data
 
+        if not self.levels:
+            # if the config is empty we return as is
+            return data
+
         if self._unit_match_level_glob(unit=unit, priority=priority):
             return data
 
