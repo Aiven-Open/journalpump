@@ -9,3 +9,4 @@ oauth2client
 geoip2
 https://github.com/systemd/python-systemd/zipball/master
 typing-extensions
+setproctitle

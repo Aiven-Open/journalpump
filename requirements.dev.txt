@@ -14,3 +14,4 @@ coverage
 coveralls
 responses
 unify
+setproctitle

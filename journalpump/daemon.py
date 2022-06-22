@@ -6,6 +6,7 @@
 Common Daemon functionality
 
 """
+from setproctitle import setproctitle
 from systemd import daemon, journal
 
 import json
@@ -13,6 +14,7 @@ import logging
 import os
 import signal
 import sys
+
 
 LOG_FORMAT = "%(asctime)s\t%(name)s\t%(levelname)s\t%(message)s"
 LOG_FORMAT_JOURNAL = "%(name)-20s  %(levelname)-8s  %(message)s"
@@ -111,6 +113,7 @@ class ServiceDaemon:
         try:
             exe = cls(config_path=args[0])
             daemon.notify("READY=1")
+            setproctitle("journalpump")
             return exe.run()
         except ServiceDaemonError as ex:
             logging.fatal("%s failed to start: %s", cls.__name__, ex)

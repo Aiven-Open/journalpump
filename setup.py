@@ -19,6 +19,7 @@ setup(
         "oauth2client",
         "geoip2",
         "typing-extensions",
+        "setproctitle",
     ],
     dependency_links=[],
     package_data={},
