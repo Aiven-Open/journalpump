@@ -222,6 +222,23 @@ def test_elasticsearch_message_header_with_type() -> None:
     } == header
 
 
+def test_index_url_for_elasticsearch() -> None:
+    # pylint:disable=protected-access
+    sender = ElasticsearchSender(
+        config={"elasticsearch_url": "http://aaa"},
+        name="Additional mapping fields",
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+    )
+    sender._version = Version(major=7, minor=10, patch=2)
+    assert sender._index_url("some_index") == "http://aaa/some_index?include_type_name=true"
+    sender._version = Version(major=1, minor=3, patch=3)  # emulate OS
+    assert sender._index_url("some_index") == "http://aaa/some_index?include_type_name=true"
+    sender._version = Version(major=8, minor=0, patch=0)  # emulate OS
+    assert sender._index_url("some_index") == "http://aaa/some_index"
+
+
 def test_elasticsearch_index_mapping_with_type() -> None:
     # pylint:disable=protected-access
     sender = ElasticsearchSender(

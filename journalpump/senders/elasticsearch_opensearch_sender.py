@@ -95,6 +95,9 @@ class _EsOsLogSenderBase(LogSender):
     def _indices_url(self) -> str:
         return self._config.request_url("_aliases")
 
+    def _index_url(self, index_name: str) -> str:
+        return self._config.request_url(index_name)
+
     def _load_indices(self) -> bool:
         if self._indices:
             return True
@@ -234,7 +237,7 @@ class _EsOsLogSenderBase(LogSender):
         try:
             self.log.info("Creating index: %r", index_name)
             res = self._session.put(
-                self._config.request_url(index_name),
+                self._index_url(index_name),
                 json=self._create_mapping(message),
             )
             if res.status_code in self._SUCCESS_HTTP_STATUSES or "already_exists_exception" in res.text:
@@ -305,6 +308,14 @@ class ElasticsearchSender(_EsOsLogSenderBase):
             config=config,
             **kwargs,
         )
+
+    def _index_url(self, index_name: str) -> str:
+        if not self._version:
+            raise ValueError("Version has not been set")
+        index_url = super()._index_url(index_name)
+        if self._version.major <= self._VERSION_WITH_MAPPING_TYPE_SUPPORT:
+            index_url = f"{index_url}?include_type_name=true"
+        return index_url
 
     def _message_header(self, index_name: str) -> Dict[str, Any]:
         header = super()._message_header(index_name)
