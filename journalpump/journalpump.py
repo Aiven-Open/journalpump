@@ -171,7 +171,7 @@ class JournalReader(Tagged):
         return self.journald_reader and self.journald_reader.fileno()
 
     def create_journald_reader_if_missing(self) -> None:
-        if (not self.journald_reader and time.monotonic() - self.last_journald_create_attempt > 2):
+        if not self.journald_reader and time.monotonic() - self.last_journald_create_attempt > 2:
             self.last_journald_create_attempt = time.monotonic()
             self.journald_reader = self.get_reader(seek_to=self.cursor)
 
@@ -377,8 +377,7 @@ class JournalReader(Tagged):
         journal_flags = self.config.get("journal_flags")
         if isinstance(journal_flags, list):
             journal_flags = reduce(
-                lambda a,
-                b: a | b,
+                lambda a, b: a | b,
                 [getattr(journal, flag.strip()) for flag in journal_flags],
             )
 
@@ -638,7 +637,10 @@ class JournalObjectHandler:
 
         for sender in self.reader.senders.values():
             json_entry = self._get_or_generate_json(
-                sender.field_filter, sender.unit_log_levels, sender.extra_field_values, new_entry
+                sender.field_filter,
+                sender.unit_log_levels,
+                sender.extra_field_values,
+                new_entry,
             )
             if json_entry:
                 sender.msg_buffer.add_item(item=json_entry, cursor=self.jobject.cursor)
@@ -690,10 +692,12 @@ class JournalObjectHandler:
         if not self.error_reported:
             self.pump.stats.increase(
                 "journal.read_error",
-                tags=self.pump.make_tags({
-                    "error": "too_long",
-                    "reader": self.reader.name,
-                }),
+                tags=self.pump.make_tags(
+                    {
+                        "error": "too_long",
+                        "reader": self.reader.name,
+                    }
+                ),
             )
             self.log.warning("%s: %s ...", error, json_entry[:1024])
             self.error_reported = True
@@ -1041,7 +1045,10 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.log.debug("No new journal lines received")
 
             self.ping_watchdog()
-            poll_timeout = max(0, self.poll_interval_ms - (time.monotonic_ns() - iteration_start_time) // 1000)
+            poll_timeout = max(
+                0,
+                self.poll_interval_ms - (time.monotonic_ns() - iteration_start_time) // 1000,
+            )
 
         self._close_stale_readers()
 

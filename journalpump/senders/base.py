@@ -6,7 +6,7 @@ import sys
 import time
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
-MAX_KAFKA_MESSAGE_SIZE = 1024 ** 2  # 1 MiB
+MAX_KAFKA_MESSAGE_SIZE = 1024**2  # 1 MiB
 
 MAX_ERROR_MESSAGES = 8
 MAX_ERROR_MESSAGE_LEN = 128
@@ -124,11 +124,17 @@ class LogSender(Thread, Tagged):
 
     def refresh_stats(self):
         tags = self.make_tags()
-        self.stats.gauge("journal.last_sent_ago", value=time.monotonic() - self.last_send_time, tags=tags)
+        self.stats.gauge(
+            "journal.last_sent_ago",
+            value=time.monotonic() - self.last_send_time,
+            tags=tags,
+        )
         self.stats.gauge("journal.sent_bytes", value=self._sent_bytes, tags=tags)
         self.stats.gauge("journal.sent_lines", value=self._sent_count, tags=tags)
         self.stats.gauge(
-            "journal.status", value=_convert_to_health(running=self.running, connected=self._connected)[1], tags=tags
+            "journal.status",
+            value=_convert_to_health(running=self.running, connected=self._connected)[1],
+            tags=tags,
         )
 
     def get_state(self):
@@ -149,7 +155,7 @@ class LogSender(Thread, Tagged):
                 "status": _convert_to_health(running=self.running, connected=self._connected)[0],
                 "elapsed": time.monotonic() - self._connected_changed,
                 "errors": self._errors,
-            }
+            },
         }
 
     def mark_connected(self):
@@ -211,8 +217,7 @@ class LogSender(Thread, Tagged):
                 self.log.error("Maintenance operation failed: %r", ex)
                 self.stats.unexpected_exception(ex=ex, where="maintenance_operation")
                 self.last_maintenance_fail = time.monotonic()
-            if len(self.msg_buffer) > 1000 or \
-               time.monotonic() - self.last_send_time > self.max_send_interval:
+            if len(self.msg_buffer) > 1000 or time.monotonic() - self.last_send_time > self.max_send_interval:
                 self.get_and_send_messages()
             else:
                 time.sleep(0.1)

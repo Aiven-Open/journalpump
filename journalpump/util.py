@@ -13,7 +13,11 @@ import tempfile
 @contextlib.contextmanager
 def atomic_replace_file(file_path):
     """Open a temporary file for writing, rename to final name when done"""
-    fd, tmp_file_path = tempfile.mkstemp(prefix=os.path.basename(file_path), dir=os.path.dirname(file_path), suffix=".tmp")
+    fd, tmp_file_path = tempfile.mkstemp(
+        prefix=os.path.basename(file_path),
+        dir=os.path.dirname(file_path),
+        suffix=".tmp",
+    )
     try:
         with os.fdopen(fd, "w") as out_file:
             yield out_file
@@ -44,7 +48,7 @@ class ExponentialBackoff:
         self._attempts = 0
 
     def next_sleep(self) -> float:
-        result = self._base * (self._factor ** self._attempts)
+        result = self._base * (self._factor**self._attempts)
         if result <= self._maximum:
             self._attempts += 1
         else:

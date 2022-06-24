@@ -24,7 +24,13 @@ class ServiceDaemonError(Exception):
 
 
 class ServiceDaemon:
-    def __init__(self, config_path, require_config=True, multi_threaded=False, log_level=logging.DEBUG):
+    def __init__(
+        self,
+        config_path,
+        require_config=True,
+        multi_threaded=False,
+        log_level=logging.DEBUG,
+    ):
         assert isinstance(config_path, str)
         self.name = self.__class__.__name__.lower()
         self.log_level = log_level
@@ -64,7 +70,10 @@ class ServiceDaemon:
         self.reload_config()
 
     def sigterm(self, signum, frame):  # pylint: disable=unused-argument
-        self.log.info("Received SIG%s, stopping daemon...", "TERM" if (signum == signal.SIGTERM) else "INT")
+        self.log.info(
+            "Received SIG%s, stopping daemon...",
+            "TERM" if (signum == signal.SIGTERM) else "INT",
+        )
         daemon.notify("STOPPING=1")
         self.running = False
 

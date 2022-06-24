@@ -46,7 +46,9 @@ class RsyslogSender(LogSender):
                 break
             except RSYSLOG_CONN_ERRORS as ex:
                 self.log.warning(
-                    "Retryable error during Rsyslog Client initialization: %s: %s, sleeping", ex.__class__.__name__, ex
+                    "Retryable error during Rsyslog Client initialization: %s: %s, sleeping",
+                    ex.__class__.__name__,
+                    ex,
                 )
                 self.mark_disconnected(ex)
                 self._backoff()
@@ -69,7 +71,10 @@ class RsyslogSender(LogSender):
                 severity = int(message.get("PRIORITY", self.default_severity))
                 timestamp = message["timestamp"][:26] + "Z"  # Assume UTC for now
                 hostname = message.get("HOSTNAME")
-                appname = message.get("SYSLOG_IDENTIFIER", message.get("SYSTEMD_UNIT", message.get("PROCESS_NAME")))
+                appname = message.get(
+                    "SYSLOG_IDENTIFIER",
+                    message.get("SYSTEMD_UNIT", message.get("PROCESS_NAME")),
+                )
                 progid = message.get("PID")
                 txt = message.get("MESSAGE")
 
@@ -81,13 +86,17 @@ class RsyslogSender(LogSender):
                     program=appname,
                     pid=progid,
                     msg=txt,
-                    sd=self.sd
+                    sd=self.sd,
                 )
             self.mark_sent(messages=messages, cursor=cursor)
             return True
         except RSYSLOG_CONN_ERRORS as ex:
             self.mark_disconnected(ex)
-            self.log.info("Rsyslog Client retryable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
+            self.log.info(
+                "Rsyslog Client retryable error during send: %s: %s, waiting",
+                ex.__class__.__name__,
+                ex,
+            )
             self._backoff()
             self._init_rsyslog_client()
         except Exception as ex:  # pylint: disable=broad-except

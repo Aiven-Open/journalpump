@@ -17,21 +17,6 @@ systest:
 py-egg:
 	VERSION=$(shell git describe --tags) $(PYTHON) setup.py bdist_egg
 
-.PHONY: lint
-lint:
-	$(PYTHON) -m flake8 $(PYLINT_DIRS)
-	$(PYTHON) -m pylint --rcfile .pylintrc $(PYLINT_DIRS)
-
-.PHONY: typecheck
-typecheck:
-	$(PYTHON) -m mypy $(PYTHON_SOURCE_DIRS) $(PYLINT_DIRS)
-
-.PHONY: fmt
-fmt:
-	unify --quote '"' --recursive --in-place $(PYLINT_DIRS)
-	isort --recursive $(PYLINT_DIRS)
-	yapf --parallel --recursive --in-place $(PYLINT_DIRS)
-
 .PHONY: coverage
 coverage:
 	$(PYTHON) -m pytest $(PYTEST_ARG) --cov-report term-missing --cov journalpump test/

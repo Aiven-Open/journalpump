@@ -172,16 +172,16 @@ def fixture_journalpump_factory(mocker, tmp_path, journal_log_dir):
                             "journal_path": str(journal_log_dir),
                             "initial_position": "head",
                             "senders": {
-                                "test-sender": {
-                                    "output_type": "stub_sender"
-                                },
+                                "test-sender": {"output_type": "stub_sender"},
                             },
-                            "searches": [{
-                                "fields": {
-                                    "MESSAGE": "Message.*",
-                                },
-                                "name": "test-messages",
-                            }],
+                            "searches": [
+                                {
+                                    "fields": {
+                                        "MESSAGE": "Message.*",
+                                    },
+                                    "name": "test-messages",
+                                }
+                            ],
                         },
                     },
                     **pump_conf,
@@ -264,7 +264,7 @@ def test_journalpump_rotated_files_threshold_bytes(journalpump_factory, journal_
 def _lsof_is_file_open(filenames: List[str]) -> Dict[str, bool]:
     """Check if file is open using lsof"""
     # psutil doesn't show deleted files, but this exactly what we want to test
-    output = (subprocess.check_output(["lsof", "-p", str(os.getpid()), "-w"]).decode().split("\n"))
+    output = subprocess.check_output(["lsof", "-p", str(os.getpid()), "-w"]).decode().split("\n")
     result = {fn: False for fn in filenames}
     for line in output:
         for fn in result:
@@ -351,30 +351,32 @@ def test_journalpump_stats_sender(mocker, journalpump_factory, journal_log_dir):
                     "journal_path": str(journal_log_dir),
                     "initial_position": "head",
                     "senders": {},
-                    "searches": [{
-                        "fields": {
-                            "MESSAGE": "Message [123]",
-                        },
-                        "name": "stats-messages",
-                    }],
+                    "searches": [
+                        {
+                            "fields": {
+                                "MESSAGE": "Message [123]",
+                            },
+                            "name": "stats-messages",
+                        }
+                    ],
                 },
                 "my-reader": {
                     "journal_path": str(journal_log_dir),
                     "initial_position": "head",
                     "senders": {
-                        "test-sender": {
-                            "output_type": "stub_sender"
-                        },
+                        "test-sender": {"output_type": "stub_sender"},
                     },
-                    "searches": [{
-                        "fields": {
-                            "MESSAGE": "Message.*",
-                        },
-                        "name": "test-messages",
-                    }],
+                    "searches": [
+                        {
+                            "fields": {
+                                "MESSAGE": "Message.*",
+                            },
+                            "name": "test-messages",
+                        }
+                    ],
                 },
             },
-        }
+        },
     )
 
     lf = LogFiles(journal_log_dir)

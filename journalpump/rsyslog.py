@@ -141,7 +141,7 @@ class SyslogTcpClient:
                 if self.socket is None:
                     self._connect()
 
-                self.socket.sendall(message[:self.max_msg - 1])
+                self.socket.sendall(message[: self.max_msg - 1])
                 if len(message) >= self.max_msg:
                     self.socket.sendall(b"\n")
 
@@ -178,6 +178,6 @@ class SyslogTcpClient:
                 proc_id=proc_id,
                 msg_id=msg_id,
                 msg=message,
-                sd=sd
+                sd=sd,
             )
         )

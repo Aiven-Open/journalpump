@@ -85,10 +85,17 @@ class KafkaSender(LogSender):
                 kafka_producer = KafkaProducer(**producer_config)
             except KAFKA_CONN_ERRORS as ex:
                 self.mark_disconnected(ex)
-                self.log.warning("Retriable error during Kafka initialization: %s: %s", ex.__class__.__name__, ex)
+                self.log.warning(
+                    "Retriable error during Kafka initialization: %s: %s",
+                    ex.__class__.__name__,
+                    ex,
+                )
                 self._backoff()
             else:
-                self.log.info("Initialized Kafka Client, address: %r", self.config["kafka_address"])
+                self.log.info(
+                    "Initialized Kafka Client, address: %r",
+                    self.config["kafka_address"],
+                )
                 self.kafka_producer = kafka_producer
                 self.mark_connected()
 
@@ -125,7 +132,11 @@ class KafkaSender(LogSender):
             return True
         except KAFKA_CONN_ERRORS as ex:
             self.mark_disconnected(ex)
-            self.log.info("Kafka retriable error during send: %s: %s, waiting", ex.__class__.__name__, ex)
+            self.log.info(
+                "Kafka retriable error during send: %s: %s, waiting",
+                ex.__class__.__name__,
+                ex,
+            )
             self._backoff()
             self._init_kafka()
         except Exception as ex:  # pylint: disable=broad-except

@@ -27,8 +27,8 @@ class TestGoogleCloudLoggingSender:
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"  # pylint:disable=line-too-long
-        }
+            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com",  # pylint:disable=line-too-long
+        },
     }
 
     def _generate_request_builder(self, entries: List[Dict[str, str]], error=None) -> GoogleApiClientRequestMockBuilder:
@@ -38,12 +38,9 @@ class TestGoogleCloudLoggingSender:
             "logName": "projects/project-id/logs/log-id",
             "resource": {
                 "type": "generic_node",
-                "labels": {
-                    "location": "us-east-1",
-                    "node_id": "my-test-node"
-                },
+                "labels": {"location": "us-east-1", "node_id": "my-test-node"},
             },
-            "entries": entries
+            "entries": entries,
         }
         return GoogleApiClientRequestMockBuilder(
             {
@@ -106,11 +103,7 @@ class TestGoogleCloudLoggingSender:
     def test_bad_request_did_not_marked_sent(self):
         """Check that message was not marked as sent if GoogleApi returns error"""
         request_builder = self._generate_request_builder(
-            [{
-                "jsonPayload": {
-                    "MESSAGE": "Hello"
-                }
-            }],
+            [{"jsonPayload": {"MESSAGE": "Hello"}}],
             error=HttpLib2Response({"status": "400"}),
         )
 
@@ -128,13 +121,15 @@ class TestGoogleCloudLoggingSender:
     def test_correct_timestamp(self):
         """Check severity mapping is converted correctly and timestamp is being sent."""
 
-        request_builder = self._generate_request_builder([{
-            "timestamp": "2020-06-25T06:24:13.787255Z",
-            "severity": "EMERGENCY",
-            "jsonPayload": {
-                "MESSAGE": "Hello"
-            }
-        }])
+        request_builder = self._generate_request_builder(
+            [
+                {
+                    "timestamp": "2020-06-25T06:24:13.787255Z",
+                    "severity": "EMERGENCY",
+                    "jsonPayload": {"MESSAGE": "Hello"},
+                }
+            ]
+        )
 
         sender = GoogleCloudLoggingSender(
             name="googlecloudlogging",
@@ -145,6 +140,7 @@ class TestGoogleCloudLoggingSender:
             googleapiclient_request_builder=request_builder,
         )
         sender.send_messages(
-            messages=[b'{"MESSAGE": "Hello", "PRIORITY": 0, "timestamp": "2020-06-25T06:24:13.787255"}'], cursor=None
+            messages=[b'{"MESSAGE": "Hello", "PRIORITY": 0, "timestamp": "2020-06-25T06:24:13.787255"}'],
+            cursor=None,
         )
         assert sender._sent_count == 1  # pylint: disable=protected-access

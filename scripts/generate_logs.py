@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from typing import Dict, Optional
+
 import argparse
 import json
 import multiprocessing
@@ -12,9 +14,11 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Optional, Dict
 
-MESSAGE_DEFAULTS: Dict[str, str] = {"PRIORITY": "6", "SYSLOG_IDENTIFIER": "journald-gen-logs"}
+MESSAGE_DEFAULTS: Dict[str, str] = {
+    "PRIORITY": "6",
+    "SYSLOG_IDENTIFIER": "journald-gen-logs",
+}
 
 
 def _encode_message(data: Dict[str, str]) -> bytes:
@@ -62,7 +66,7 @@ class JournalControlProcess:
         self._runtime_dir: Optional[pathlib.Path] = None
         self._journald_process: Optional[subprocess.Popen] = None
         self._sender_process: Optional[multiprocessing.Process] = None
-        self._sender_queue = multiprocessing.JoinableQueue()
+        self._sender_queue: multiprocessing.Queue = multiprocessing.JoinableQueue()
         self._uid = uid
 
     @property
@@ -82,10 +86,12 @@ class JournalControlProcess:
             "LOGS_DIRECTORY": self._logs_dir,
             "RUNTIME_DIRECTORY": self._runtime_dir,
         }
-        journald_process = subprocess.Popen([self.JOURNALD_BIN, "test"],
-                                            env=environment,
-                                            stdout=sys.stdout,
-                                            stderr=sys.stdout)
+        journald_process = subprocess.Popen(
+            [self.JOURNALD_BIN, "test"],
+            env=environment,
+            stdout=sys.stdout,
+            stderr=sys.stdout,
+        )
 
         cur = time.monotonic()
         deadline = cur + 3
@@ -119,7 +125,8 @@ class JournalControlProcess:
 
     def _start_sender_processs(self) -> multiprocessing.Process:
         sender_process = multiprocessing.Process(
-            target=_message_sender, args=(self._uid, self._message_socket_path, self._sender_queue)
+            target=_message_sender,
+            args=(self._uid, self._message_socket_path, self._sender_queue),
         )
         sender_process.start()
         return sender_process
@@ -160,7 +167,7 @@ msg command argument be either plain message or json object
 rotate command invokes journald rotation
 """
 )
-_PARSER.add_argument('--uid', type=int, default=1000, help='user id of log sender')
+_PARSER.add_argument("--uid", type=int, default=1000, help="user id of log sender")
 
 
 def main():

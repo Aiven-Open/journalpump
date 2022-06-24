@@ -5,6 +5,7 @@ ignore =
   E123,  # Closing brackets indent
   E126,  # Hanging indents
   E129,  # Visual indent
+  E203,  # whitespace before ':'
   E501,  # Max line length
   E722,  # bare-except
   W503,  # Breaks & binary operators

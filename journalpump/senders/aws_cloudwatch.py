@@ -91,7 +91,11 @@ class AWSCloudWatchSender(LogSender):
             message = json.loads(raw_message)
             timestamp = message.get("REALTIME_TIMESTAMP") or time.time()
             log_events.append({"timestamp": int(timestamp * 1000.0), "message": raw_message})
-        kwargs = {"logGroupName": self.log_group, "logStreamName": self.log_stream, "logEvents": log_events}
+        kwargs = {
+            "logGroupName": self.log_group,
+            "logStreamName": self.log_stream,
+            "logEvents": log_events,
+        }
         if self._next_sequence_token is not None:
             kwargs["sequenceToken"] = self._next_sequence_token
         try:

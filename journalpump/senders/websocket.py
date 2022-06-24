@@ -33,8 +33,17 @@ class WebsocketCompression(StrEnum):
 
 class WebsocketRunner(Thread):
     def __init__(
-        self, *, websocket_uri, socks5_proxy_url, ssl_enabled, ssl_ca, ssl_key, ssl_cert, websocket_compression, compression,
-        max_batch_size
+        self,
+        *,
+        websocket_uri,
+        socks5_proxy_url,
+        ssl_enabled,
+        ssl_ca,
+        ssl_key,
+        ssl_cert,
+        websocket_compression,
+        compression,
+        max_batch_size,
     ):
         super().__init__(daemon=True)
         self.log = logging.getLogger(self.__class__.__name__)
@@ -156,9 +165,17 @@ class WebsocketRunner(Thread):
         url_parsed = urlparse(self.websocket_uri)
         if self.socks5_proxy:
             socks_url_parsed = urlparse(self.socks5_proxy_url)
-            self.log.info("Connecting via SOCKS5 proxy at %s:%d", socks_url_parsed.hostname, socks_url_parsed.port)
+            self.log.info(
+                "Connecting via SOCKS5 proxy at %s:%d",
+                socks_url_parsed.hostname,
+                socks_url_parsed.port,
+            )
             sock = await self.socks5_proxy.connect(dest_host=url_parsed.hostname, dest_port=url_parsed.port)
-            self.log.info("Connected via SOCKS5 proxy at %s:%d", socks_url_parsed.hostname, socks_url_parsed.port)
+            self.log.info(
+                "Connected via SOCKS5 proxy at %s:%d",
+                socks_url_parsed.hostname,
+                socks_url_parsed.port,
+            )
 
         ws_compr = None if self.websocket_compression == WebsocketCompression.none else str(self.websocket_compression)
         return await websockets.connect(  # pylint:disable=no-member
@@ -176,9 +193,11 @@ class WebsocketRunner(Thread):
         connect_task = asyncio.create_task(self.websocket_connect_coro())
         wait_for_stop_task = asyncio.create_task(self.wait_for_stop_event())
 
-        _, pending = await asyncio.wait([connect_task, wait_for_stop_task],
-                                        return_when=asyncio.FIRST_COMPLETED,
-                                        timeout=timeout)
+        _, pending = await asyncio.wait(
+            [connect_task, wait_for_stop_task],
+            return_when=asyncio.FIRST_COMPLETED,
+            timeout=timeout,
+        )
 
         if connect_task.done():
             wait_for_stop_task.cancel()
@@ -213,7 +232,8 @@ class WebsocketRunner(Thread):
             self.websocket = None
             self.log.info(
                 "Websocket connection closed after %d s: %s",
-                time.monotonic() - established_time, self.websocket_uri
+                time.monotonic() - established_time,
+                self.websocket_uri,
             )
 
             # If we have had a long enough connection, reset backoff for a quicker
@@ -229,9 +249,15 @@ class WebsocketRunner(Thread):
         except (ConnectionTimeoutError, asyncio.TimeoutError, CancelledError) as ex:
             self.log.warning("Websocket connection timed out: %r. Retrying.", ex)
         except socket.gaierror as ex:
-            self.log.error("DNS lookup for websocket endpoint or SOCKS5 proxy failed: %r. Retrying.", ex)
+            self.log.error(
+                "DNS lookup for websocket endpoint or SOCKS5 proxy failed: %r. Retrying.",
+                ex,
+            )
         except websockets.exceptions.InvalidStatusCode as ex:
-            self.log.error("Websocket server rejected connection with HTTP status code: %r. Retrying.", ex)
+            self.log.error(
+                "Websocket server rejected connection with HTTP status code: %r. Retrying.",
+                ex,
+            )
         except (ProxyError, ProxyConnectionError, ProxyTimeoutError) as ex:
             self.log.warning("SOCKS5 proxy connection error: %r. Retrying.", ex)
         except ssl.SSLCertVerificationError as ex:
@@ -265,7 +291,11 @@ class WebsocketRunner(Thread):
 
 class WebsocketSender(LogSender):
     def __init__(self, *, config, **kwargs):
-        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 1.0), **kwargs)
+        super().__init__(
+            config=config,
+            max_send_interval=config.get("max_send_interval", 1.0),
+            **kwargs,
+        )
         self.runner = None
         self.config = config
 
@@ -294,15 +324,22 @@ class WebsocketSender(LogSender):
                     compression=JournalPumpMessageCompression(
                         self.config.get("compression", JournalPumpMessageCompression.snappy)
                     ),
-                    max_batch_size=int(self.config.get("max_batch_size", 1024 ** 2)),
+                    max_batch_size=int(self.config.get("max_batch_size", 1024**2)),
                 )
                 runner.start()
             except Exception as ex:  # pylint:disable=broad-except
                 self.mark_disconnected(ex)
-                self.log.exception("Retriable error during Websocket initialization: %s: %s", ex.__class__.__name__, ex)
+                self.log.exception(
+                    "Retriable error during Websocket initialization: %s: %s",
+                    ex.__class__.__name__,
+                    ex,
+                )
                 self._backoff()
             else:
-                self.log.info("Initialized Websocket client, address: %r", self.config["websocket_uri"])
+                self.log.info(
+                    "Initialized Websocket client, address: %r",
+                    self.config["websocket_uri"],
+                )
                 self.runner = runner
 
     def request_stop(self):

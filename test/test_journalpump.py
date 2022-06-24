@@ -4,7 +4,15 @@ from collections import OrderedDict
 from datetime import datetime
 from journalpump import senders
 from journalpump.journalpump import (
-    _5_MB, CHUNK_SIZE, FieldFilter, JournalObject, JournalObjectHandler, JournalPump, JournalReader, PumpReader, UnitLogLevel
+    _5_MB,
+    CHUNK_SIZE,
+    FieldFilter,
+    JournalObject,
+    JournalObjectHandler,
+    JournalPump,
+    JournalReader,
+    PumpReader,
+    UnitLogLevel,
 )
 from journalpump.senders.aws_cloudwatch import AWSCloudWatchSender, MAX_INIT_TRIES
 from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer, SenderInitializationError
@@ -29,11 +37,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     # Logplex sender
     journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
-        "field_filters": {
-            "filter_a": {
-                "fields": ["message"]
-            }
-        },
+        "field_filters": {"filter_a": {"fields": ["message"]}},
         "readers": {
             "foo": {
                 "senders": {
@@ -173,7 +177,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
                         "aws_cloudwatch_log_stream": "stream",
                         "aws_region": "us-east-1",
                         "aws_access_key_id": "key",
-                        "aws_secret_access_key": "secret"
+                        "aws_secret_access_key": "secret",
                     }
                 }
             }
@@ -188,22 +192,11 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             super().__init__(*args, **kwargs)
             # Paginate over three pages
             self.paginate = mock.Mock(
-                return_value=[{
-                    "logStreams": [{
-                        "logStreamName": "page1",
-                        "uploadSequenceToken": "page1"
-                    }]
-                }, {
-                    "logStreams": [{
-                        "logStreamName": "stream",
-                        "uploadSequenceToken": "token"
-                    }]
-                }, {
-                    "logStreams": [{
-                        "logStreamName": "page3",
-                        "uploadSequenceToken": "page3"
-                    }]
-                }]
+                return_value=[
+                    {"logStreams": [{"logStreamName": "page1", "uploadSequenceToken": "page1"}]},
+                    {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
+                    {"logStreams": [{"logStreamName": "page3", "uploadSequenceToken": "page3"}]},
+                ]
             )
 
     class MockCloudWatch(mock.Mock):
@@ -216,12 +209,16 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
-        with mock.patch("boto3.client", new=MockCloudWatch()) as mock_client, \
-                mock.patch.object(PumpReader, "has_persistent_files", return_value=True):
+        with mock.patch("boto3.client", new=MockCloudWatch()) as mock_client, mock.patch.object(
+            PumpReader, "has_persistent_files", return_value=True
+        ):
             r.create_journald_reader_if_missing()
             assert len(r.senders) == 1
             mock_client.assert_called_once_with(
-                "logs", region_name="us-east-1", aws_access_key_id="key", aws_secret_access_key="secret"
+                "logs",
+                region_name="us-east-1",
+                aws_access_key_id="key",
+                aws_secret_access_key="secret",
             )
         r.running = False
         for sn, s in r.senders.items():
@@ -256,8 +253,8 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
                             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                             "token_uri": "https://oauth2.googleapis.com/token",
                             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com"  # pylint:disable=line-too-long
-                        }
+                            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test%40project-id.iam.gserviceaccount.com",  # pylint:disable=line-too-long
+                        },
                     }
                 }
             }
@@ -295,9 +292,7 @@ def test_journal_reader_tagging(tmpdir):
                             "PRIORITY": r"^(?P<level>[0-4])$",  # emergency, alert, critical, error
                             "SYSLOG_FACILITY": r"^0$",  # kernel only
                         },
-                        "tags": {
-                            "section": "cputemp"
-                        },
+                        "tags": {"section": "cputemp"},
                     },
                     {
                         "name": "noresults",
@@ -373,16 +368,17 @@ class TestSecretFilter(TestCase):
         self.pump = mock.Mock()
         self.reader = mock.Mock()
         self.reader.senders = {"sender_a": self.sender_a}
-        self.reader.secret_filters = [{
-            "pattern": "(.*?\\s?)(SECRET)(\\s?.*)",
-            "replacement": "\\1[REDACTED]\\3"
-        }, {
-            "pattern": "(.*?\\s?)(SECOND)(\\s?.*)",
-            "replacement": "\\1[REDACTED TOO]\\3"
-        }, {
-            "pattern": "(.*?\\s?)(THIRD)(\\s?.*)",
-            "replacement": "\\3[REDACTED TOO]\\1"
-        }]
+        self.reader.secret_filters = [
+            {"pattern": "(.*?\\s?)(SECRET)(\\s?.*)", "replacement": "\\1[REDACTED]\\3"},
+            {
+                "pattern": "(.*?\\s?)(SECOND)(\\s?.*)",
+                "replacement": "\\1[REDACTED TOO]\\3",
+            },
+            {
+                "pattern": "(.*?\\s?)(THIRD)(\\s?.*)",
+                "replacement": "\\3[REDACTED TOO]\\1",
+            },
+        ]
         self.reader.secret_filter_metrics = True
         self.reader.secret_filter_matches = 0
 
@@ -397,13 +393,10 @@ class TestSecretFilter(TestCase):
 
         self.reader_c = mock.Mock()
         self.reader_c.senders = {"sender_a": self.sender_a}
-        self.reader_c.secret_filters = [{
-            "pattern": "SECRET",
-            "replacement": "[REDACTED]"
-        }, {
-            "pattern": "SECOND",
-            "replacement": "[REDACTED TOO]"
-        }]
+        self.reader_c.secret_filters = [
+            {"pattern": "SECRET", "replacement": "[REDACTED]"},
+            {"pattern": "SECOND", "replacement": "[REDACTED TOO]"},
+        ]
         for i, _ in enumerate(self.reader_c.secret_filters):
             self.reader_c.secret_filters[i]["compiled_pattern"] = re.compile(self.reader_c.secret_filters[i]["pattern"])
         self.reader_c.secret_filter_metrics = True
@@ -412,36 +405,62 @@ class TestSecretFilter(TestCase):
     # Simple regex mode
     def test_secret_at_end_simple(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="This is a field with a trailing SECRET", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+            entry=OrderedDict(
+                MESSAGE="This is a field with a trailing SECRET",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+            ),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "This is a field with a trailing [REDACTED]"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "This is a field with a trailing [REDACTED]"},
+            10,
+        ) in sender_a_msgs
 
     def test_secret_in_middle_simple(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="This is a field with a SECRET data in the middle", b=2, c=3, REALTIME_TIMESTAMP=1),
-            cursor=10
+            entry=OrderedDict(
+                MESSAGE="This is a field with a SECRET data in the middle",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+            ),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "This is a field with a [REDACTED] data in the middle"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "This is a field with a [REDACTED] data in the middle"},
+            10,
+        ) in sender_a_msgs
 
     def test_secret_at_start_simple(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="SECRET message with sensitive data at the start", b=2, c=3, REALTIME_TIMESTAMP=1),
-            cursor=10
+            entry=OrderedDict(
+                MESSAGE="SECRET message with sensitive data at the start",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+            ),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "[REDACTED] message with sensitive data at the start"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "[REDACTED] message with sensitive data at the start"},
+            10,
+        ) in sender_a_msgs
 
     def test_no_secret_simple(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="message with no sensitive data", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+            entry=OrderedDict(MESSAGE="message with no sensitive data", b=2, c=3, REALTIME_TIMESTAMP=1),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
@@ -451,69 +470,117 @@ class TestSecretFilter(TestCase):
     # Redact more than one secret in a string
     def test_multi_secret_simple(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="SECRET message with sensitive SECOND at the start", b=2, c=3, REALTIME_TIMESTAMP=1),
-            cursor=10
+            entry=OrderedDict(
+                MESSAGE="SECRET message with sensitive SECOND at the start",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+            ),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "[REDACTED] message with sensitive [REDACTED TOO] at the start"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "[REDACTED] message with sensitive [REDACTED TOO] at the start"},
+            10,
+        ) in sender_a_msgs
 
     # Complex regex mode
     def test_secret_at_end(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="This is a field with a trailing SECRET", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+            entry=OrderedDict(
+                MESSAGE="This is a field with a trailing SECRET",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+            ),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "This is a field with a trailing [REDACTED]"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "This is a field with a trailing [REDACTED]"},
+            10,
+        ) in sender_a_msgs
 
     def test_secret_in_middle(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="This is a field with a SECRET data in the middle", b=2, c=3, REALTIME_TIMESTAMP=1),
-            cursor=10
+            entry=OrderedDict(
+                MESSAGE="This is a field with a SECRET data in the middle",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+            ),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "This is a field with a [REDACTED] data in the middle"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "This is a field with a [REDACTED] data in the middle"},
+            10,
+        ) in sender_a_msgs
 
     def test_secret_at_start(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="SECRET message with sensitive data at the start", b=2, c=3, REALTIME_TIMESTAMP=1),
-            cursor=10
+            entry=OrderedDict(
+                MESSAGE="SECRET message with sensitive data at the start",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+            ),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "[REDACTED] message with sensitive data at the start"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "[REDACTED] message with sensitive data at the start"},
+            10,
+        ) in sender_a_msgs
 
     def test_multi_secret(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="SECRET message with sensitive SECOND at the start", b=2, c=3, REALTIME_TIMESTAMP=1),
-            cursor=10
+            entry=OrderedDict(
+                MESSAGE="SECRET message with sensitive SECOND at the start",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+            ),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "[REDACTED] message with sensitive [REDACTED TOO] at the start"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "[REDACTED] message with sensitive [REDACTED TOO] at the start"},
+            10,
+        ) in sender_a_msgs
 
     def test_multi_secret_restructure(self):
         jobject = JournalObject(
             entry=OrderedDict(
-                MESSAGE=" and has been rearranged to make senseTHIRDThis message has a ", b=2, c=3, REALTIME_TIMESTAMP=1
+                MESSAGE=" and has been rearranged to make senseTHIRDThis message has a ",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
             ),
-            cursor=10
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "This message has a [REDACTED TOO] and has been rearranged to make sense"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "This message has a [REDACTED TOO] and has been rearranged to make sense"},
+            10,
+        ) in sender_a_msgs
 
     def test_no_secret(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="message with no sensitive data", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+            entry=OrderedDict(MESSAGE="message with no sensitive data", b=2, c=3, REALTIME_TIMESTAMP=1),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
@@ -522,12 +589,21 @@ class TestSecretFilter(TestCase):
 
     def test_empty_secret_filters(self):
         jobject = JournalObject(
-            entry=OrderedDict(MESSAGE="testing config with no secret filters", b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10
+            entry=OrderedDict(
+                MESSAGE="testing config with no secret filters",
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+            ),
+            cursor=10,
         )
         handler = JournalObjectHandler(jobject, self.reader_b, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "testing config with no secret filters"}, 10) in sender_a_msgs
+        assert (
+            {"MESSAGE": "testing config with no secret filters"},
+            10,
+        ) in sender_a_msgs
 
     def test_ex_not_a_list(self):
         with self.assertRaises(ValueError) as ctx:
@@ -537,7 +613,7 @@ class TestSecretFilter(TestCase):
                 field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
                 geoip="10.10.10.10",
                 stats="",
-                searches=[]
+                searches=[],
             )
             self.assertTrue("must be a list" in str(ctx.exception))
 
@@ -551,7 +627,7 @@ class TestSecretFilter(TestCase):
                 field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
                 geoip="10.10.10.10",
                 stats="",
-                searches=[]
+                searches=[],
             )
             self.assertTrue("missing field 'pattern'" in str(ctx.exception))
 
@@ -565,7 +641,7 @@ class TestSecretFilter(TestCase):
                 field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
                 geoip="10.10.10.10",
                 stats="",
-                searches=[]
+                searches=[],
             )
             self.assertTrue("missing field 'replacement'" in str(ctx.exception))
 
@@ -579,7 +655,7 @@ class TestSecretFilter(TestCase):
                 field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
                 geoip="10.10.10.10",
                 stats="",
-                searches=[]
+                searches=[],
             )
             self.assertTrue("invalid regex" in str(ctx.exception))
 
@@ -588,7 +664,11 @@ class TestUnitLogLevels(TestCase):
     def test_empty(self):
         log_level = "INFO"
         ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
-        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unit-b"}
+        data = {
+            "Foo": "bar",
+            "PRIORITY": LOG_SEVERITY_MAPPING[log_level],
+            "SYSTEMD_UNIT": "unit-b",
+        }
         assert ll.filter_by_level(data) == {}
 
     def test_empty_log_levels(self):
@@ -600,19 +680,31 @@ class TestUnitLogLevels(TestCase):
     def test_matching_level(self):
         log_level = "INFO"
         ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
-        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unit-a"}
+        data = {
+            "Foo": "bar",
+            "PRIORITY": LOG_SEVERITY_MAPPING[log_level],
+            "SYSTEMD_UNIT": "unit-a",
+        }
         assert ll.filter_by_level(data) == data
 
     def test_higher_level(self):
         log_level = "WARNING"
         ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
-        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level] + 1, "SYSTEMD_UNIT": "unit-a"}
+        data = {
+            "Foo": "bar",
+            "PRIORITY": LOG_SEVERITY_MAPPING[log_level] + 1,
+            "SYSTEMD_UNIT": "unit-a",
+        }
         assert ll.filter_by_level(data) == {}
 
     def test_lower_level(self):
         log_level = "WARNING"
         ll = UnitLogLevel("test", [{"service_glob": "unit-a", "log_level": log_level}])
-        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level] - 1, "SYSTEMD_UNIT": "unit-a"}
+        data = {
+            "Foo": "bar",
+            "PRIORITY": LOG_SEVERITY_MAPPING[log_level] - 1,
+            "SYSTEMD_UNIT": "unit-a",
+        }
         assert ll.filter_by_level(data) == data
 
     def test_no_systemd_unit(self):
@@ -638,9 +730,17 @@ class TestUnitLogLevels(TestCase):
     def test_unit_glob_matching(self):
         log_level = "INFO"
         ll = UnitLogLevel("test", [{"service_glob": "unit-a*", "log_level": log_level}])
-        data = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unit-a-something"}
+        data = {
+            "Foo": "bar",
+            "PRIORITY": LOG_SEVERITY_MAPPING[log_level],
+            "SYSTEMD_UNIT": "unit-a-something",
+        }
         assert ll.filter_by_level(data) == data
-        data2 = {"Foo": "bar", "PRIORITY": LOG_SEVERITY_MAPPING[log_level], "SYSTEMD_UNIT": "unita-something"}
+        data2 = {
+            "Foo": "bar",
+            "PRIORITY": LOG_SEVERITY_MAPPING[log_level],
+            "SYSTEMD_UNIT": "unita-something",
+        }
         assert ll.filter_by_level(data2) == {}
 
 
@@ -668,10 +768,7 @@ class TestJournalObjectHandler(TestCase):
         self.priority_d = "INFO"
         self.unit_log_levels_d = UnitLogLevel(
             "unit_log_levels_d",
-            [{
-                "service_glob": "test-unit",
-                "log_level": self.priority_d
-            }],
+            [{"service_glob": "test-unit", "log_level": self.priority_d}],
         )
         self.sender_d.unit_log_levels = self.unit_log_levels_d
         self.sender_d.extra_field_values = {}
@@ -683,7 +780,7 @@ class TestJournalObjectHandler(TestCase):
             "sender_a": self.sender_a,
             "sender_b": self.sender_b,
             "sender_c": self.sender_c,
-            "sender_d": self.sender_d
+            "sender_d": self.sender_d,
         }
 
     def test_filtered_processing(self):
@@ -696,7 +793,13 @@ class TestJournalObjectHandler(TestCase):
         assert ({"a": 1, "b": 2}, 10) in sender_b_msgs
 
         largest_data = json.dumps(
-            OrderedDict(a=1, b=2, c=3, REALTIME_TIMESTAMP=1, timestamp=datetime.utcfromtimestamp(1)),
+            OrderedDict(
+                a=1,
+                b=2,
+                c=3,
+                REALTIME_TIMESTAMP=1,
+                timestamp=datetime.utcfromtimestamp(1),
+            ),
             default=default_json_serialization,
         ).encode("utf-8")
         assert len(self.sender_c.msg_buffer.messages) == 1
@@ -719,7 +822,10 @@ class TestJournalObjectHandler(TestCase):
         for priority in LOG_SEVERITY_MAPPING.values():
             if priority <= LOG_SEVERITY_MAPPING[self.priority_d]:
                 expected_results += 1
-            jobject = JournalObject(entry=OrderedDict(SYSTEMD_UNIT="test-unit", PRIORITY=priority), cursor=10)
+            jobject = JournalObject(
+                entry=OrderedDict(SYSTEMD_UNIT="test-unit", PRIORITY=priority),
+                cursor=10,
+            )
             handler = JournalObjectHandler(jobject, self.reader, self.pump)
             assert handler.process()[0] is True
         sender_d_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_d.msg_buffer.messages]
@@ -783,9 +889,7 @@ def test_es_sender():
             json={
                 "name": "eeee",
                 "cluster_name": "im_cluster",
-                "version": {
-                    "number": "7.10.2"
-                }
+                "version": {"number": "7.10.2"},
             },
         ),
     )
@@ -803,7 +907,11 @@ def test_es_sender():
         ),
     )
     es = ElasticsearchSender(
-        name="es", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"elasticsearch_url": url}
+        name="es",
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+        config={"elasticsearch_url": url},
     )
     assert es.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
 
@@ -818,9 +926,7 @@ def test_os_sender():
             json={
                 "name": "oooo",
                 "cluster_name": "im_cluster",
-                "version": {
-                    "number": "1.2.4"
-                }
+                "version": {"number": "1.2.4"},
             },
         ),
     )
@@ -838,7 +944,11 @@ def test_os_sender():
         ),
     )
     opensearch_sender = OpenSearchSender(
-        name="os", reader=mock.Mock(), stats=mock.Mock(), field_filter=None, config={"opensearch_url": url}
+        name="os",
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+        config={"opensearch_url": url},
     )
     assert opensearch_sender.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
 
@@ -850,10 +960,9 @@ def test_awscloudwatch_sender():
         stubber.add_client_error("create_log_group", service_error_code="ResourceAlreadyExistsException")
         stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response(
-            "describe_log_streams", {"logStreams": [{
-                "logStreamName": "stream",
-                "uploadSequenceToken": "token"
-            }]}, {"logGroupName": "group"}
+            "describe_log_streams",
+            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
+            {"logGroupName": "group"},
         )
         sender = AWSCloudWatchSender(
             name="awscloudwatch",
@@ -862,21 +971,20 @@ def test_awscloudwatch_sender():
             field_filter=None,
             config={
                 "aws_cloudwatch_log_group": "group",
-                "aws_cloudwatch_log_stream": "stream"
+                "aws_cloudwatch_log_stream": "stream",
             },
-            aws_cloudwatch_logs=logs
+            aws_cloudwatch_logs=logs,
         )
         assert sender._next_sequence_token == "token"  # pylint: disable=protected-access
 
     with Stubber(logs) as stubber:
         stubber.add_response(
-            "put_log_events", {
-                "ResponseMetadata": {
-                    "HTTPStatusCode": 200
-                },
+            "put_log_events",
+            {
+                "ResponseMetadata": {"HTTPStatusCode": 200},
                 "nextSequenceToken": "token1",
-                "rejectedLogEventsInfo": {}
-            }
+                "rejectedLogEventsInfo": {},
+            },
         )
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._next_sequence_token == "token1"  # pylint: disable=protected-access
@@ -886,20 +994,17 @@ def test_awscloudwatch_sender():
         expected_args = {
             "logGroupName": "group",
             "logStreamName": "stream",
-            "logEvents": [{
-                "timestamp": 123456789000,
-                "message": '{"MESSAGE": "Hello World!"}'
-            }],
-            "sequenceToken": "token1"
+            "logEvents": [{"timestamp": 123456789000, "message": '{"MESSAGE": "Hello World!"}'}],
+            "sequenceToken": "token1",
         }
         stubber.add_response(
-            "put_log_events", {
-                "ResponseMetadata": {
-                    "HTTPStatusCode": 200
-                },
+            "put_log_events",
+            {
+                "ResponseMetadata": {"HTTPStatusCode": 200},
                 "nextSequenceToken": "token2",
-                "rejectedLogEventsInfo": {}
-            }, expected_args
+                "rejectedLogEventsInfo": {},
+            },
+            expected_args,
         )
         with mock.patch("time.time", return_value=123456789):
             sender.send_messages(messages=[b'{"MESSAGE": "Hello World!"}'], cursor=None)
@@ -910,20 +1015,22 @@ def test_awscloudwatch_sender():
         expected_args = {
             "logGroupName": "group",
             "logStreamName": "stream",
-            "logEvents": [{
-                "timestamp": 1590581737308,
-                "message": '{"REALTIME_TIMESTAMP": 1590581737.308352}'
-            }],
-            "sequenceToken": "token2"
+            "logEvents": [
+                {
+                    "timestamp": 1590581737308,
+                    "message": '{"REALTIME_TIMESTAMP": 1590581737.308352}',
+                }
+            ],
+            "sequenceToken": "token2",
         }
         stubber.add_response(
-            "put_log_events", {
-                "ResponseMetadata": {
-                    "HTTPStatusCode": 200
-                },
+            "put_log_events",
+            {
+                "ResponseMetadata": {"HTTPStatusCode": 200},
                 "nextSequenceToken": "token2",
-                "rejectedLogEventsInfo": {}
-            }, expected_args
+                "rejectedLogEventsInfo": {},
+            },
+            expected_args,
         )
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._next_sequence_token == "token2"  # pylint: disable=protected-access
@@ -934,10 +1041,9 @@ def test_awscloudwatch_sender():
         stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response(
-            "describe_log_streams", {"logStreams": [{
-                "logStreamName": "stream",
-                "uploadSequenceToken": "token"
-            }]}, {"logGroupName": "group"}
+            "describe_log_streams",
+            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
+            {"logGroupName": "group"},
         )
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._connected  # pylint: disable=protected-access
@@ -948,10 +1054,9 @@ def test_awscloudwatch_sender():
         stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response(
-            "describe_log_streams", {"logStreams": [{
-                "logStreamName": "stream",
-                "uploadSequenceToken": "token"
-            }]}, {"logGroupName": "group"}
+            "describe_log_streams",
+            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
+            {"logGroupName": "group"},
         )
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._connected  # pylint: disable=protected-access
@@ -979,9 +1084,9 @@ def test_awscloudwatch_sender_init():
                 field_filter=None,
                 config={
                     "aws_cloudwatch_log_group": "group",
-                    "aws_cloudwatch_log_stream": "stream"
+                    "aws_cloudwatch_log_stream": "stream",
                 },
-                aws_cloudwatch_logs=logs
+                aws_cloudwatch_logs=logs,
             )
 
     # Test that AWSCloudWatchSender initializes correctly when init is retried
@@ -995,10 +1100,9 @@ def test_awscloudwatch_sender_init():
         stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response(
-            "describe_log_streams", {"logStreams": [{
-                "logStreamName": "stream",
-                "uploadSequenceToken": "token"
-            }]}, {"logGroupName": "group"}
+            "describe_log_streams",
+            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
+            {"logGroupName": "group"},
         )
         sender = AWSCloudWatchSender(
             name="awscloudwatch",
@@ -1007,9 +1111,9 @@ def test_awscloudwatch_sender_init():
             field_filter=None,
             config={
                 "aws_cloudwatch_log_group": "group",
-                "aws_cloudwatch_log_stream": "stream"
+                "aws_cloudwatch_log_stream": "stream",
             },
-            aws_cloudwatch_logs=logs
+            aws_cloudwatch_logs=logs,
         )
         # _connected is set to True after initialization is completed
         assert sender._connected  # pylint: disable=protected-access
@@ -1025,10 +1129,9 @@ def test_awscloudwatch_sender_init():
         stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
         stubber.add_response(
-            "describe_log_streams", {"logStreams": [{
-                "logStreamName": "stream",
-                "uploadSequenceToken": "token"
-            }]}, {"logGroupName": "group"}
+            "describe_log_streams",
+            {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
+            {"logGroupName": "group"},
         )
         sender = AWSCloudWatchSender(
             name="awscloudwatch",
@@ -1037,9 +1140,9 @@ def test_awscloudwatch_sender_init():
             field_filter=None,
             config={
                 "aws_cloudwatch_log_group": "group",
-                "aws_cloudwatch_log_stream": "stream"
+                "aws_cloudwatch_log_stream": "stream",
             },
-            aws_cloudwatch_logs=logs
+            aws_cloudwatch_logs=logs,
         )
         # _connected is set to True after initialization is completed
         assert sender._connected  # pylint: disable=protected-access
@@ -1057,12 +1160,9 @@ def test_single_sender_init_fail():
                 "aws_cloudwatch_log_stream": "stream",
                 "aws_region": "us-east-1",
                 "aws_access_key_id": "key",
-                "aws_secret_access_key": "incorrect"
+                "aws_secret_access_key": "incorrect",
             },
-            "cafe": {
-                "output_type": "file",
-                "file_output": "/tmp/journalpump_test.log"
-            }
+            "cafe": {"output_type": "file", "file_output": "/tmp/journalpump_test.log"},
         }
     }
 
@@ -1118,22 +1218,22 @@ def test_single_sender_init_fail():
     # Now we should have both "bar" and "cafe"
     assert len(journal_reader.senders) == 2
     assert sorted(list(journal_reader.senders.keys())) == ["bar", "cafe"]
-    assert journal_reader._initialized_senders == {"bar", "cafe"}  # pylint: disable=protected-access
+    assert journal_reader._initialized_senders == {  # pylint: disable=protected-access
+        "bar",
+        "cafe",
+    }  # pylint: disable=protected-access
     assert journal_reader.get_write_limit_bytes() == _5_MB
     assert journal_reader.get_write_limit_message_count() == 50000
 
 
 @pytest.mark.parametrize(
-    "has_persistent_files,has_runtime_files", ([True, True], [True, False], [False, False], [False, True])
+    "has_persistent_files,has_runtime_files",
+    ([True, True], [True, False], [False, False], [False, True]),
 )
 def test_journalpump_init_journal_files(tmpdir, has_persistent_files, has_runtime_files):
     journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
-        "field_filters": {
-            "filter_a": {
-                "fields": ["message"]
-            }
-        },
+        "field_filters": {"filter_a": {"fields": ["message"]}},
         "readers": {
             "foo": {
                 "senders": {
@@ -1157,8 +1257,9 @@ def test_journalpump_init_journal_files(tmpdir, has_persistent_files, has_runtim
     for rn, r in a.readers.items():
         assert rn == "foo"
 
-        with mock.patch.object(PumpReader, "has_persistent_files", return_value=has_persistent_files), \
-                mock.patch.object(PumpReader, "has_runtime_files", return_value=has_runtime_files):
+        with mock.patch.object(PumpReader, "has_persistent_files", return_value=has_persistent_files), mock.patch.object(
+            PumpReader, "has_runtime_files", return_value=has_runtime_files
+        ):
             r.create_journald_reader_if_missing()
 
         if not has_persistent_files and not has_runtime_files:
