@@ -1,7 +1,9 @@
 from threading import Lock, Thread
+from typing import Dict, Optional
 
 import logging
 import random
+import re
 import sys
 import time
 
@@ -24,13 +26,17 @@ def _convert_to_health(*, running, connected):
 
 
 class Tagged:
+    unsafe_characters = re.compile(r"[^\w_\-]+")
+
     def __init__(self, tags=None, **kw):
         self._tags = (tags or {}).copy()
         self._tags.update(kw)
 
-    def make_tags(self, tags=None):
+    def make_tags(self, tags: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         output = self._tags.copy()
-        output.update(tags or {})
+        if tags:
+            for tag_name, tag_value in tags.items():
+                output[tag_name] = self.unsafe_characters.sub("_", tag_value).strip("_")
         return output
 
     def replace_tags(self, tags):
@@ -84,7 +90,7 @@ class LogSender(Thread, Tagged):
         unit_log_levels=None,
         extra_field_values=None,
         tags=None,
-        msg_buffer_max_length=50000
+        msg_buffer_max_length=50000,
     ):
         # Set as daemon, so that an exception in the main thread will not cause the
         # program to hang indefinitely. It's preferable to exit (and get restarted by systemd).

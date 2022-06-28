@@ -11,11 +11,12 @@ import socket
 
 
 class StatsClient:
-    def __init__(self, host="127.0.0.1", port=8125, tags=None):
+    def __init__(self, host="127.0.0.1", port=8125, tags=None, prefix=""):
         self._dest_addr = (host, port)
         self.log = logging.getLogger("StatsClient")
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._tags = tags or {}
+        self._prefix = prefix
 
     def gauge(self, metric, value, tags=None):
         self._send(metric, b"g", value, tags)
@@ -34,19 +35,13 @@ class StatsClient:
         all_tags.update(tags or {})
         self.increase("exception", tags=all_tags)
 
-    def _send(self, metric, metric_type, value, tags):
+    def _send(self, metric: str, metric_type: bytes, value, tags):
         if None in self._dest_addr:
             # stats sending is disabled
             return
 
         # format: "user.logins,service=payroll,region=us-west:1|c"
-        parts = [
-            metric.encode("utf-8"),
-            b":",
-            str(value).encode("utf-8"),
-            b"|",
-            metric_type,
-        ]
+        parts = [(self._prefix + metric).encode("utf-8"), b":", str(value).encode("utf-8"), b"|", metric_type]
         send_tags = self._tags.copy()
         send_tags.update(tags or {})
         for tag, tag_value in send_tags.items():

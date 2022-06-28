@@ -116,6 +116,7 @@ Example::
       "statsd":   {
           "host": "127.0.0.1",
           "port": 12345,
+          "prefix": "user-",
           "tags": {
               "sometag": "somevalue"
           }
@@ -134,6 +135,8 @@ Enables metrics sending to a statsd daemon that supports the influxdb-statsd
 / telegraf syntax with tags.
 
 The ``tags`` setting can be used to enter optional tag values for the metrics.
+
+The ``prefix`` setting can be used to enter an optional prefix for all metric names.
 
 Metrics sending follows the `Telegraf spec`_.
 
