@@ -10,6 +10,7 @@ from typing import Any, Dict, Set, Union
 
 import enum
 import json
+import re
 import time
 
 
@@ -71,6 +72,8 @@ class Config:
 class _EsOsLogSenderBase(LogSender):
 
     _DEFAULT_MAX_SENDER_INTERVAL = 10.0
+
+    _INDICIES_URL_REDACTION_REGEXP = r"(\w*?://[A-Za-z0-9\-._~%!$&'()*+,;=]*)(:)([A-Za-z0-9\-._~%!$&'()*+,;=]*)(@)"
 
     _ONE_HOUR_LAST_INDEX_CHECK = 3600
 
@@ -171,7 +174,8 @@ class _EsOsLogSenderBase(LogSender):
         try:
             es_available = self._load_indices()
             if not es_available:
-                self.log.warning("Waiting for connection to %s", self._indices_url)
+                redacted_url = re.sub(self._INDICIES_URL_REDACTION_REGEXP, r"\1\2[REDACTED]\4", self._indices_url)
+                self.log.warning("Waiting for connection to %s", redacted_url)
                 self._backoff()
                 return False
             for msg in messages:
