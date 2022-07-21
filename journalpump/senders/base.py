@@ -26,7 +26,10 @@ def _convert_to_health(*, running, connected):
 
 
 class Tagged:
-    unsafe_characters = re.compile(r"[^\w_\-]+")
+    # See https://github.com/statsd/statsd/blob/9cf77d87855bcb69a8663135f59aa23825db9797/stats.js#L164-L172
+    unsafe_tag_name_chars = re.compile(r"[^\w_\-]+")
+    # See journalpump/statsd.py, these chars have semantic meaning in the statsd protocol
+    unsafe_tag_value_chars = re.compile(r"[\s\|=:]+")
 
     def __init__(self, tags=None, **kw):
         self._tags = (tags or {}).copy()
@@ -36,7 +39,9 @@ class Tagged:
         output = self._tags.copy()
         if tags:
             for tag_name, tag_value in tags.items():
-                output[tag_name] = self.unsafe_characters.sub("_", tag_value).strip("_")
+                sanitized_name = self.unsafe_tag_name_chars.sub("_", tag_name).strip("_")
+                sanitized_value = self.unsafe_tag_value_chars.sub("_", tag_value).strip("_")
+                output[sanitized_name] = sanitized_value
         return output
 
     def replace_tags(self, tags):
