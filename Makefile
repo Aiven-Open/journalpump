@@ -19,11 +19,12 @@ py-egg:
 
 .PHONY: coverage
 coverage:
-	$(PYTHON) -m pytest $(PYTEST_ARG) --cov-report term-missing --cov journalpump test/
+	$(PYTHON) -m pytest $(PYTEST_ARG) --cov-report term-missing --cov-report xml:coverage.xml \
+		--cov journalpump test/
 
 clean:
 	$(RM) -r *.egg-info/ build/ dist/
-	$(RM) ../journalpump_* test-*.xml
+	$(RM) ../journalpump_* test-*.xml coverage.xml
 
 deb:
 	cp debian/changelog.in debian/changelog
