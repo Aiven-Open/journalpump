@@ -3,6 +3,8 @@ journalpump |BuildStatus|_
 
 .. |BuildStatus| image:: https://github.com/aiven/journalpump/actions/workflows/build.yml/badge.svg?branch=master
 .. _BuildStatus: https://github.com/aiven/journalpump/actions
+.. image:: https://codecov.io/gh/aiven/journalpump/branch/master/graph/badge.svg?token=nLr7M7hvCx
+   :target: https://codecov.io/gh/aiven/journalpump
 
 journalpump is a daemon that takes log messages from journald and pumps them
 to a given output.  Currently supported outputs are Elasticsearch, Apache Kafka®,
