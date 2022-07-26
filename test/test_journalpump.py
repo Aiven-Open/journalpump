@@ -669,7 +669,7 @@ class TestUnitLogLevels(TestCase):
             "PRIORITY": LOG_SEVERITY_MAPPING[log_level],
             "SYSTEMD_UNIT": "unit-b",
         }
-        assert ll.filter_by_level(data) == {}
+        assert ll.filter_by_level(data) == data
 
     def test_empty_log_levels(self):
         log_level = "INFO"
@@ -728,7 +728,7 @@ class TestUnitLogLevels(TestCase):
         assert ll.filter_by_level(data) == data
 
     def test_unit_glob_matching(self):
-        log_level = "INFO"
+        log_level = "WARNING"
         ll = UnitLogLevel("test", [{"service_glob": "unit-a*", "log_level": log_level}])
         data = {
             "Foo": "bar",
@@ -738,10 +738,16 @@ class TestUnitLogLevels(TestCase):
         assert ll.filter_by_level(data) == data
         data2 = {
             "Foo": "bar",
-            "PRIORITY": LOG_SEVERITY_MAPPING[log_level],
-            "SYSTEMD_UNIT": "unita-something",
+            "PRIORITY": LOG_SEVERITY_MAPPING["INFO"],
+            "SYSTEMD_UNIT": "unit-a-something-else",
         }
         assert ll.filter_by_level(data2) == {}
+        data3 = {
+            "Foo": "bar",
+            "PRIORITY": LOG_SEVERITY_MAPPING["WARNING"],
+            "SYSTEMD_UNIT": "unita",
+        }
+        assert ll.filter_by_level(data3) == data3
 
 
 class TestJournalObjectHandler(TestCase):

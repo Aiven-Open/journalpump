@@ -612,9 +612,9 @@ class UnitLogLevel:
     @lru_cache(maxsize=100)
     def _unit_match_level_glob(self, *, unit: str, priority: int) -> bool:
         for level in self.levels:
-            if fnmatch.fnmatch(unit, level["service_glob"]) and priority <= LOG_SEVERITY_MAPPING[level["log_level"]]:
-                return True
-        return False
+            if fnmatch.fnmatch(unit, level["service_glob"]) and priority > LOG_SEVERITY_MAPPING[level["log_level"]]:
+                return False
+        return True
 
 
 class JournalObjectHandler:
