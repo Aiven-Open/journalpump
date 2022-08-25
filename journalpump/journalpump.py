@@ -536,6 +536,10 @@ class JournalReader(Tagged):
             tags = {}
             for field, regex in search["fields"].items():
                 line = entry.get(field, "")
+
+                if isinstance(line, int):
+                    line = str(line)
+
                 if not line:
                     all_match = False
                     break

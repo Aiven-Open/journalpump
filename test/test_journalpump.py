@@ -315,7 +315,7 @@ def test_journal_reader_tagging(tmpdir):
     entry = JournalObject(
         entry={
             "MESSAGE": "CPU0: Core temperature above threshold, cpu clock throttled (total events = 1)",
-            "PRIORITY": "2",
+            "PRIORITY": 2,
             "SYSLOG_FACILITY": "0",
             "SYSLOG_IDENTIFIER": "kernel",
         }
@@ -335,7 +335,7 @@ def test_journal_reader_tagging(tmpdir):
     entry = JournalObject(
         entry={
             "MESSAGE": "CPU1: on fire",
-            "PRIORITY": "1",
+            "PRIORITY": 1,
             "SYSLOG_FACILITY": "0",
             "SYSLOG_IDENTIFIER": "kernel",
         }
