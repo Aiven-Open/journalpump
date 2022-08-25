@@ -48,7 +48,10 @@ def _message_sender(uid: int, message_socket_path: str, queue: multiprocessing.J
     s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     s.connect(message_socket_path)
 
-    while msg := queue.get():
+    while True:
+        msg = queue.get()
+        if not msg:
+            break
         s.sendall(_encode_message(msg))
         queue.task_done()
 
@@ -182,7 +185,10 @@ def main():
 
     with JournalControlProcess(logs_dir=logs_dir, uid=uid) as journald_process:
 
-        while entry := input():
+        while True:
+            entry = input()
+            if not entry:
+                break
             action, *args = entry.strip().split(" ", 1)
 
             if action == "rotate":
