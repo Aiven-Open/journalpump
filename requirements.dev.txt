@@ -10,7 +10,7 @@ pytest-xdist
 types-requests
 yapf==0.27.0
 flake8
-isort==4.3.21
+isort==5.12
 coverage
 coveralls
 pre-commit
