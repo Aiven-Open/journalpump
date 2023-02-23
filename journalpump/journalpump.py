@@ -367,10 +367,23 @@ class JournalReader(Tagged):
             sender.refresh_stats()
 
     def read_next(self):
+        """Read next message from journal reader."""
         if not self.journald_reader:
             return None
 
-        jobject: JournalObject = cast(JournalObject, next(self.journald_reader))
+        try:
+            jobject: JournalObject = cast(JournalObject, next(self.journald_reader))
+        except OSError as ex:
+            if "Bad message" in str(ex):
+                tags = self.make_tags()
+                self.stats.increase("journal.corrupted_log_entry", tags=tags)
+                self.log.warning("Corrupted log entry in %s", self.name)
+                return None
+            raise ex
+        except StopIteration:
+            self.log.debug("No more journal entries to read")
+            return None
+
         if jobject.cursor:
             self.cursor = jobject.cursor
             self.last_journal_msg_time = time.monotonic()
@@ -425,10 +438,10 @@ class JournalReader(Tagged):
             self.journald_reader.seek_cursor(seek_to)  # pylint: disable=no-member
             # Now the cursor points to the last read item, step over it so that we
             # do not read the same item twice
-            self.journald_reader._next()  # pylint: disable=protected-access
+            self.read_next()
         elif self.initial_position == "tail":
             self.journald_reader.seek_tail()
-            self.journald_reader._next()  # pylint: disable=protected-access
+            self.read_next()
         elif self.initial_position == "head":
             self.journald_reader.seek_head()
         elif isinstance(self.initial_position, int):
@@ -886,9 +899,6 @@ class JournalPump(ServiceDaemon, Tagged):
                 return SingleMessageReadResult(has_more=False, bytes_read=None)
 
             return JournalObjectHandler(jobject, reader, self).process()
-        except StopIteration:
-            self.log.debug("No more journal entries to read")
-            return SingleMessageReadResult(has_more=False, bytes_read=None)
         except Exception as ex:  # pylint: disable=broad-except
             self.log.exception("Unexpected exception while handling entry for %s", reader.name)
             self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))

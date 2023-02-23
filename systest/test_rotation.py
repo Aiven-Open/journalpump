@@ -26,8 +26,11 @@ class LogFiles:
     * Delete old file
     """
 
-    def __init__(self, destination: Path) -> None:
-        orig_path = Path(__file__).parent / "data" / "rotated_logs"
+    ROTATED_LOGS = "rotated_logs"
+    BAD_MESSAGES = "bad_msg"
+
+    def __init__(self, destination: Path, source: str) -> None:
+        orig_path = Path(__file__).parent / "data" / source
         self._orig_log_files: List[Path] = list(reversed(sorted(orig_path.glob("*.journal"))))
         self._rotate_to: Optional[Path] = None
         self._destination: Path = destination
@@ -66,7 +69,7 @@ class LogFiles:
 def test_log_rotator(tmp_path):
     log_path = tmp_path / "logs"
     log_path.mkdir()
-    log_file_handler = LogFiles(log_path)
+    log_file_handler = LogFiles(log_path, source=LogFiles.ROTATED_LOGS)
 
     assert len(list(log_path.glob("*"))) == 0
 
@@ -206,7 +209,7 @@ def fixture_journalpump_factory(mocker, tmp_path, journal_log_dir):
 def test_journalpump_rotated_files(journalpump_factory, journal_log_dir):
     stub_sender = StubSender()
     journalpump_factory(stub_sender)
-    lf = LogFiles(journal_log_dir)
+    lf = LogFiles(journal_log_dir, source=LogFiles.ROTATED_LOGS)
     lf.rotate()
     messages = stub_sender.get_messages(10, timeout=3)
     assert set(m["MESSAGE"] for m in messages) == {f"Message {i}" for i in range(0, 10)}
@@ -224,7 +227,7 @@ def test_journalpump_rotated_files_threshold(journalpump_factory, journal_log_di
 
     pump = journalpump_factory(stub_sender, pump_conf={"msg_buffer_max_length": msg_buffer_max_length})
 
-    lf = LogFiles(journal_log_dir)
+    lf = LogFiles(journal_log_dir, source=LogFiles.ROTATED_LOGS)
     lf.rotate()
 
     reader: JournalReader = next(iter(pump.readers.values()))
@@ -246,7 +249,7 @@ def test_journalpump_rotated_files_threshold_bytes(journalpump_factory, journal_
 
     pump = journalpump_factory(stub_sender, pump_conf={"msg_buffer_max_bytes": size})
 
-    lf = LogFiles(journal_log_dir)
+    lf = LogFiles(journal_log_dir, source=LogFiles.ROTATED_LOGS)
     lf.rotate()
     lf.rotate()
     lf.rotate()
@@ -298,7 +301,7 @@ def test_journalpump_rotated_files_deletion(journalpump_factory, journal_log_dir
         assert len(messages) == 1
         return messages[0]["MESSAGE"]
 
-    lf = LogFiles(journal_log_dir)
+    lf = LogFiles(journal_log_dir, source=LogFiles.ROTATED_LOGS)
     lf.rotate()
 
     assert _get_message() == "Message 0"
@@ -379,7 +382,7 @@ def test_journalpump_stats_sender(mocker, journalpump_factory, journal_log_dir):
         },
     )
 
-    lf = LogFiles(journal_log_dir)
+    lf = LogFiles(journal_log_dir, source=LogFiles.ROTATED_LOGS)
 
     lf.rotate()
     lf.rotate()
@@ -387,3 +390,13 @@ def test_journalpump_stats_sender(mocker, journalpump_factory, journal_log_dir):
     assert _wait_for(
         lambda: stats.get("stats-messages") == 13, timeout=3
     ), f"Not enough messages mathing search criteria got {stats.get('stats-messages')}"
+
+
+def test_journalpump_bad_message(journalpump_factory, journal_log_dir):
+    stub_sender = StubSender()
+    journalpump_factory(stub_sender)
+    lf = LogFiles(journal_log_dir, source=LogFiles.BAD_MESSAGES)
+    lf.rotate()
+    lf.rotate()
+    messages = stub_sender.get_messages(10, timeout=3)
+    assert set(m["MESSAGE"] for m in messages) == {f"Message {i}" for i in range(10, 20)}
