@@ -312,6 +312,9 @@ class JournalReader(Tagged):
         is not discarded by the statsd server.
         """
         self.persistent_gauges[metric] = (value, tags)
+        if not value:
+            # Zeros won't be resent by the loop so we send them only once.
+            self.stats.gauge(metric, value=value, tags=tags)
 
     def get_state(self):
         sender_state = {name: sender.get_state() for name, sender in self.senders.items()}
@@ -987,7 +990,9 @@ class JournalPump(ServiceDaemon, Tagged):
         if self.stats:
             for reader in self.readers.values():
                 for metric, (value, tags) in reader.persistent_gauges.items():
-                    self.stats.gauge(metric=metric, value=value, tags=tags)
+                    # We don't resend zeros as 'no errors' is not interesting.
+                    if value:
+                        self.stats.gauge(metric=metric, value=value, tags=tags)
 
     def run(self):  # pylint: disable=too-many-statements
         last_stats_time = 0
