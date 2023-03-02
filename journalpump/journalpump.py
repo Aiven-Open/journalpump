@@ -328,6 +328,8 @@ class JournalReader(Tagged):
         now = time.monotonic()
         if (now - self.last_stats_send_time) < 10.0:
             return
+        if not self.secret_filter_matches:
+            return
         tags = self.make_tags()
         self.stats.increase("journal.secret_filter_match", self.secret_filter_matches, tags=tags)
         self.secret_filter_matches = 0
