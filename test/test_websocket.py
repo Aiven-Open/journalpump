@@ -6,7 +6,7 @@ from journalpump.senders.websocket import WebsocketSender
 import asyncio
 import json
 import logging
-import snappy
+import snappy  # pylint: disable=import-error
 import threading
 import time
 import websockets
@@ -37,6 +37,7 @@ class WebsocketMockServer(threading.Thread):
 
     async def process_connection(self, websocket, path):
         self.log.info("WS: Client connection accepted on %s", path)
+        pending = set()
 
         try:
             incoming_websocket_task = asyncio.create_task(self.handle_incoming_websocket_message(connection=websocket))

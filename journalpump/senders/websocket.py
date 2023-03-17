@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import enum
 import logging
-import snappy
+import snappy  # pylint: disable=import-error
 import socket
 import ssl
 import time

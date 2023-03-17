@@ -1,3 +1,4 @@
+SHELL=/bin/bash
 short_ver = 2.1.3
 long_ver = $(shell git describe --long 2>/dev/null || echo $(short_ver)-0-unknown-g`git describe --always`)
 
@@ -9,6 +10,10 @@ PYLINT_DIRS = journalpump/ test/ systest/
 .PHONY: unittest
 unittest:
 	$(PYTHON) -m pytest -vv test/
+
+.PHONY: pylint
+pylint:
+	$(PYTHON) -m pylint --rcfile .pylintrc $(PYLINT_DIRS) || exit $$(($$?&2))  # only fail on errors
 
 .PHONY: systest
 systest:
