@@ -15,22 +15,26 @@ jobs:
     strategy:
       matrix:
         # only use oldest and newest version for the lint step
-        python-version: ["3.10"]
+        python-version: ["3.9", "3.11"]
 
     steps:
 
       - id: checkout-code
         uses: actions/checkout@v2
 
+      - id: system-dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsystemd-dev libsnappy-dev
+
       - id: prepare-python
         uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python-version }}
 
-      - id: dependencies
+      - id: python-dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libsystemd-dev
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements.dev.txt
 
@@ -43,23 +47,24 @@ jobs:
     strategy:
       max-parallel: 4
       matrix:
-        python-version: [3.8, "3.10"]
+        python-version: ["3.9", "3.10", "3.11"]
 
     steps:
       - id: checkout-code
         uses: actions/checkout@v2
+
+      - id: system-dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsystemd-dev libsnappy-dev
 
       - id: prepare-python
         uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python-version }}
 
-      - id: dependencies
+      - id: python-dependencies
         run: |
-          sudo apt-get update
-          # Setup build deps
-          sudo apt-get install -y libsystemd-dev
-          # Setup common python dependencies
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install --upgrade -r requirements.dev.txt

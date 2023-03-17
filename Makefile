@@ -10,6 +10,10 @@ PYLINT_DIRS = journalpump/ test/ systest/
 unittest:
 	$(PYTHON) -m pytest -vv test/
 
+.PHONY: pylint
+pylint:
+	$(PYTHON) -m pylint --rcfile .pylintrc $(PYLINT_DIRS)
+
 .PHONY: systest
 systest:
 	$(PYTHON) -m pytest -vv systest/
