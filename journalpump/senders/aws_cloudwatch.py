@@ -1,7 +1,6 @@
 from .base import LogSender, SenderInitializationError
+from botocore import exceptions, session
 
-import boto3
-import botocore
 import json
 import time
 
@@ -32,7 +31,8 @@ class AWSCloudWatchSender(LogSender):
                 kwargs["aws_access_key_id"] = self.config.get("aws_access_key_id")
             if self.config.get("aws_secret_access_key") is not None:
                 kwargs["aws_secret_access_key"] = self.config.get("aws_secret_access_key")
-            self._logs = boto3.client("logs", **kwargs)
+            botocore_session = session.get_session()
+            self._logs = botocore_session.create_client("logs", **kwargs)
 
         # Catch access denied exception(e.g. due to erroneous credentials)
         attempts_left = MAX_INIT_TRIES
@@ -44,17 +44,17 @@ class AWSCloudWatchSender(LogSender):
                 # or log stream may already exist
                 try:
                     self._logs.create_log_group(logGroupName=self.log_group)
-                except botocore.exceptions.ClientError as err:
+                except exceptions.ClientError as err:
                     # Ignore ResourceAlreadyExistsException, raise other errors
                     if err.response["Error"]["Code"] != "ResourceAlreadyExistsException":
                         raise
                 try:
                     self._logs.create_log_stream(logGroupName=self.log_group, logStreamName=self.log_stream)
-                except botocore.exceptions.ClientError as err:
+                except exceptions.ClientError as err:
                     # Ignore ResourceAlreadyExistsException, raise other errors
                     if err.response["Error"]["Code"] != "ResourceAlreadyExistsException":
                         raise
-            except botocore.exceptions.ClientError as err:
+            except exceptions.ClientError as err:
                 self.stats.unexpected_exception(ex=err, where="sender", tags=self.make_tags({"app": "journalpump"}))
                 # If we get AccessDenied, log and raise SenderInitializationError
                 # if too many attempts. SenderInitializationError is handled by
@@ -104,7 +104,7 @@ class AWSCloudWatchSender(LogSender):
             kwargs["sequenceToken"] = self._next_sequence_token
         try:
             response = self._logs.put_log_events(**kwargs)
-        except botocore.exceptions.ClientError as err:
+        except exceptions.ClientError as err:
             err_code = err.response["Error"]["Code"]
             err_msg = err.response["Error"]["Message"]
             self.mark_disconnected()
