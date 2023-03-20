@@ -14,7 +14,7 @@ setup(
         "requests",
         "websockets",
         "aiohttp-socks",
-        "boto3",
+        "botocore",
         "google-api-python-client",
         "oauth2client",
         "geoip2",
