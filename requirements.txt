@@ -3,7 +3,7 @@ requests
 websockets
 aiohttp-socks
 python-snappy
-botocore
+boto3
 google-api-python-client
 oauth2client
 geoip2
