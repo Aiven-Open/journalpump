@@ -26,7 +26,7 @@ from journalpump.util import default_json_serialization
 from time import sleep
 from unittest import mock, TestCase
 
-import botocore.session
+import boto3
 import json
 import pytest
 import re
@@ -209,14 +209,12 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
-        mock_session = mock.MagicMock(spec=botocore.session.Session)
-        mock_session.create_client = mock.Mock(return_value=MockCloudWatch())
-        with mock.patch("botocore.session.get_session", return_value=mock_session), mock.patch.object(
+        with mock.patch("boto3.client", new=MockCloudWatch()) as mock_client, mock.patch.object(
             PumpReader, "has_persistent_files", return_value=True
         ):
             r.create_journald_reader_if_missing()
             assert len(r.senders) == 1
-            mock_session.create_client.assert_called_once_with(
+            mock_client.assert_called_once_with(
                 "logs",
                 region_name="us-east-1",
                 aws_access_key_id="key",
@@ -962,8 +960,7 @@ def test_os_sender():
 
 
 def test_awscloudwatch_sender():
-    botocore_session = botocore.session.get_session()
-    logs = botocore_session.create_client("logs", region_name="us-east-1")
+    logs = boto3.client("logs", region_name="us-east-1")
 
     with Stubber(logs) as stubber:
         stubber.add_client_error("create_log_group", service_error_code="ResourceAlreadyExistsException")
@@ -1073,8 +1070,7 @@ def test_awscloudwatch_sender():
 
 
 def test_awscloudwatch_sender_init():
-    botocore_session = botocore.session.get_session()
-    logs = botocore_session.create_client("logs", region_name="us-east-1")
+    logs = boto3.client("logs", region_name="us-east-1")
 
     # Test that AWSCloudWatchSender correctly raises SenderInitializationError after
     # aws_cloudwatch.MAX_INIT_TRIES attempts
