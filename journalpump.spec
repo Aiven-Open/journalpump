@@ -5,10 +5,10 @@ Url:            http://github.com/aiven/journalpump
 Summary:        Pump messages from systemd journal to Elasticsearch, Kafka, Logplex or AWS CloudWatch
 License:        ASL 2.0
 Source0:        journalpump-rpm-src.tar.gz
-Requires:       python3-kafka, systemd-python3, python3-requests, python3-boto3, python3-google-api-client
+Requires:       python3-kafka, systemd-python3, python3-requests, python3-botocore, python3-google-api-client
 Requires:       python3-oauth2client, python3-geoip2, python3-typing-extensions
 Requires:	python3-websockets, python3-aiohttp-socks, python3-snappy
-BuildRequires:  python3-kafka, systemd-python3, python3-requests, python3-boto3, python3-google-api-client
+BuildRequires:  python3-kafka, systemd-python3, python3-requests, python3-botocore, python3-google-api-client
 BuildRequires:  python3-devel, python3-pytest, python3-pylint python3-responses
 BuildRequires:	python3-websockets, python3-aiohttp-socks, python3-snappy
 BuildArch:      noarch

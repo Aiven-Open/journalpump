@@ -502,7 +502,7 @@ AWS access key id used.
 AWS secret access key used.
 
 The AWS credentials and region are optional. In case they are not included
-credentials are configured automatically by the ``boto3`` module.
+credentials are configured automatically by the ``botocore`` module.
 
 The AWS credentials that are used need the following permissions:
 ``logs:CreateLogGroup``, ``logs:CreateLogStream``, ``logs:PutLogEvents``
