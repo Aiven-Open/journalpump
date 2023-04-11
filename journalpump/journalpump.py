@@ -549,6 +549,7 @@ class JournalReader(Tagged):
     def perform_searches(self, jobject):
         entry = jobject.entry
         results = {}
+        byte_fields = {}
         for search in self.searches:
             all_match = True
             tags = {}
@@ -563,12 +564,16 @@ class JournalReader(Tagged):
                     break
 
                 if isinstance(line, bytes):
-                    try:
-                        line = line.decode("utf-8")
-                    except UnicodeDecodeError:
-                        # best-effort decode failed
-                        all_match = False
-                        break
+                    if field in byte_fields:
+                        line = byte_fields[field]
+                    else:
+                        try:
+                            line = line.decode("utf-8")
+                        except UnicodeDecodeError:
+                            # best-effort decode failed
+                            all_match = False
+                            break
+                        byte_fields[field] = line
 
                 match = regex.search(line)
                 if not match:
