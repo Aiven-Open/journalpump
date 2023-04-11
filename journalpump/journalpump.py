@@ -492,8 +492,11 @@ class JournalReader(Tagged):
             search.setdefault("tags", {})
             search.setdefault("fields", {})
             output = copy.deepcopy(search)
-            for name, pattern in output["fields"].items():
+            message_pattern = output["fields"].pop("MESSAGE", None)
+            for name, pattern in sorted(output["fields"].items()):
                 output["fields"][name] = re.compile(pattern)
+            if message_pattern:
+                output["fields"]["MESSAGE"] = re.compile(message_pattern)
 
             for tag, value in search["tags"].items():
                 if "(" in value or ")" in value:

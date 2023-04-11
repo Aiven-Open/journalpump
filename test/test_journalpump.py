@@ -346,6 +346,49 @@ def test_journal_reader_tagging(tmpdir):
     assert result == {}
 
 
+def test_journal_reader_message_lazy_check(tmpdir):
+    config = {
+        "readers": {
+            "system": {
+                "journal_flags": ["SYSTEM"],
+                "searches": [
+                    {
+                        "name": "kernel.cpu.temperature",
+                        "fields": {
+                            "MESSAGE": r"(?P<cpu>CPU\d+): .*temperature.*",
+                            "SYSLOG_IDENTIFIER": r"^(?P<from>.*)$",
+                            "PRIORITY": r"^(?P<level>[0-4])$",  # emergency, alert, critical, error
+                            "SYSLOG_FACILITY": r"^0$",  # kernel only
+                        },
+                        "tags": {"section": "cputemp"},
+                    },
+                ],
+            },
+        },
+    }
+    journalpump_path = str(tmpdir.join("journalpump.json"))
+    with open(journalpump_path, "w") as fp:
+        fp.write(json.dumps(config))
+    pump = JournalPump(journalpump_path)
+    reader = pump.readers["system"]
+    bad_re = mock.MagicMock()
+    bad_re.search.side_effect = ValueError("Should not check MESSAGE")
+    reader.searches[0]["fields"]["MESSAGE"] = bad_re
+
+    # not matching entry: priority
+    entry = JournalObject(
+        entry={
+            "MESSAGE": "CPU0: Core temperature above threshold, cpu clock throttled (total events = 1)",
+            "PRIORITY": 5,
+            "SYSLOG_FACILITY": "0",
+            "SYSLOG_IDENTIFIER": "kernel",
+        }
+    )
+    result = reader.perform_searches(entry)
+    assert result == {}
+    bad_re.search.assert_not_called()
+
+
 class TestFieldFilter(TestCase):
     def test_whitelist(self):
         ff = FieldFilter("test", {"fields": ["_foo", "BAR"]})
