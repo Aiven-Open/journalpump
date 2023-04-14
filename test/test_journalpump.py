@@ -5,6 +5,7 @@ from datetime import datetime
 from journalpump import senders
 from journalpump.journalpump import (
     _5_MB,
+    check_match,
     CHUNK_SIZE,
     FieldFilter,
     JournalObject,
@@ -387,6 +388,68 @@ def test_journal_reader_message_lazy_check(tmpdir):
     result = reader.perform_searches(entry)
     assert result == {}
     bad_re.search.assert_not_called()
+
+
+def test_check_match_returns_true_if_match_filter_is_not_active() -> None:
+    assert check_match(entry={"MY_KEY": "my_value"}, match_key=None, match_value=None)
+
+
+def test_check_match_returns_true_if_there_is_a_match() -> None:
+    assert check_match(entry={"MY_KEY": "my_value"}, match_key="MY_KEY", match_value="my_value")
+
+
+def test_check_match_returns_true_if_there_is_a_match_on_none() -> None:
+    assert check_match(entry={"MY_KEY": None}, match_key="MY_KEY", match_value=None)
+    assert check_match(entry={"NOT_KEY": "value"}, match_key="MY_KEY", match_value=None)
+
+
+def test_check_match_returns_false_if_there_is_no_match() -> None:
+    assert not check_match(entry={"MY_KEY": "not_value"}, match_key="MY_KEY", match_value="my_value")
+    assert not check_match(entry={"NOT_KEY": "my_value"}, match_key="MY_KEY", match_value="my_value")
+
+
+def test_check_match_returns_false_if_there_is_no_match_on_none() -> None:
+    # This allows match_value=None to test for the lack of a value associated to a key
+    assert not check_match(entry={"MY_KEY": "my_value"}, match_key="MY_KEY", match_value=None)
+
+
+def test_journal_reader_can_filter_by_match_key() -> None:
+    journal_reader = JournalReader(
+        name="foo",
+        config={"match_key": "MY_KEY", "match_value": "my_value"},
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        searches=[],
+    )
+    assert journal_reader.check_match({"MY_KEY": "my_value"})
+    assert not journal_reader.check_match({"MY_KEY": "not_value"})
+
+
+def test_journal_reader_accepts_a_missing_match_value_in_config() -> None:
+    journal_reader = JournalReader(
+        name="foo",
+        config={"match_key": "MY_KEY"},
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        searches=[],
+    )
+    assert journal_reader.check_match({"MY_KEY": None})
+    assert not journal_reader.check_match({"MY_KEY": "something"})
+
+
+def test_journal_reader_accepts_a_missing_match_key_and_value_in_config() -> None:
+    journal_reader = JournalReader(
+        name="foo",
+        config={},
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        searches=[],
+    )
+    assert journal_reader.check_match({"MY_KEY": None})
+    assert journal_reader.check_match({"MY_KEY": "my_value"})
 
 
 class TestFieldFilter(TestCase):
