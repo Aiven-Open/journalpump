@@ -40,7 +40,7 @@ class ServiceDaemon:
         self.log = logging.getLogger(self.name)
         self.config_path = config_path
         self.config_file_ctime = None
-        self.config = None
+        self.config = {}
         self.require_config = require_config
         self.reload_config()
         self.running = True

@@ -302,6 +302,8 @@ defines the key to match against.
 
 If you want to match against a single journald field, this configuration key
 defines the value to match against.  Currently only equality is allowed.
+Note this means if you specify ``match_key`` and not ``match_value``, then the reader
+will match all entries that do not contain the ``match_key``.
 
 ``msg_buffer_max_length`` (default ``50000``)
 

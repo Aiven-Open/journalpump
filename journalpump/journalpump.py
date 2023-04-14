@@ -901,7 +901,7 @@ class JournalPump(ServiceDaemon, Tagged):
     def check_match(self, entry):
         if not self.config.get("match_key"):
             return True
-        if entry.get(self.config["match_key"]) == self.config["match_value"]:
+        if entry.get(self.config["match_key"]) == self.config.get("match_value"):
             return True
         return False
 
