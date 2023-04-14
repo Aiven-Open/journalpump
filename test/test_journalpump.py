@@ -452,6 +452,36 @@ def test_journal_reader_accepts_a_missing_match_key_and_value_in_config() -> Non
     assert journal_reader.check_match({"MY_KEY": "my_value"})
 
 
+@pytest.mark.parametrize("matching", [True, False])
+def test_journal_object_can_filter_by_match_key_on_the_reader(matching: bool) -> None:
+    reader = JournalReader(
+        name="foo",
+        config={"match_key": "MY_KEY", "match_value": "my_value"},
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        searches=[],
+    )
+    sender = mock.Mock()
+    sender.field_filter = FieldFilter("filter_a", {"fields": ["MESSAGE"]})
+    sender.extra_field_values = {}
+    sender.msg_buffer = MsgBuffer()
+    sender.unit_log_levels = None
+    reader.senders = {"my_sender": sender}
+    jobject = JournalObject(
+        entry=OrderedDict(MESSAGE="Hello", REALTIME_TIMESTAMP=1, MY_KEY="my_value" if matching else "not_value"),
+        cursor=10,
+    )
+    pump = mock.Mock()
+    handler = JournalObjectHandler(jobject, reader, pump)
+    assert handler.process()[0] is True
+    sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in sender.msg_buffer.messages]
+    if matching:
+        assert sender_a_msgs == [({"MESSAGE": "Hello"}, 10)]
+    else:
+        assert sender_a_msgs == []
+
+
 class TestFieldFilter(TestCase):
     def test_whitelist(self):
         ff = FieldFilter("test", {"fields": ["_foo", "BAR"]})
