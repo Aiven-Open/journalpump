@@ -10,7 +10,7 @@ from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
 from functools import lru_cache, reduce
 from systemd import journal
-from typing import cast, Dict, List, NamedTuple, Optional, Tuple, Type, Union
+from typing import Any, cast, Dict, List, Mapping, NamedTuple, Optional, Tuple, Type, Union
 
 import copy
 import datetime
@@ -602,6 +602,21 @@ class JournalReader(Tagged):
             search["hits"] = search.get("hits", 0) + 1
         return results
 
+    def check_match(self, entry: Mapping[str, Any]) -> bool:
+        return check_match(
+            entry=entry,
+            match_key=self.config.get("match_key"),
+            match_value=self.config.get("match_value"),
+        )
+
+
+def check_match(*, entry: Mapping[str, Any], match_key: Optional[str], match_value: Any) -> bool:
+    if not match_key:
+        return True
+    if entry.get(match_key) == match_value:
+        return True
+    return False
+
 
 class FieldFilter:
     def __init__(self, name, config):
@@ -673,6 +688,9 @@ class JournalObjectHandler:
                 return SingleMessageReadResult(has_more=True, bytes_read=None)
 
         if not self.pump.check_match(new_entry):
+            return SingleMessageReadResult(has_more=True, bytes_read=None)
+
+        if not self.reader.check_match(new_entry):
             return SingleMessageReadResult(has_more=True, bytes_read=None)
 
         # Redact secrets before other filtering for effective leak detection metrics
@@ -898,12 +916,12 @@ class JournalPump(ServiceDaemon, Tagged):
         except FileNotFoundError:
             return {}
 
-    def check_match(self, entry):
-        if not self.config.get("match_key"):
-            return True
-        if entry.get(self.config["match_key"]) == self.config.get("match_value"):
-            return True
-        return False
+    def check_match(self, entry: Mapping[str, Any]) -> bool:
+        return check_match(
+            entry=entry,
+            match_key=self.config.get("match_key"),
+            match_value=self.config.get("match_value"),
+        )
 
     def read_single_message(self, reader) -> SingleMessageReadResult:
         try:
