@@ -296,7 +296,9 @@ Controls where the readers starts when the journalpump is launched for the first
 ``match_key`` (default ``null``)
 
 If you want to match against a single journald field, this configuration key
-defines the key to match against.
+defines the key to match against. Due to a bug, ``match_key`` and ``match_value`` can
+also be specified in the root config (and then apply to all readers), but do not rely on
+this behaviour, as it may be deprecated at a future point in time.
 
 ``match_value`` (default ``null``)
 
