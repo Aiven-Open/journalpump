@@ -97,6 +97,7 @@ class SyslogTcpClient:
             protocol = "PLAINTEXT"
         if cacerts is not None or protocol == "SSL":
             self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+            self.ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
             self.ssl_context.verify_mode = ssl.CERT_REQUIRED
             if cacerts:
                 self.ssl_context.load_verify_locations(cacerts)
