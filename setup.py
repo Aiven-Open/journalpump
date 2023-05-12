@@ -7,7 +7,7 @@ setup(
     name="journalpump",
     version=os.getenv("VERSION") or __version__,
     zip_safe=False,
-    packages=find_packages(exclude=["test"]),
+    packages=find_packages(exclude=["test", "systest"]),
     extras_require={},
     install_requires=[
         "kafka-python",
