@@ -311,8 +311,9 @@ class JournalReader(Tagged):
         These values will be periodically re-sent, ensuring the value
         is not discarded by the statsd server.
         """
+        old_value, _ = self.persistent_gauges.get(metric, (-1, {}))  # Get the old value, using a non-zero placeholder
         self.persistent_gauges[metric] = (value, tags)
-        if not value:
+        if value == 0 and old_value != 0:
             # Zeros won't be resent by the loop so we send them only once.
             self.stats.gauge(metric, value=value, tags=tags)
 
