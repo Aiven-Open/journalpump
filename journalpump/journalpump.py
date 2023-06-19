@@ -306,15 +306,16 @@ class JournalReader(Tagged):
         # this occurs, or we exit.
         self.set_persistent_gauge(metric="sender.failed_to_start", value=self._failed_senders, tags=self.make_tags(tags))
 
-    def set_persistent_gauge(self, *, metric: str, value: int, tags: Dict[str, str]):
+    def set_persistent_gauge(self, *, metric: str, value: int, tags: Dict[str, str]) -> None:
         """Set/update a metric level (and tags) for a given metric.
         These values will be periodically re-sent, ensuring the value
         is not discarded by the statsd server.
         """
-        old_value, _ = self.persistent_gauges.get(metric, (-1, {}))  # Get the old value, using a non-zero placeholder
+        old_value, _ = self.persistent_gauges.get(metric, (None, None))
         self.persistent_gauges[metric] = (value, tags)
-        if value == 0 and old_value != 0:
+        if value == 0 and old_value:
             # Zeros won't be resent by the loop so we send them only once.
+            # However, only should send 0 when the previous value exists and is non-zero.
             self.stats.gauge(metric, value=value, tags=tags)
 
     def get_state(self):
