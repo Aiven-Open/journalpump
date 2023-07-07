@@ -16,7 +16,7 @@ setup(
         "aiohttp-socks",
         "botocore",
         "google-api-python-client",
-        "oauth2client",
+        "google-auth",
         "geoip2",
         "typing-extensions",
     ],
