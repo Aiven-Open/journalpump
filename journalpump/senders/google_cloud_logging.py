@@ -1,7 +1,8 @@
 from .base import LogSender
+from google.auth import default as get_application_default
+from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import Error as GoogleApiClientError
-from oauth2client.service_account import ServiceAccountCredentials
 
 import contextlib
 import json
@@ -30,10 +31,10 @@ class GoogleCloudLoggingSender(LogSender):
         self.log_id = config["google_cloud_logging_log_id"]
         self.resource_labels = config.get("google_cloud_logging_resource_labels", None)
         if google_service_account:
-            credentials = ServiceAccountCredentials.from_json_keyfile_dict(google_service_account)
-            self.project_id = google_service_account["project_id"]
+            credentials = Credentials.from_service_account_info(google_service_account)
+            self.project_id = credentials.project_id
         else:
-            credentials = ServiceAccountCredentials.get_application_default()
+            credentials = get_application_default()
 
         if googleapiclient_request_builder is not None:
             self._logs = build(

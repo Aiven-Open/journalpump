@@ -5,7 +5,7 @@ aiohttp-socks
 python-snappy
 botocore
 google-api-python-client
-oauth2client
+google-auth
 geoip2
 https://github.com/systemd/python-systemd/zipball/master
 typing-extensions
