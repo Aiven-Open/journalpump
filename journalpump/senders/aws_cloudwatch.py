@@ -21,6 +21,8 @@ class AWSCloudWatchSender(LogSender):
         self._init_logs()
 
     def _init_logs(self):
+        self.log.info("Initializing AWS CloudWatch")
+
         if self._logs is None:
             if self.log_group is None or self.log_stream is None:
                 raise Exception("AWS CloudWatch log group and stream names need to be configured")
@@ -76,15 +78,25 @@ class AWSCloudWatchSender(LogSender):
             else:
                 break
 
-        paginator = self._logs.get_paginator("describe_log_streams")
-        for page in paginator.paginate(logGroupName=self.log_group):
-            streams = page.get("logStreams")
-            if streams is not None:
-                found_stream_metadata = [stream for stream in streams if stream["logStreamName"] == self.log_stream]
-                if found_stream_metadata:
-                    self._next_sequence_token = found_stream_metadata[0].get("uploadSequenceToken")
-                    self.mark_connected()
-                    return
+        try:
+            paginator = self._logs.get_paginator("describe_log_streams")
+            for page in paginator.paginate(logGroupName=self.log_group):
+                streams = page.get("logStreams")
+                if streams is not None:
+                    found_stream_metadata = [stream for stream in streams if stream["logStreamName"] == self.log_stream]
+                    if found_stream_metadata:
+                        self._next_sequence_token = found_stream_metadata[0].get("uploadSequenceToken")
+                        self.mark_connected()
+                        return
+        except exceptions.ClientError as err:
+            self.stats.unexpected_exception(ex=err, where="sender", tags=self.make_tags({"app": "journalpump"}))
+            if err.response["Error"]["Code"] == "AccessDeniedException":
+                self.log.exception("Access denied exception when trying to create log group and stream in AWS Cloudwatch.")
+            else:
+                # If we get some other aws exception, log it.
+                # This is not handled in any special way
+                self.log.exception("AWS ClientError")
+            self._backoff()
         self.mark_disconnected()
         self.log.error("Failed to init sender. AWS CloudWatch logs could not update sequence token.")
 
