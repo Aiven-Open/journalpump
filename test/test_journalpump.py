@@ -1294,6 +1294,38 @@ def test_awscloudwatch_sender_init():
         assert sender._connected  # pylint: disable=protected-access
 
 
+# Exceptions from botocore.paginate need to be handled in AWSCloudWatch.__init__
+def test_awscloudwatch_sender_init_paginate():
+    botocore_session = botocore.session.get_session()
+    logs = botocore_session.create_client("logs", region_name="us-east-1")
+
+    # Test that AWSCloudWatchSender correctly handles immediately the AccessDeniedException embedded in a ClientError
+    with Stubber(logs) as stubber:
+        stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+        # Simulate the uncaught AccessDeniedException exception embedded in a ClientError
+        with mock.patch.object(
+            botocore.paginate.PageIterator,
+            "__iter__",
+            side_effect=botocore.exceptions.ClientError(
+                {"Error": {"Code": "AccessDeniedException", "Message": "DUMMY"}}, "DescribeLogStreams"
+            ),
+        ):
+            sender = AWSCloudWatchSender(
+                name="awscloudwatch",
+                reader=mock.Mock(),
+                stats=mock.Mock(),
+                field_filter=None,
+                config={
+                    "aws_cloudwatch_log_group": "group",
+                    "aws_cloudwatch_log_stream": "stream",
+                },
+                aws_cloudwatch_logs=logs,
+            )
+            # _connected is set to False as soon as the Error Code is "AccessDeniedException"
+            assert not sender._connected  # pylint: disable=protected-access
+
+
 class WorkingSender:
     def __init__(self, **kwargs):  # pylint: disable=unused-argument
         self.msg_buffer = MsgBuffer()
