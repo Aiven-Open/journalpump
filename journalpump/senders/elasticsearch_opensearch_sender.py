@@ -70,7 +70,6 @@ class Config:
 
 
 class _EsOsLogSenderBase(LogSender):
-
     _DEFAULT_MAX_SENDER_INTERVAL = 10.0
 
     _INDICIES_URL_REDACTION_REGEXP = r"(\w*?://[A-Za-z0-9\-._~%!$&'()*+,;=]*)(:)([A-Za-z0-9\-._~%!$&'()*+,;=]*)(@)"
@@ -301,7 +300,6 @@ class _EsOsLogSenderBase(LogSender):
 
 
 class ElasticsearchSender(_EsOsLogSenderBase):
-
     _VERSION_WITH_MAPPING_TYPE_SUPPORT = 7
 
     _LEGACY_TYPE = "journal_msg"

@@ -336,11 +336,7 @@ class WebsocketSender(LogSender):
                 )
                 self._backoff()
             else:
-                self.log.info(
-                    "Initialized Websocket client, address: %r for %s",
-                    self.config["websocket_uri"],
-                    self.name
-                )
+                self.log.info("Initialized Websocket client, address: %r for %s", self.config["websocket_uri"], self.name)
                 self.runner = runner
 
     def request_stop(self):
