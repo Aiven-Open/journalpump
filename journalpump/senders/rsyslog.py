@@ -17,7 +17,7 @@ class RsyslogSender(LogSender):
         self.default_severity = 6
 
     def _init_rsyslog_client(self):
-        self.log.info("Initializing Rsyslog Client")
+        self.log.info("Initializing Rsyslog Client %s", self.name)
         self.mark_disconnected()
         while self.running:
             try:
@@ -41,7 +41,7 @@ class RsyslogSender(LogSender):
                     certfile=self.config.get("client_cert"),
                     log_format=self.config.get("logline"),
                 )
-                self.log.info("Initialized Rsyslog Client, server: %s, port: %d", server, port)
+                self.log.info("Initialized Rsyslog Client %s, server: %s, port: %d", self.name, server, port)
                 self.mark_connected()
                 break
             except RSYSLOG_CONN_ERRORS as ex:
@@ -101,7 +101,11 @@ class RsyslogSender(LogSender):
             self._init_rsyslog_client()
         except Exception as ex:  # pylint: disable=broad-except
             self.mark_disconnected(ex)
-            self.log.exception("Unexpected exception during send to rsyslog")
+            self.log.exception(
+              "Unexpected exception during send to rsyslog",
+              ex.__class__.__name__,
+              ex,
+              )
             self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
             self._backoff()
             self._init_rsyslog_client()

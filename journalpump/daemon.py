@@ -91,11 +91,10 @@ class ServiceDaemon:
 
         if file_ctime != self.config_file_ctime:
             daemon.notify("RELOADING=1")
-            self.log.info("%sloading configuration", "re" if self.config_file_ctime else "")
+            self.log.info("%soading configuration", "Rel" if self.config_file_ctime else "L")
             self.config_file_ctime = file_ctime
             with open(self.config_path) as fp:
                 self.config = json.load(fp)
-            self.log.info("new config: %r", self.config)
             self.log_level = self.config.get("log_level", logging.INFO)
             self.configure_logging()
             self.handle_new_config()

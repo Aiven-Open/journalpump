@@ -70,7 +70,7 @@ class KafkaSender(LogSender):
         return producer_config
 
     def _init_kafka(self) -> None:
-        self.log.info("Initializing Kafka client, address: %r", self.config["kafka_address"])
+        self.log.info("Initializing Kafka client, address: %r for %s", self.config["kafka_address"], self.name)
 
         if self.kafka_producer:
             self.kafka_producer.close()
@@ -93,8 +93,9 @@ class KafkaSender(LogSender):
                 self._backoff()
             else:
                 self.log.info(
-                    "Initialized Kafka Client, address: %r",
+                    "Initialized Kafka Client, address: %r for %s",
                     self.config["kafka_address"],
+                    self.name,
                 )
                 self.kafka_producer = kafka_producer
                 self.mark_connected()
@@ -110,9 +111,9 @@ class KafkaSender(LogSender):
             try:
                 kafka_admin.create_topics([NewTopic(self.topic, num_partitions, replication_factor)])
             except errors.TopicAlreadyExistsError:
-                self.log.info("Kafka topic %r already exists", self.topic)
+                self.log.info("Kafka topic %r already exists for %s", self.topic, self.name)
             else:
-                self.log.info("Create Kafka topic, address: %r", self.topic)
+                self.log.info("Create Kafka topic, address: %r for %s", self.topic, self.name)
 
     def send_messages(self, *, messages, cursor):
         if not self.kafka_producer:

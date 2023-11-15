@@ -130,7 +130,7 @@ class _EsOsLogSenderBase(LogSender):
             self.stats.unexpected_exception(ex, where="es_pump_init_es_client")
             return False
 
-        self.log.info("Initialized %s HTTP connection", self._config.sender_type.value)
+        self.log.info("Initialized %s HTTP connection for %s", self._config.sender_type.value, self.name)
         self.mark_connected()
         return True
 
@@ -175,7 +175,7 @@ class _EsOsLogSenderBase(LogSender):
             es_available = self._load_indices()
             if not es_available:
                 redacted_url = re.sub(self._INDICIES_URL_REDACTION_REGEXP, r"\1\2[REDACTED]\4", self._indices_url)
-                self.log.warning("Waiting for connection to %s", redacted_url)
+                self.log.warning("Waiting for connection to %s for %s", redacted_url, self.name)
                 self._backoff()
                 return False
             for msg in messages:
@@ -239,7 +239,7 @@ class _EsOsLogSenderBase(LogSender):
 
     def _create_index_and_mapping(self, *, index_name: str, message: Dict[str, Any]) -> None:
         try:
-            self.log.info("Creating index: %r", index_name)
+            self.log.info("Creating index: %r for %s", index_name, self.name)
             res = self._session.put(
                 self._index_url(index_name),
                 json=self._create_mapping(message),

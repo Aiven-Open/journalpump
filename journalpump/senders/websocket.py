@@ -300,7 +300,7 @@ class WebsocketSender(LogSender):
         self.config = config
 
     def _init_websocket(self) -> None:
-        self.log.info("Initializing Websocket client, address: %r", self.config["websocket_uri"])
+        self.log.info("Initializing Websocket client, address: %r for %s", self.config["websocket_uri"], self.name)
 
         if self.runner:
             self.runner.close()
@@ -337,8 +337,9 @@ class WebsocketSender(LogSender):
                 self._backoff()
             else:
                 self.log.info(
-                    "Initialized Websocket client, address: %r",
+                    "Initialized Websocket client, address: %r for %s",
                     self.config["websocket_uri"],
+                    self.name
                 )
                 self.runner = runner
 
@@ -364,7 +365,7 @@ class WebsocketSender(LogSender):
                 return True
         except (CancelledError, asyncio.CancelledError) as ex:
             self.mark_disconnected(ex)
-            self.log.info("Send to websocket failed, connection was closed")
+            self.log.info("Send to websocket failed, connection was closed for %s", self.name)
             return False
         except Exception as ex:  # pylint: disable=broad-except
             self.mark_disconnected(ex)
