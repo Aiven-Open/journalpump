@@ -101,11 +101,7 @@ class RsyslogSender(LogSender):
             self._init_rsyslog_client()
         except Exception as ex:  # pylint: disable=broad-except
             self.mark_disconnected(ex)
-            self.log.exception(
-              "Unexpected exception during send to rsyslog",
-              ex.__class__.__name__,
-              ex,
-              )
+            self.log.exception("Unexpected exception during send to rsyslog")
             self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
             self._backoff()
             self._init_rsyslog_client()
