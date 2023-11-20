@@ -273,7 +273,7 @@ class JournalReader(Tagged):
 
             if not isinstance(extra_field_values, dict):
                 self.log.warning(
-                    "extra_field_values: %r not a dictionary object, ignoring",
+                    "Extra_field_values: %r not a dictionary object, ignoring",
                     extra_field_values,
                 )
                 extra_field_values = {}
@@ -428,13 +428,13 @@ class JournalReader(Tagged):
             if not (self.journald_reader.has_persistent_files() or self.journald_reader.has_runtime_files()):
                 # If journal files are not ready (e.g. files with namespace are not yet created), reader won't fail,
                 # it will silently not deliver anything. We don't want this - return None to re-create reader later
-                self.log.warning("journal files for %r are not yet available", self.name)
+                self.log.warning("Journal files for %r are not yet available", self.name)
                 self.journald_reader.close()
                 self.journald_reader = None
                 return None
         except FileNotFoundError as ex:
             self.log.warning(
-                "journal for %r not available yet: %s: %s",
+                "Journal for %r not available yet: %s: %s",
                 self.name,
                 ex.__class__.__name__,
                 ex,
@@ -1002,7 +1002,7 @@ class JournalPump(ServiceDaemon, Tagged):
         fd = reader.fileno()
         # fd in this case is anonymous inotify node
         if fd is not None and fd not in self.reader_by_fd:
-            self.log.info("Registered reader %r with fd %r", self.name, fd)
+            self.log.info("Registered reader %r with fd %r", reader.name, fd)
             self.poller.register(fd)
             self.reader_by_fd[fd] = reader
             return True
@@ -1014,7 +1014,7 @@ class JournalPump(ServiceDaemon, Tagged):
         if fd is not None and fd in self.reader_by_fd:
             self.poller.unregister(fd)
             self.reader_by_fd[fd] = self._STALE_FD
-            self.log.info("Unregistered reader %r with fd %r", self.name, fd)
+            self.log.info("Unregistered reader %r with fd %r", reader.name, fd)
 
     def refresh_gauges(self) -> None:
         if self.stats:
