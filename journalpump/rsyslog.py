@@ -75,12 +75,12 @@ def _generate_format(logline):
 
 class SyslogTcpClient:
     def __init__(
-        self, *, server, port, rfc, max_msg=2048, protocol=None, cacerts=None, keyfile=None, certfile=None, log_format=None
+        self, *, server, port, rfc, max_msg=None, protocol=None, cacerts=None, keyfile=None, certfile=None, log_format=None
     ):
         self.socket = None
         self.server = server
         self.port = port
-        self.max_msg = max_msg
+        self.max_msg = max_msg or 2048
         self.socket_proto = socket.SOCK_STREAM
         self.ssl_context = None
         if rfc == "RFC5424":

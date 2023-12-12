@@ -35,6 +35,7 @@ class RsyslogSender(LogSender):
                     server=server,
                     port=port,
                     rfc=self.config.get("format", "rfc5424").upper(),
+                    max_msg=self.config.get("max_message_size"),
                     protocol="SSL" if self.config.get("ssl") is True else "PLAINTEXT",
                     cacerts=self.config.get("ca_certs"),
                     keyfile=self.config.get("client_key"),
