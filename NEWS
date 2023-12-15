@@ -1,3 +1,9 @@
+journalpump 2.5.0 (2023-11-20)
+==============================
+* Migrate From oauth2client to google-auth
+* Improved error handling for AWS Cloudwatch sender
+* Logging improvements for multiple senders
+
 journalpump 2.4.3 (2022-04-21)
 ==============================
 * Add a feature for secret/credential filtering by regular expressions
