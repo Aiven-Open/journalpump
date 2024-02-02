@@ -279,6 +279,7 @@ Example configuration for a single reader::
           "pattern": "SENSITIVE",
           "replacement": "[REDACTED]"
         }],
+      "threshold_for_metric_emit": 10
       "tags": {
           "type": "container"
       }
@@ -375,7 +376,9 @@ Using backrefs, the message can also be restructured into a new format.
 Change this setting to true to emit metrics to the metrics host whenever a secret pattern is matched.
 This matching happens before other filtering to help catch secrets being leaked to disk.
 
-
+``threshold_for_metric_emit`` ( default: ``10``)
+For the regex searches in journalpump, if search takes longer than this value, default 10 seconds, a metric will be emitted.
+type: int unit: second
 
 Sender Configuration
 --------------------
