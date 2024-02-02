@@ -29,9 +29,15 @@ from unittest import mock, TestCase
 
 import botocore.session
 import json
+import os
 import pytest
-import re
 import responses
+
+# NOTE: make sure to use google-re >= 1.1 if this is enabled.
+if os.environ.get("USE_RE2"):
+    import re2 as re
+else:
+    import re  # type: ignore[no-redef]
 
 
 def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements

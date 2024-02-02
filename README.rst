@@ -370,6 +370,7 @@ Using backrefs, the message can also be restructured into a new format.
   }
 ]
 
+Secret filters and searches can be made to use re2 as a regex engine by running journalpump with the environment "USE_RE2=yes". Make sure that the PyPI package "google_re2" is installed with at least version 1.1
 
 ``secret_filter_metrics`` ( default: ``false``)
 Change this setting to true to emit metrics to the metrics host whenever a secret pattern is matched.

@@ -17,10 +17,16 @@ import datetime
 import fnmatch
 import json
 import logging
-import re
+import os
 import select
 import time
 import uuid
+
+# NOTE: make sure to use google-re >= 1.1 if this is enabled.
+if os.environ.get("USE_RE2"):
+    import re2 as re
+else:
+    import re  # type: ignore[no-redef]
 
 _5_MB = 5 * 1024 * 1024
 CHUNK_SIZE = 5000
