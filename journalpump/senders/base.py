@@ -2,10 +2,16 @@ from threading import Lock, Thread
 from typing import Dict, Optional
 
 import logging
+import os
 import random
-import re
 import sys
 import time
+
+# NOTE: make sure to use google-re >= 1.1
+if os.environ.get("USE_RE2"):
+    import re2 as re
+else:
+    import re  # type: ignore[no-redef]
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
 MAX_KAFKA_MESSAGE_SIZE = 1024**2  # 1 MiB

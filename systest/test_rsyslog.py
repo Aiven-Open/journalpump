@@ -13,10 +13,16 @@ import logging
 import logging.handlers
 import os
 import random
-import re
 import socket
 import string
 import threading
+
+# NOTE: make sure to use google-re >= 1.1 if this is enabled.
+if os.environ.get("USE_RE2"):
+    import re2 as re
+else:
+    import re  # type: ignore[no-redef]
+
 
 RSYSLOGD = "/usr/sbin/rsyslogd"
 
