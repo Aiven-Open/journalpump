@@ -838,7 +838,11 @@ class JournalPump(ServiceDaemon, Tagged):
 
         for reader_name, reader_config in new_config.items():
             reader_state = state.get("readers", {}).get(reader_name, {})
-            resume_cursor = None
+
+            # Default to reader's cursor, in case we have no senders
+            resume_cursor = reader_state.get("cursor")
+
+            # Check sender cursors
             for sender_name, sender in reader_state.get("senders", {}).items():
                 sender_cursor = sender["sent"]["cursor"]
                 if sender_cursor is None:
