@@ -1467,7 +1467,7 @@ def test_journalpump_sender_classes_importable():
         assert senders.get_sender_class(output_type)
 
 
-def test_journal_reader_with_single_broken_sender_should_return_0_as_limit():
+def test_journal_reader_with_single_broken_sender_should_return_0_as_limit(mocker):
     config = {
         "senders": {
             "bar": {
@@ -1490,6 +1490,7 @@ def test_journal_reader_with_single_broken_sender_should_return_0_as_limit():
         stats=mock.Mock(),
         searches=[],
     )
+    mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
     journal_reader.update_status()
 
     assert journal_reader.get_write_limit_bytes() == 0
@@ -1531,6 +1532,8 @@ def test_broken_reader(mocker, caplog):
     )
 
     mocker.patch.object(PumpReader, "__next__", side_effect=OSError("Bad message"))
+    mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
+
     senders.output_type_to_sender_class["file"] = WorkingSender
 
     caplog.clear()

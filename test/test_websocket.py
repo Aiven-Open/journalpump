@@ -1,6 +1,6 @@
 # Copyright (c) 2021 Aiven, Helsinki, Finland. https://aiven.io/
 from collections import deque
-from journalpump.journalpump import JournalPump
+from journalpump.journalpump import JournalPump, PumpReader
 from journalpump.senders.websocket import WebsocketSender
 
 import asyncio
@@ -122,7 +122,7 @@ def assert_msgs_found(ws_server, *, messages, timeout):
     assert all(msg in msgs for msg in messages)
 
 
-def setup_pump(tmpdir, sender_config):
+def setup_pump(tmpdir, sender_config, mocker):
     journalpump_path = str(tmpdir.join("journalpump.json"))
     config = {
         "readers": {
@@ -136,6 +136,7 @@ def setup_pump(tmpdir, sender_config):
     with open(journalpump_path, "w") as fp:
         fp.write(json.dumps(config))
     pump = JournalPump(journalpump_path)
+    mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
 
     # confirm there's a correct sender set up
     sender = None
@@ -155,7 +156,7 @@ def setup_pump(tmpdir, sender_config):
     return pump, sender
 
 
-def test_producer_nobatch(caplog, tmpdir):
+def test_producer_nobatch(caplog, tmpdir, mocker):
     caplog.set_level(logging.INFO)
     ws_server = WebsocketMockServer(
         port=10111,
@@ -170,6 +171,7 @@ def test_producer_nobatch(caplog, tmpdir):
             "compression": "none",
             "max_batch_size": 0,
         },
+        mocker
     )
 
     # send some messages, and confirm they come out on the other end
@@ -184,7 +186,7 @@ def test_producer_nobatch(caplog, tmpdir):
     pump.shutdown()
 
 
-def test_producer_batch(caplog, tmpdir):
+def test_producer_batch(caplog, tmpdir, mocker):
     caplog.set_level(logging.INFO)
     ws_server = WebsocketMockServer(
         port=10111,
@@ -199,6 +201,7 @@ def test_producer_batch(caplog, tmpdir):
             "compression": "snappy",
             "max_batch_size": 1024,
         },
+        mocker
     )
 
     # send some messages, and confirm they come out on the other end
