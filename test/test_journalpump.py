@@ -982,6 +982,52 @@ class TestJournalObjectHandler(TestCase):
         assert len(sender_d_msgs) == expected_results
 
 
+def test_journalpump_resume_cursor(tmpdir) -> None:
+    journalpump_path = str(tmpdir.join("journalpump.json"))
+    statefile_path = str(tmpdir.join("journalpump_state.json"))
+
+    config = {
+        "json_state_file_path": statefile_path,
+        "readers": {
+            "without_senders": {"senders": {}},
+            "with_sender": {
+                "senders": {
+                    "fake_syslog": {
+                        "output_type": "rsyslog",
+                        "rsyslog_server": "127.0.0.1",
+                        "rsyslog_port": 514,
+                    },
+                }
+            },
+        },
+    }
+
+    state = {
+        "readers": {
+            "without_senders": {
+                "cursor": "reader_cursor",
+            },
+            "with_sender": {
+                "cursor": "reader_cursor",
+                "senders": {"fake_syslog": {"sent": {"cursor": "sender_cursor"}}},
+            },
+        },
+        "start_time": datetime.now().isoformat(),
+    }
+
+    with open(journalpump_path, "w") as fp:
+        fp.write(json.dumps(config))
+
+    with open(statefile_path, "w") as fp:
+        fp.write(json.dumps(state))
+
+    pump = JournalPump(journalpump_path)
+
+    # Check that readers are initialized with the right cursors
+    assert pump.readers["without_senders"].cursor == "reader_cursor"
+    assert pump.readers["with_sender"].cursor == "sender_cursor"
+
+
 def test_journalpump_state_file(tmpdir):
     journalpump_path = str(tmpdir.join("journalpump.json"))
     statefile_path = str(tmpdir.join("journalpump_state.json"))
