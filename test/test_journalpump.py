@@ -320,6 +320,9 @@ def test_journal_reader_tagging(tmpdir):
     pump = JournalPump(journalpump_path)
     reader = pump.readers["system"]
 
+    # Mocking stats object
+    stats_mock = mock.MagicMock()
+
     # matching entry
     entry = JournalObject(
         entry={
@@ -329,7 +332,9 @@ def test_journal_reader_tagging(tmpdir):
             "SYSLOG_IDENTIFIER": "kernel",
         }
     )
-    result = reader.perform_searches(entry)
+    with mock.patch("time.perf_counter") as mock_perf_counter, mock.patch.object(reader, "stats", stats_mock):
+        mock_perf_counter.side_effect = [0, 11, 0, 1, 2, 3, 4, 5]
+        result = reader.perform_searches(entry)
     expected = {
         "kernel.cpu.temperature": {
             "cpu": "CPU0",
@@ -339,6 +344,9 @@ def test_journal_reader_tagging(tmpdir):
         }
     }
     assert result == expected
+    stats_mock.gauge.assert_called_once_with(
+        metric="journal.perform_search_regex_duration", value=11, tags={"reader": "system", "regex": "^(?P<from>.*)$"}
+    )
 
     # some fields are not matching
     entry = JournalObject(

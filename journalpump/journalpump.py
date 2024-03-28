@@ -164,6 +164,7 @@ class JournalReader(Tagged):
         self.secret_filter_metrics = self._configure_secret_filter_metrics(config)
         self.secret_filter_metric_last_send = time.monotonic()
         self._is_ready = True
+        self.threshold_for_metric_emit = self._configure_threshold_for_metric_emit(config)
 
     def invalidate(self) -> None:
         """
@@ -557,6 +558,9 @@ class JournalReader(Tagged):
 
         return secret_filters
 
+    def _configure_threshold_for_metric_emit(self, config):
+        return int(config.get("threshold_for_metric_emit", 10))
+
     def perform_searches(self, jobject):
         entry = jobject.entry
         results = {}
@@ -586,7 +590,16 @@ class JournalReader(Tagged):
                             break
                         byte_fields[field] = line
 
+                start_time = time.perf_counter()
                 match = regex.search(line)
+                regex_search_duration = time.perf_counter() - start_time
+                if regex_search_duration > self.threshold_for_metric_emit:
+                    self.stats.gauge(
+                        metric="journal.perform_search_regex_duration",
+                        value=regex_search_duration,
+                        tags=self.make_tags({"regex": regex.pattern}),
+                    )
+                    self.log.info("Slow regex search: %s for duration %s seconds", regex, regex_search_duration)
                 if not match:
                     all_match = False
                     break
