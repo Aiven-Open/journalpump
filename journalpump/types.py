@@ -1,11 +1,7 @@
 """JournalPump internal types"""
-import enum
-import sys
+from typing import Protocol
 
-if sys.version_info >= (3, 8):
-    from typing import Protocol  # pylint: disable=no-name-in-module
-else:
-    from typing_extensions import Protocol
+import enum
 
 
 class GeoIPProtocol(Protocol):

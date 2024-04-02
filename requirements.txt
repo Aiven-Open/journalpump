@@ -8,5 +8,4 @@ google-api-python-client
 google-auth
 geoip2
 https://github.com/systemd/python-systemd/zipball/master
-typing-extensions
 google-re2
