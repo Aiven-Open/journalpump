@@ -18,7 +18,6 @@ setup(
         "google-api-python-client",
         "google-auth",
         "geoip2",
-        "typing-extensions",
     ],
     dependency_links=[],
     package_data={},
