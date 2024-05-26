@@ -7,6 +7,7 @@ import pytest
     "input_tags,expected_output_tags",
     [
         ({"foo": "bar"}, {"foo": "bar"}),
+        ({"foo": "bar", "bar": None, None: "baz"}, {"foo": "bar"}),
         ({"foo|wow,": "super!cool"}, {"foo_wow": "super!cool"}),
         ({"host": "localhost:1234"}, {"host": "localhost_1234"}),
         ({"base64": "YmFzZTY0Cg=="}, {"base64": "YmFzZTY0Cg"}),
