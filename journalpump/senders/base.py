@@ -45,9 +45,10 @@ class Tagged:
         output = self._tags.copy()
         if tags:
             for tag_name, tag_value in tags.items():
-                sanitized_name = self.unsafe_tag_name_chars.sub("_", tag_name).strip("_")
-                sanitized_value = self.unsafe_tag_value_chars.sub("_", tag_value).strip("_")
-                output[sanitized_name] = sanitized_value
+                if tag_name is not None and tag_value is not None:
+                    sanitized_name = self.unsafe_tag_name_chars.sub("_", tag_name).strip("_")
+                    sanitized_value = self.unsafe_tag_value_chars.sub("_", tag_value).strip("_")
+                    output[sanitized_name] = sanitized_value
         return output
 
     def replace_tags(self, tags):
