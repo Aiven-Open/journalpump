@@ -144,3 +144,50 @@ class TestGoogleCloudLoggingSender:
             cursor=None,
         )
         assert sender._sent_count == 1  # pylint: disable=protected-access
+
+    def test_big_logentry_is_truncated(self):
+        """Check that message was not marked as sent if GoogleApi returns error"""
+        message_content = "A" * 257_00
+        request_builder = self._generate_request_builder(
+            [{"jsonPayload": {"MESSAGE": message_content[: GoogleCloudLoggingSender._MAX_MESSAGE_SIZE]}}],
+        )
+
+        sender = GoogleCloudLoggingSender(
+            name="googlecloudlogging",
+            reader=mock.Mock(),
+            stats=mock.Mock(),
+            field_filter=None,
+            config=self.CONFIG,
+            googleapiclient_request_builder=request_builder,
+        )
+        message = {"MESSAGE": message_content}
+        sender.send_messages(messages=[json.dumps(message).encode()], cursor=None)
+        assert sender._sent_count == 1
+
+    def test_big_logentry_sends_default(self):
+        """Check that message was not marked as sent if GoogleApi returns error"""
+        request_builder = self._generate_request_builder(
+            [
+                {
+                    "jsonPayload": {
+                        "MESSAGE": "Log entry can't be logged because its size is greater than GCP logging quota of 256K"
+                    }
+                }
+            ]
+        )
+
+        sender = GoogleCloudLoggingSender(
+            name="googlecloudlogging",
+            reader=mock.Mock(),
+            stats=mock.Mock(),
+            field_filter=None,
+            config=self.CONFIG,
+            googleapiclient_request_builder=request_builder,
+        )
+        message = {"MESSAGE": "A" * 200_000, "OTHER_FIELD": "B" * 200_000}
+        sender.send_messages(messages=[json.dumps(message).encode()], cursor=None)
+        assert sender._sent_count == 1
+
+        message = {"OTHER_FIELD": "B" * 257_000}
+        sender.send_messages(messages=[json.dumps(message).encode()], cursor=None)
+        assert sender._sent_count == 2
