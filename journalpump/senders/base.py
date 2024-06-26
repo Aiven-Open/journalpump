@@ -14,6 +14,8 @@ else:
     import re  # type: ignore[no-redef]
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
+
+# GCP logging also relies on this MAX message size
 MAX_KAFKA_MESSAGE_SIZE = 1024**2  # 1 MiB
 
 MAX_ERROR_MESSAGES = 8
