@@ -154,6 +154,7 @@ class JournalReader(Tagged):
         self.running = True
         self.senders = {}
         self._initialized_senders = set()
+        self.sender_initialization_errors = dict()
         self._failed_senders: int = 0
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
@@ -296,11 +297,13 @@ class JournalReader(Tagged):
                     stats=self.stats,
                     tags=self.make_tags(),
                 )
-            except Exception:  # pylint: disable=broad-except
+                self.sender_initialization_errors.pop(sender_name, None)
+            except Exception as ex:  # pylint: disable=broad-except
                 # If sender init fails, log exception, don't start() the sender
                 # and don't add it to self.senders dict. A metric about senders that
                 # failed to start is sent at the end of this method
                 self.log.exception("Sender %r failed to initialize", sender_name)
+                self.sender_initialization_errors[sender_name] = f"failed to initialize: {ex}"
             else:
                 self._initialized_senders.add(sender_name)
                 sender.start()
@@ -332,6 +335,7 @@ class JournalReader(Tagged):
             "cursor": self.cursor,
             "searches": search_state,
             "senders": sender_state,
+            "initialization_errors": list(self.sender_initialization_errors.values()),
             "total_lines": self.read_lines,
             "total_bytes": self.read_bytes,
         }
