@@ -468,7 +468,8 @@ class JournalReader(Tagged):
 
         for unit_to_match in self.config.get("units_to_match", []):
             self.journald_reader.add_match(_SYSTEMD_UNIT=unit_to_match)
-
+        for journald_filter in self.config.get("journald_filters", []):
+            self.journald_reader.add_match(journald_filter)
         self.initialize_senders()
 
         return self.journald_reader

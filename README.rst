@@ -326,6 +326,13 @@ This feature requires latest version of ``python-systemd`` `with namespace suppo
 Require that the logs message matches only against certain _SYSTEMD_UNITs.
 If not set, we allow log events from all units.
 
+``journald_filters`` (default ``[]``)
+
+Journald filters in the form of <journald_field>=<value>. If not set, no filter will be applied.
+Example: SYSLOG_IDENTIFIER=postgres
+
+Refer to https://www.freedesktop.org/software/systemd/man/latest/systemd.journal-fields.html for a list of valid fields.
+
 ``flags`` (default ``LOCAL_ONLY``)
 
 ``"LOCAL_ONLY"`` opens journal on local machine only; ``"RUNTIME_ONLY"`` opens only volatile journal files;
