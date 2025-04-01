@@ -332,6 +332,13 @@ current user; and ``"OS_ROOT"`` is used to open the journal from directories rel
 directory path or file descriptor. Multiple flags can be OR'ed together using a list:
 ``["LOCAL_ONLY", "CURRENT_USER"]``.
 
+``journald_filters`` (default ``[]``)
+
+Journald filters in the form of <journald_field>=<value>. If not set, no filter will be applied.
+Example: SYSLOG_IDENTIFIER=postgres
+
+Refer to https://www.freedesktop.org/software/systemd/man/latest/systemd.journal-fields.html for a list of valid fields.
+
 ``secret_filters`` (default ``[]``)
 
 Secret filters can be used to redact sensitive data which matches known patterns in logs before forwarding the message along
