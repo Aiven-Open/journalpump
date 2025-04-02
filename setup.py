@@ -10,7 +10,7 @@ setup(
     packages=find_packages(exclude=["test", "systest"]),
     extras_require={},
     install_requires=[
-        "kafka-python",
+        "kafka-python<2.0.4",
         "requests",
         "websockets",
         "aiohttp-socks",
