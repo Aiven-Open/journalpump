@@ -10,9 +10,9 @@ setup(
     packages=find_packages(exclude=["test", "systest"]),
     extras_require={},
     install_requires=[
-        "kafka-python",
+        "kafka-python<2.0.4",
         "requests",
-        "websockets",
+        "websockets<14.0",
         "aiohttp-socks",
         "botocore",
         "google-api-python-client",
