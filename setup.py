@@ -12,7 +12,7 @@ setup(
     install_requires=[
         "kafka-python<2.0.4",
         "requests",
-        "websockets",
+        "websockets<14.0",
         "aiohttp-socks",
         "botocore",
         "google-api-python-client",
