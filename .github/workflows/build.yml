@@ -58,6 +58,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsystemd-dev libsnappy-dev
 
+      - id: disable-apparmor-for-rsyslogd
+        run: |
+          sudo ln -s /etc/apparmor.d/usr.sbin.rsyslogd /etc/apparmor.d/disable/
+          sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.rsyslogd
+
       - id: prepare-python
         uses: actions/setup-python@v2
         with:
