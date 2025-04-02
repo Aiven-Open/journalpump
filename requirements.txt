@@ -3,6 +3,7 @@ requests
 websockets<14.0
 aiohttp-socks
 python-snappy
+python-socks<2.7.0
 botocore
 google-api-python-client
 google-auth
