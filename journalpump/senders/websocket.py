@@ -5,6 +5,7 @@ from concurrent.futures import CancelledError, TimeoutError as ConnectionTimeout
 from journalpump import __version__
 from journalpump.types import StrEnum
 from journalpump.util import ExponentialBackoff
+from packaging.version import Version
 from threading import Thread
 from urllib.parse import urlparse
 
@@ -177,17 +178,39 @@ class WebsocketRunner(Thread):
                 socks_url_parsed.port,
             )
 
-        ws_compr = None if self.websocket_compression == WebsocketCompression.none else str(self.websocket_compression)
-        return await websockets.connect(  # pylint:disable=no-member
-            self.websocket_uri,
-            ssl=ssl_context,
-            compression=ws_compr,
-            extra_headers=headers,
-            sock=sock,
-            server_hostname=url_parsed.hostname if self.ssl_enabled else None,
-            close_timeout=20,
-            max_size=MAX_KAFKA_MESSAGE_SIZE * 2,
-        )
+        # In order to support version transition in websockects, we generated kwargs dynamically
+        connect_kwargs = {
+            "close_timeout": 20,
+            "max_size": MAX_KAFKA_MESSAGE_SIZE * 2,
+            "ssl": ssl_context,
+        }
+
+        if self.websocket_compression != WebsocketCompression.none:
+            connect_kwargs["compression"] = str(self.websocket_compression)
+
+        if self.ssl_enabled:
+            connect_kwargs["server_hostname"] = url_parsed.hostname
+
+        if sock:
+            connect_kwargs["sock"] = sock
+
+        # Versions 13.0 and up switched into additional_headers, lder versions expect extra_headers
+        # Versions 15.0 up introduce a separate user_agent_header
+        if headers:
+            websockets_version = Version(websockets.__version__)
+            if websockets_version >= Version("13.0"):
+                if websockets_version >= Version("15.0"):
+                    user_agent = headers.pop("User-Agent", None)
+                    if user_agent:
+                        connect_kwargs["user_agent_header"] = user_agent
+                    if headers:
+                        connect_kwargs["additional_headers"] = headers
+                else:
+                    connect_kwargs["additional_headers"] = headers
+            else:
+                connect_kwargs["extra_headers"] = headers
+
+        return await websockets.connect(self.websocket_uri, **connect_kwargs)
 
     async def websocket_connect(self, *, timeout=30):
         connect_task = asyncio.create_task(self.websocket_connect_coro())

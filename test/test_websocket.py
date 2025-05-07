@@ -71,7 +71,6 @@ class WebsocketMockServer(threading.Thread):
             self.process_connection,
             "127.0.0.1",
             self.port,
-            loop=self.loop,
             ssl=ctx,
             close_timeout=10,
         ) as server:
