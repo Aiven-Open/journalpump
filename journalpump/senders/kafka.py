@@ -15,12 +15,6 @@ try:
 except ImportError:
     zstd = None
 
-KAFKA_CONN_ERRORS = tuple(errors.RETRY_ERROR_TYPES) + (
-    errors.UnknownError,
-    socket.timeout,
-    TimeoutError,
-)
-
 logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal tracebacks from logging output
 
 
@@ -83,7 +77,11 @@ class KafkaSender(LogSender):
 
             try:
                 kafka_producer = KafkaProducer(**producer_config)
-            except KAFKA_CONN_ERRORS as ex:
+            except (errors.KafkaError, socket.timeout, TimeoutError) as ex:
+                if isinstance(ex, errors.KafkaError):
+                    # Reraise exceptions that are fatal
+                    if not ex.retriable:
+                        raise
                 self.mark_disconnected(ex)
                 self.log.warning(
                     "Retriable error during Kafka initialization: %s: %s",
@@ -131,7 +129,11 @@ class KafkaSender(LogSender):
                 result_future.get(timeout=1)
             self.mark_sent(messages=messages, cursor=cursor)
             return True
-        except KAFKA_CONN_ERRORS as ex:
+        except (errors.KafkaError, socket.timeout, TimeoutError) as ex:
+            if isinstance(ex, errors.KafkaError):
+                # Reraise exceptions that are fatal
+                if not ex.retriable:
+                    raise
             self.mark_disconnected(ex)
             self.log.info(
                 "Kafka retriable error during send: %s: %s, waiting",
