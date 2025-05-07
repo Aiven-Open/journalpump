@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import enum
 import logging
+import random
 import snappy  # pylint: disable=import-error
 import socket
 import ssl
@@ -164,6 +165,8 @@ class WebsocketRunner(Thread):
 
         sock = None
         url_parsed = urlparse(self.websocket_uri)
+        preferred_host = None
+
         if self.socks5_proxy:
             socks_url_parsed = urlparse(self.socks5_proxy_url)
             self.log.info(
@@ -177,6 +180,24 @@ class WebsocketRunner(Thread):
                 socks_url_parsed.hostname,
                 socks_url_parsed.port,
             )
+        else:
+            # Resolve hostname and pick one address at random
+            # Websockets.connect() and underlying asyncio.loop.create_connection() have some overlapping timeouts
+            # that lead to little bit difficulties with working through all addresses returned by getaddrinfo.
+            # We pick one at random here, and rely our own outer loops to handle retries.
+            present_addrs = [
+                # getaddrinfo returns 5-tuple (family, type, proto, canonname, sockaddr)
+                # sockaddr is family dependent, but leads with address for both the IPv6 and IPv4 families
+                sockaddr[0]
+                for _, _, _, _, sockaddr in await self.websocket_loop.getaddrinfo(
+                    url_parsed.hostname, 0, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP
+                )
+            ]
+            if present_addrs:
+                preferred_host = random.choice(present_addrs)
+            else:
+                # We couldn't resolve a suitable name, fallback to async.loop.create_connection() name handling
+                preferred_host = url_parsed.hostname
 
         # In order to support version transition in websockects, we generated kwargs dynamically
         connect_kwargs = {
@@ -209,6 +230,9 @@ class WebsocketRunner(Thread):
                     connect_kwargs["additional_headers"] = headers
             else:
                 connect_kwargs["extra_headers"] = headers
+
+        if preferred_host:
+            connect_kwargs["host"] = preferred_host
 
         return await websockets.connect(self.websocket_uri, **connect_kwargs)
 
