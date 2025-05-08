@@ -13,18 +13,14 @@ import websockets
 
 
 class WebsocketMockServer(threading.Thread):
-    def __init__(
-        self,
-        *,
-        port,
-    ):
+    def __init__(self):
         super().__init__()
         self.daemon = True
         self.log = logging.getLogger(self.__class__.__name__)
-        self.port = port
         self.in_queue = deque()
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
+        self.start_event = None
         self.stop_event = asyncio.Event()
         self.running = False
         self.websocket_server = None
@@ -35,8 +31,8 @@ class WebsocketMockServer(threading.Thread):
             self.log.info("WS: Received message: %r", message)
             self.in_queue.append(message)
 
-    async def process_connection(self, websocket, path):
-        self.log.info("WS: Client connection accepted on %s", path)
+    async def process_connection(self, websocket):
+        self.log.info("WS: Client connection accepted")
         pending = set()
 
         try:
@@ -66,17 +62,20 @@ class WebsocketMockServer(threading.Thread):
         # ctx.load_verify_locations(self.ca_certs)
         # ctx.verify_mode = ssl.CERT_REQUIRED
 
+        self.start_event = asyncio.Event()
+
         # websockets uses lazy_import and pylint doesn't quite get it
         async with websockets.serve(  # pylint:disable=no-member
             self.process_connection,
             "127.0.0.1",
-            self.port,
-            loop=self.loop,
+            None,
             ssl=ctx,
             close_timeout=10,
         ) as server:
             self.websocket_server = server
             self.log.info("WS: Started serving websocket connections")
+            self.start_event.set()
+            self.start_event = None
             await self.stop_event.wait()
 
         self.log.info("WS: Stopped serving websocket connections")
@@ -105,6 +104,14 @@ class WebsocketMockServer(threading.Thread):
         for task in all_tasks:
             task.cancel()
         self.log.info("WS: stopped")
+
+    async def get_port_task(self):
+        if self.start_event:
+            await self.start_event.wait()
+        return self.websocket_server.sockets[0].getsockname()[1]
+
+    def get_port(self):
+        return asyncio.run_coroutine_threadsafe(self.get_port_task(), self.loop).result()
 
 
 def assert_msgs_found(ws_server, *, messages, timeout):
@@ -157,16 +164,15 @@ def setup_pump(tmpdir, sender_config):
 
 def test_producer_nobatch(caplog, tmpdir):
     caplog.set_level(logging.INFO)
-    ws_server = WebsocketMockServer(
-        port=10111,
-    )
+    ws_server = WebsocketMockServer()
     ws_server.start()
+    port = ws_server.get_port()
 
     pump, sender = setup_pump(
         tmpdir,
         {
             "output_type": "websocket",
-            "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
+            "websocket_uri": f"ws://127.0.0.1:{port}/pump-pump",
             "compression": "none",
             "max_batch_size": 0,
         },
@@ -186,16 +192,15 @@ def test_producer_nobatch(caplog, tmpdir):
 
 def test_producer_batch(caplog, tmpdir):
     caplog.set_level(logging.INFO)
-    ws_server = WebsocketMockServer(
-        port=10111,
-    )
+    ws_server = WebsocketMockServer()
     ws_server.start()
+    port = ws_server.get_port()
 
     pump, sender = setup_pump(
         tmpdir,
         {
             "output_type": "websocket",
-            "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
+            "websocket_uri": f"ws://127.0.0.1:{port}/pump-pump",
             "compression": "snappy",
             "max_batch_size": 1024,
         },

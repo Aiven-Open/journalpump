@@ -5,6 +5,7 @@ from concurrent.futures import CancelledError, TimeoutError as ConnectionTimeout
 from journalpump import __version__
 from journalpump.types import StrEnum
 from journalpump.util import ExponentialBackoff
+from packaging.version import Version
 from threading import Thread
 from urllib.parse import urlparse
 
@@ -12,6 +13,7 @@ import asyncio
 import contextlib
 import enum
 import logging
+import random
 import snappy  # pylint: disable=import-error
 import socket
 import ssl
@@ -163,6 +165,8 @@ class WebsocketRunner(Thread):
 
         sock = None
         url_parsed = urlparse(self.websocket_uri)
+        preferred_host = None
+
         if self.socks5_proxy:
             socks_url_parsed = urlparse(self.socks5_proxy_url)
             self.log.info(
@@ -176,18 +180,61 @@ class WebsocketRunner(Thread):
                 socks_url_parsed.hostname,
                 socks_url_parsed.port,
             )
+        else:
+            # Resolve hostname and pick one address at random
+            # Websockets.connect() and underlying asyncio.loop.create_connection() have some overlapping timeouts
+            # that lead to little bit difficulties with working through all addresses returned by getaddrinfo.
+            # We pick one at random here, and rely our own outer loops to handle retries.
+            present_addrs = [
+                # getaddrinfo returns 5-tuple (family, type, proto, canonname, sockaddr)
+                # sockaddr is family dependent, but leads with address for both the IPv6 and IPv4 families
+                sockaddr[0]
+                for _, _, _, _, sockaddr in await self.websocket_loop.getaddrinfo(
+                    url_parsed.hostname, 0, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP
+                )
+            ]
+            if present_addrs:
+                preferred_host = random.choice(present_addrs)
+            else:
+                # We couldn't resolve a suitable name, fallback to async.loop.create_connection() name handling
+                preferred_host = url_parsed.hostname
 
-        ws_compr = None if self.websocket_compression == WebsocketCompression.none else str(self.websocket_compression)
-        return await websockets.connect(  # pylint:disable=no-member
-            self.websocket_uri,
-            ssl=ssl_context,
-            compression=ws_compr,
-            extra_headers=headers,
-            sock=sock,
-            server_hostname=url_parsed.hostname if self.ssl_enabled else None,
-            close_timeout=20,
-            max_size=MAX_KAFKA_MESSAGE_SIZE * 2,
-        )
+        # In order to support version transition in websockects, we generated kwargs dynamically
+        connect_kwargs = {
+            "close_timeout": 20,
+            "max_size": MAX_KAFKA_MESSAGE_SIZE * 2,
+            "ssl": ssl_context,
+        }
+
+        if self.websocket_compression != WebsocketCompression.none:
+            connect_kwargs["compression"] = str(self.websocket_compression)
+
+        if self.ssl_enabled:
+            connect_kwargs["server_hostname"] = url_parsed.hostname
+
+        if sock:
+            connect_kwargs["sock"] = sock
+
+        # Versions 13.0 and up switched into additional_headers, lder versions expect extra_headers
+        # Versions 15.0 up introduce a separate user_agent_header
+        if headers:
+            websockets_version = Version(websockets.__version__)
+            if websockets_version >= Version("13.0"):
+                if websockets_version >= Version("15.0"):
+                    user_agent = headers.pop("User-Agent", None)
+                    if user_agent:
+                        connect_kwargs["user_agent_header"] = user_agent
+                    if headers:
+                        connect_kwargs["additional_headers"] = headers
+                else:
+                    connect_kwargs["additional_headers"] = headers
+            else:
+                connect_kwargs["extra_headers"] = headers
+
+        if preferred_host:
+            connect_kwargs["host"] = preferred_host
+
+        return await websockets.connect(self.websocket_uri, **connect_kwargs)
 
     async def websocket_connect(self, *, timeout=30):
         connect_task = asyncio.create_task(self.websocket_connect_coro())
@@ -244,24 +291,24 @@ class WebsocketRunner(Thread):
 
             for task in pending:
                 task.cancel()
-        except ConnectionRefusedError as ex:
-            self.log.warning("Websocket connection refused: %r. Retrying.", ex)
-        except (ConnectionTimeoutError, asyncio.TimeoutError, CancelledError) as ex:
-            self.log.warning("Websocket connection timed out: %r. Retrying.", ex)
         except socket.gaierror as ex:
             self.log.error(
                 "DNS lookup for websocket endpoint or SOCKS5 proxy failed: %r. Retrying.",
                 ex,
             )
-        except websockets.exceptions.InvalidStatusCode as ex:
-            self.log.error(
-                "Websocket server rejected connection with HTTP status code: %r. Retrying.",
-                ex,
-            )
-        except (ProxyError, ProxyConnectionError, ProxyTimeoutError) as ex:
-            self.log.warning("SOCKS5 proxy connection error: %r. Retrying.", ex)
+        except ConnectionRefusedError as ex:
+            self.log.warning("Websocket connection refused: %r. Retrying.", ex)
         except ssl.SSLCertVerificationError as ex:
             self.log.error("Websocket certificate verification error: %r. Retrying.", ex)
+        except (ProxyError, ProxyConnectionError, ProxyTimeoutError) as ex:
+            self.log.warning("SOCKS5 proxy connection error: %r. Retrying.", ex)
+        except (ConnectionTimeoutError, asyncio.TimeoutError, CancelledError) as ex:
+            self.log.warning("Websocket connection timed out: %r. Retrying.", ex)
+        except websockets.exceptions.InvalidHandshake as ex:
+            self.log.error(
+                "Websocket handshake failed: %r. Retrying.",
+                ex,
+            )
         except OSError as ex:  # Network unreachable, etc, may happen sporadically
             self.log.warning("Websocket connection error: %r. Retrying.", ex)
         except Exception as ex:  # pylint:disable=broad-except
