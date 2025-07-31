@@ -19,7 +19,7 @@ from journalpump.senders.aws_cloudwatch import AWSCloudWatchSender, MAX_INIT_TRI
 from journalpump.senders.base import MAX_KAFKA_MESSAGE_SIZE, MsgBuffer, SenderInitializationError
 from journalpump.senders.elasticsearch_opensearch_sender import ElasticsearchSender, OpenSearchSender
 from journalpump.senders.google_cloud_logging import GoogleCloudLoggingSender
-from journalpump.senders.kafka import KafkaSender
+from journalpump.senders.kafka_sender import KafkaSender
 from journalpump.senders.logplex import LogplexSender
 from journalpump.senders.rsyslog import RsyslogSender
 from journalpump.types import LOG_SEVERITY_MAPPING

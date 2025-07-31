@@ -9,7 +9,7 @@ output_type_to_sender_class_path: Dict[str, str] = {
     "opensearch": "journalpump.senders.elasticsearch_opensearch_sender.OpenSearchSender",
     "file": "journalpump.senders.file.FileSender",
     "google_cloud_logging": "journalpump.senders.google_cloud_logging.GoogleCloudLoggingSender",
-    "kafka": "journalpump.senders.kafka.KafkaSender",
+    "kafka": "journalpump.senders.kafka_sender.KafkaSender",
     "logplex": "journalpump.senders.logplex.LogplexSender",
     "rsyslog": "journalpump.senders.rsyslog.RsyslogSender",
     "websocket": "journalpump.senders.websocket.WebsocketSender",
