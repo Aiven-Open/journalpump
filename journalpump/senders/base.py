@@ -110,7 +110,7 @@ class LogSender(Thread, Tagged):
         # program to hang indefinitely. It's preferable to exit (and get restarted by systemd).
         Thread.__init__(self, daemon=True)
         Tagged.__init__(self, tags, sender=name)
-        self.log = logging.getLogger("LogSender:{}".format(reader.name))
+        self.log = logging.getLogger(f"LogSender:{reader.name}")
         self.name = name
         self.stats = stats
         self.config = config

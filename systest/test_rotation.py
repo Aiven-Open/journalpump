@@ -167,7 +167,7 @@ def fixture_journalpump_factory(mocker, tmp_path, journal_log_dir):
         senders.output_type_to_sender_class["stub_sender"] = sender
 
         config_path = tmp_path / "journalpump.json"
-        with open(config_path, "w") as fp:
+        with open(config_path, "w", encoding="utf-8") as fp:
             json.dump(
                 {
                     "readers": {

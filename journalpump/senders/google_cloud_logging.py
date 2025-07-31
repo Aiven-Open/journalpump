@@ -58,7 +58,7 @@ class GoogleCloudLoggingSender(LogSender):
 
     def send_messages(self, *, messages, cursor):
         body = {
-            "logName": "projects/%s/logs/%s" % (self.project_id, self.log_id),
+            "logName": f"projects/{self.project_id}/logs/{self.log_id}",
             "resource": {
                 "type": "generic_node",
             },

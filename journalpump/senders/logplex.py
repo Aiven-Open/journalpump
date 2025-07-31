@@ -21,17 +21,11 @@ class LogplexSender(LogSender):
         entry = json.loads(msg.decode("utf8"))
         hostname = entry.get("_HOSTNAME", "localhost")
         pid = entry.get("_PID", "localhost")
-        pkt = "<190>1 {} {} {} {} {} {}".format(
-            datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S+00:00 "),
-            hostname,
-            self.logplex_token,
-            pid,
-            self.msg_id,
-            self.structured_data,
-        )
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00 ")
+        pkt = f"<190>1 {timestamp}{hostname} {self.logplex_token} {pid} {self.msg_id} {self.structured_data}"
         pkt += entry["MESSAGE"]
         pkt = pkt.encode("utf8")
-        return "{} {}".format(len(pkt), pkt)
+        return f"{len(pkt)} {pkt}"
 
     def send_messages(self, *, messages, cursor):
         auth = ("token", self.logplex_token)

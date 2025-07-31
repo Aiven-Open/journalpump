@@ -133,7 +133,7 @@ def setup_pump(tmpdir, sender_config):
             },
         },
     }
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     pump = JournalPump(journalpump_path)
 

@@ -38,13 +38,13 @@ $template RemoteLogs,"{logfile}"
 class _TestRsyslogd:
     def __init__(self, *, workdir, logfile, port):
         if not os.path.exists(RSYSLOGD):
-            raise RuntimeError('"{}" not available'.format(RSYSLOGD))
+            raise RuntimeError(f'"{RSYSLOGD}" not available')
 
         self.port = port
-        self.conffile = "{}/rsyslogd.conf".format(workdir)
+        self.conffile = f"{workdir}/rsyslogd.conf"
         self.process = None
 
-        with open(self.conffile, "w") as fp:
+        with open(self.conffile, "w", encoding="utf-8") as fp:
             print(RSYSLOGD_TCP_CONF.format(logfile=logfile, port=port), file=fp)
 
     def _wait_until_running(self):
@@ -112,10 +112,10 @@ def _run_pump_test(*, config_path, logfile):
 
     # Check the results
     found = 0
-    with open(logfile, "r") as fp:
+    with open(logfile, "r", encoding="utf-8") as fp:
         lines = fp.readlines()
     for txt in ["Info", "Warning", "Error", "Critical"]:
-        m = re.compile(r".*{} message for {}.*".format(txt, identifier))
+        m = re.compile(rf".*{txt} message for {identifier}.*")
         for line in lines:
             if m.match(line):
                 found += 1
@@ -125,9 +125,9 @@ def _run_pump_test(*, config_path, logfile):
 
 def test_rsyslogd_tcp_sender(tmpdir):
     workdir = tmpdir.dirname
-    logfile = "{}/test.log".format(workdir)
-    config_path = "{}/journalpump.json".format(workdir)
-    with open(config_path, "w") as fp:
+    logfile = f"{workdir}/test.log"
+    config_path = f"{workdir}/journalpump.json"
+    with open(config_path, "w", encoding="utf-8") as fp:
         json.dump(
             {
                 "readers": {

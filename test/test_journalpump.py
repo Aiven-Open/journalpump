@@ -59,7 +59,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
         },
     }
 
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
@@ -94,7 +94,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             },
         },
     }
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
@@ -125,7 +125,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             },
         },
     }
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
@@ -156,7 +156,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             },
         },
     }
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
@@ -190,7 +190,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             }
         }
     }
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
@@ -269,7 +269,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             }
         }
     }
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
@@ -315,7 +315,7 @@ def test_journal_reader_tagging(tmpdir):
         },
     }
     journalpump_path = str(tmpdir.join("journalpump.json"))
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     pump = JournalPump(journalpump_path)
     reader = pump.readers["system"]
@@ -382,7 +382,7 @@ def test_journal_reader_message_lazy_check(tmpdir):
         },
     }
     journalpump_path = str(tmpdir.join("journalpump.json"))
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     pump = JournalPump(journalpump_path)
     reader = pump.readers["system"]
@@ -847,7 +847,7 @@ class TestUnitLogLevels(TestCase):
             "PRIORITY": LOG_SEVERITY_MAPPING[log_level] + 1,
             "SYSTEMD_UNIT": "unit-a",
         }
-        assert ll.filter_by_level(data) == {}
+        assert not ll.filter_by_level(data)
 
     def test_lower_level(self):
         log_level = "WARNING"
@@ -893,7 +893,7 @@ class TestUnitLogLevels(TestCase):
             "PRIORITY": LOG_SEVERITY_MAPPING["INFO"],
             "SYSTEMD_UNIT": "unit-a-something-else",
         }
-        assert ll.filter_by_level(data2) == {}
+        assert not ll.filter_by_level(data2)
         data3 = {
             "Foo": "bar",
             "PRIORITY": LOG_SEVERITY_MAPPING["WARNING"],
@@ -1023,10 +1023,10 @@ def test_journalpump_resume_cursor(tmpdir) -> None:
         "start_time": datetime.now().isoformat(),
     }
 
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
 
-    with open(statefile_path, "w") as fp:
+    with open(statefile_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(state))
 
     pump = JournalPump(journalpump_path)
@@ -1054,7 +1054,7 @@ def test_journalpump_state_file(tmpdir):
         },
     }
 
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
 
     pump = JournalPump(journalpump_path)
@@ -1064,7 +1064,7 @@ def test_journalpump_state_file(tmpdir):
         reader.request_stop()
     pump.save_state()
 
-    with open(statefile_path, "r") as fp:
+    with open(statefile_path, "r", encoding="utf-8") as fp:
         state = json.load(fp)
 
     assert "readers" in state
@@ -1487,7 +1487,7 @@ def test_journalpump_init_journal_files(tmpdir, has_persistent_files, has_runtim
         },
     }
 
-    with open(journalpump_path, "w") as fp:
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
