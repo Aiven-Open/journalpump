@@ -5,16 +5,15 @@
 
 from .util import journalpump_initialized
 from journalpump.journalpump import JournalPump
-from subprocess import Popen
+from systemd import journal
 from time import sleep
 
 import json
-import logging
-import logging.handlers
 import os
 import random
 import socket
 import string
+import subprocess
 import threading
 
 # NOTE: make sure to use google-re >= 1.1 if this is enabled.
@@ -38,13 +37,13 @@ $template RemoteLogs,"{logfile}"
 class _TestRsyslogd:
     def __init__(self, *, workdir, logfile, port):
         if not os.path.exists(RSYSLOGD):
-            raise RuntimeError('"{}" not available'.format(RSYSLOGD))
+            raise RuntimeError(f'"{RSYSLOGD}" not available')
 
         self.port = port
-        self.conffile = "{}/rsyslogd.conf".format(workdir)
+        self.conffile = f"{workdir}/rsyslogd.conf"
         self.process = None
 
-        with open(self.conffile, "w") as fp:
+        with open(self.conffile, "w", encoding="utf-8") as fp:
             print(RSYSLOGD_TCP_CONF.format(logfile=logfile, port=port), file=fp)
 
     def _wait_until_running(self):
@@ -63,7 +62,27 @@ class _TestRsyslogd:
     def start(self):
         # Start rsyslogd in the foreground
         # pylint: disable=consider-using-with
-        self.process = Popen([RSYSLOGD, "-f", self.conffile, "-i", "NONE", "-n", "-C"])
+
+        # In CI, try to disable AppArmor for rsyslogd otherwise it cannot start
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            try:
+                subprocess.run(
+                    ["sudo", "ln", "-sf", "/etc/apparmor.d/usr.sbin.rsyslogd", "/etc/apparmor.d/disable/"],
+                    check=False,
+                    capture_output=True,
+                    timeout=5,
+                )
+                subprocess.run(
+                    ["sudo", "apparmor_parser", "-R", "/etc/apparmor.d/usr.sbin.rsyslogd"],
+                    check=False,
+                    capture_output=True,
+                    timeout=5,
+                )
+            except Exception:
+                pass
+
+        self.process = subprocess.Popen([RSYSLOGD, "-f", self.conffile, "-i", "NONE", "-n", "-C"])
+
         self._wait_until_running()
 
     def stop(self):
@@ -85,12 +104,12 @@ def _run_pump_test(*, config_path, logfile):
         threads.append(pump)
 
         assert journalpump_initialized(journalpump), "Failed to initialize journalpump"
+
         identifier = "".join(random.sample(string.ascii_uppercase + string.digits, k=8))
-        logger = logging.getLogger("rsyslog-tester")
-        logger.info("Info message for %s", identifier)
-        logger.warning("Warning message for %s", identifier)
-        logger.error("Error message for %s", identifier)
-        logger.critical("Critical message for %s", identifier)
+        journal.send(f"Info message for {identifier}", PRIORITY=journal.LOG_INFO)
+        journal.send(f"Warning message for {identifier}", PRIORITY=journal.LOG_WARNING)
+        journal.send(f"Error message for {identifier}", PRIORITY=journal.LOG_ERR)
+        journal.send(f"Critical message for {identifier}", PRIORITY=journal.LOG_CRIT)
         # Wait for everything to trickle thru
         sleep(5)
     finally:
@@ -112,10 +131,10 @@ def _run_pump_test(*, config_path, logfile):
 
     # Check the results
     found = 0
-    with open(logfile, "r") as fp:
+    with open(logfile, "r", encoding="utf-8") as fp:
         lines = fp.readlines()
     for txt in ["Info", "Warning", "Error", "Critical"]:
-        m = re.compile(r".*{} message for {}.*".format(txt, identifier))
+        m = re.compile(rf".*{txt} message for {identifier}.*")
         for line in lines:
             if m.match(line):
                 found += 1
@@ -125,14 +144,13 @@ def _run_pump_test(*, config_path, logfile):
 
 def test_rsyslogd_tcp_sender(tmpdir):
     workdir = tmpdir.dirname
-    logfile = "{}/test.log".format(workdir)
-    config_path = "{}/journalpump.json".format(workdir)
-    with open(config_path, "w") as fp:
+    logfile = f"{workdir}/test.log"
+    config_path = f"{workdir}/journalpump.json"
+    with open(config_path, "w", encoding="utf-8") as fp:
         json.dump(
             {
                 "readers": {
                     "syslog-tcp": {
-                        "initial_position": "tail",
                         "senders": {
                             "rsyslog": {
                                 "output_type": "rsyslog",

@@ -87,13 +87,13 @@ class ServiceDaemon:
             file_ctime = os.path.getctime(self.config_path)
         except FileNotFoundError as ex:
             if self.require_config:
-                raise ServiceDaemonError("Cannot start without json config file at {!r}".format(self.config_path)) from ex
+                raise ServiceDaemonError(f"Cannot start without json config file at {self.config_path!r}") from ex
 
         if file_ctime != self.config_file_ctime:
             daemon.notify("RELOADING=1")
             self.log.info("%soading configuration", "Rel" if self.config_file_ctime else "L")
             self.config_file_ctime = file_ctime
-            with open(self.config_path) as fp:
+            with open(self.config_path, encoding="utf-8") as fp:
                 self.config = json.load(fp)
             self.log_level = self.config.get("log_level", logging.INFO)
             self.configure_logging()

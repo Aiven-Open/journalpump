@@ -103,7 +103,7 @@ class KafkaSender(LogSender):
         # Assume that when the topic configuration is provided we should
         # manually create it. This is useful for kafka clusters configured with
         # `auto.create.topics.enable = false`
-        topic_config = self.config.get("kafka_topic_config", dict())
+        topic_config = self.config.get("kafka_topic_config", {})
         num_partitions = topic_config.get("num_partitions")
         replication_factor = topic_config.get("replication_factor")
         if num_partitions is not None and replication_factor is not None:

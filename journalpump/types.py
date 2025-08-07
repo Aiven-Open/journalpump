@@ -1,4 +1,5 @@
 """JournalPump internal types"""
+
 from typing import Protocol
 
 import enum

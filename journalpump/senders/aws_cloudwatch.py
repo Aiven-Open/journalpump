@@ -20,12 +20,12 @@ class AWSCloudWatchSender(LogSender):
         self._next_sequence_token = None
         self._init_logs()
 
-    def _init_logs(self):
+    def _init_logs(self):  # pylint: disable=too-many-statements
         self.log.info("Initializing AWS CloudWatch")
 
         if self._logs is None:
             if self.log_group is None or self.log_stream is None:
-                raise Exception("AWS CloudWatch log group and stream names need to be configured")
+                raise ValueError("AWS CloudWatch log group and stream names need to be configured")
             kwargs = {}
             if self.config.get("aws_region") is not None:
                 kwargs["region_name"] = self.config.get("aws_region")

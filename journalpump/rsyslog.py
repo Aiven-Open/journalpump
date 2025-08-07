@@ -14,16 +14,16 @@ NILVALUE = "-"
 
 # pylint: disable=unused-argument
 def _rfc_5424_formatter(*, pri, rfc3339date, rfc3164date, hostname, app_id, proc_id, msg_id, msg, sd):
-    data = "<{}>1 {} {} {} {} {}".format(pri, rfc3339date, hostname, app_id, proc_id, msg_id)
+    data = f"<{pri}>1 {rfc3339date} {hostname} {app_id} {proc_id} {msg_id}"
     if sd is not None:
-        data += " [{}]".format(sd)
-    data += " {}\n".format(msg)
+        data += f" [{sd}]"
+    data += f" {msg}\n"
     return data.encode("utf-8", "replace")
 
 
 # pylint: disable=unused-argument
 def _rfc_3164_formatter(*, pri, rfc3339date, rfc3164date, hostname, app_id, proc_id, msg_id, msg, sd):
-    data = "<{}>{} {} {}[{}]: {}\n".format(pri, rfc3164date, hostname, app_id, proc_id, msg)
+    data = f"<{pri}>{rfc3164date} {hostname} {app_id}[{proc_id}]: {msg}\n"
     return data.encode("utf-8", "replace")
 
 
@@ -92,7 +92,7 @@ class SyslogTcpClient:
                 raise ValueError("log_format must be given when using CUSTOM format")
             self.formatter = partial(_custom_formatter, _generate_format(log_format))
         else:
-            raise ValueError('Unknown message format "{}" requested'.format(rfc))
+            raise ValueError(f'Unknown message format "{rfc}" requested')
         if protocol is None:
             protocol = "PLAINTEXT"
         if cacerts is not None or protocol == "SSL":
@@ -122,7 +122,7 @@ class SyslogTcpClient:
                         self.socket.close()
                     last_connection_error = ex
         except socket.gaierror as ex:
-            raise ValueError("Invalid address {}:{}".format(self.server, self.port)) from ex
+            raise ValueError(f"Invalid address {self.server}:{self.port}") from ex
 
         raise last_connection_error
 

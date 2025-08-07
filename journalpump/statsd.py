@@ -6,6 +6,7 @@ Supports telegraf's statsd protocol extension for 'key=value' tags:
   https://github.com/influxdata/telegraf/tree/master/plugins/inputs/statsd
 
 """
+
 import logging
 import socket
 
@@ -45,7 +46,7 @@ class StatsClient:
         send_tags = self._tags.copy()
         send_tags.update(tags or {})
         for tag, tag_value in send_tags.items():
-            parts.insert(1, ",{}={}".format(tag, tag_value).encode("utf-8"))
+            parts.insert(1, f",{tag}={tag_value}".encode("utf-8"))
 
         try:
             self._socket.sendto(b"".join(parts), self._dest_addr)

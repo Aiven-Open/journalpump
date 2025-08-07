@@ -9,7 +9,7 @@ output_type_to_sender_class_path: Dict[str, str] = {
     "opensearch": "journalpump.senders.elasticsearch_opensearch_sender.OpenSearchSender",
     "file": "journalpump.senders.file.FileSender",
     "google_cloud_logging": "journalpump.senders.google_cloud_logging.GoogleCloudLoggingSender",
-    "kafka": "journalpump.senders.kafka.KafkaSender",
+    "kafka": "journalpump.senders.kafka_sender.KafkaSender",
     "logplex": "journalpump.senders.logplex.LogplexSender",
     "rsyslog": "journalpump.senders.rsyslog.RsyslogSender",
     "websocket": "journalpump.senders.websocket.WebsocketSender",
@@ -25,7 +25,7 @@ def get_sender_class(output_type):
         try:
             sender_class_path = output_type_to_sender_class_path[output_type]
         except KeyError as ex:
-            raise Exception("Unknown sender type {!r}".format(output_type)) from ex
+            raise ValueError(f"Unknown sender type {output_type!r}") from ex
 
         sender_class_module, sender_class_name = sender_class_path.rsplit(".", 1)
         sender_module = importlib.import_module(sender_class_module)

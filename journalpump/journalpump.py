@@ -131,7 +131,7 @@ class JournalReader(Tagged):
         initial_position=None,
     ):
         Tagged.__init__(self, tags, reader=name)
-        self.log = logging.getLogger("JournalReader:{}".format(name))
+        self.log = logging.getLogger(f"JournalReader:{name}")
         self.name = name
         self.msg_buffer_max_length = msg_buffer_max_length
         self.msg_buffer_max_bytes = msg_buffer_max_bytes
@@ -157,7 +157,7 @@ class JournalReader(Tagged):
         self._failed_senders: int = 0
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
-        self.persistent_gauges: Dict[str, Tuple[int, Dict[str, str]]] = dict()
+        self.persistent_gauges: Dict[str, Tuple[int, Dict[str, str]]] = {}
         self.searches = list(self._build_searches(searches))
         self.secret_filter_matches = 0
         self.secret_filters = self._validate_and_build_secret_filters(config)
@@ -262,7 +262,7 @@ class JournalReader(Tagged):
 
     def initialize_senders(self):
         configured_senders = self.config.get("senders", {})
-        tags: Dict[str, str] = dict()
+        tags: Dict[str, str] = {}
         for sender_name, sender_config in configured_senders.items():
             if sender_name in self._initialized_senders:
                 continue
@@ -423,11 +423,11 @@ class JournalReader(Tagged):
             )
 
         try:
-            reader_kwargs = dict(
-                files=self.config.get("journal_files"),
-                flags=journal_flags,
-                path=self.config.get("journal_path"),
-            )
+            reader_kwargs = {
+                "files": self.config.get("journal_files"),
+                "flags": journal_flags,
+                "path": self.config.get("journal_path"),
+            }
             namespace = self.config.get("journal_namespace")
             if namespace:
                 reader_kwargs["namespace"] = namespace
@@ -512,13 +512,12 @@ class JournalReader(Tagged):
                     # Tag uses a method conversion call, e.g. "ip_to_geohash(ip_address,5)"
                     match = re_op.search(value)
                     if not match:
-                        raise Exception("Invalid tag function tag value: {!r}".format(value))
+                        raise ValueError(f"Invalid tag function tag value {value!r}")
                     func_name = match.groupdict()["func"]
                     try:
                         f = funcs[func_name]  # pylint: disable=unused-variable
                     except KeyError as ex:
-                        raise Exception("Unknown tag function {!r} in {!r}".format(func_name, value)) from ex
-
+                        raise ValueError(f"Unknown tag function {func_name!r} in {value!r}") from ex
                     args = match.groupdict()["args"].split(",")  # pylint: disable=unused-variable
 
                     def value_func(tags, f=f, args=args):  # pylint: disable=undefined-variable
@@ -771,7 +770,7 @@ class JournalObjectHandler:
         return unit_log_levels.filter_by_level(data) if unit_log_levels else data
 
     def _truncate_long_message(self, json_entry):
-        error = "too large message {} bytes vs maximum {} bytes".format(len(json_entry), MAX_KAFKA_MESSAGE_SIZE)
+        error = f"too large message {len(json_entry)} bytes vs maximum {MAX_KAFKA_MESSAGE_SIZE} bytes"
         if not self.error_reported:
             self.pump.stats.increase(
                 "journal.read_error",
@@ -870,11 +869,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 # TODO: pick the OLDEST cursor
                 resume_cursor = sender_cursor
 
-            self.log.info(
-                "Reader %r resuming from cursor position: %r",
-                reader_name,
-                resume_cursor,
-            )
+            self.log.info("Reader %r resuming from cursor position: %r", reader_name, resume_cursor)
             initial_position = reader_config.get("initial_position")
             reader = JournalReader(
                 name=reader_name,
@@ -936,7 +931,7 @@ class JournalPump(ServiceDaemon, Tagged):
             return {}
 
         try:
-            with open(file_path, "r") as fp:
+            with open(file_path, "r", encoding="utf-8") as fp:
                 return json.load(fp)
         except FileNotFoundError:
             return {}

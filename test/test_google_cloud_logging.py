@@ -145,11 +145,11 @@ class TestGoogleCloudLoggingSender:
         )
         assert sender._sent_count == 1  # pylint: disable=protected-access
 
-    def test_big_logentry_is_truncated(self):
+    def test_big_logentry_is_truncated(self):  # pylint: disable=protected-access
         """Check that message was not marked as sent if GoogleApi returns error"""
         message_content = "A" * 257_00
         request_builder = self._generate_request_builder(
-            [{"jsonPayload": {"MESSAGE": message_content[: GoogleCloudLoggingSender._MAX_MESSAGE_SIZE]}}],
+            [{"jsonPayload": {"MESSAGE": message_content[: GoogleCloudLoggingSender._MAX_MESSAGE_SIZE]}}]
         )
 
         sender = GoogleCloudLoggingSender(
@@ -186,8 +186,8 @@ class TestGoogleCloudLoggingSender:
         )
         message = {"MESSAGE": "A" * 200_000, "OTHER_FIELD": "B" * 200_000}
         sender.send_messages(messages=[json.dumps(message).encode()], cursor=None)
-        assert sender._sent_count == 1
+        assert sender._sent_count == 1  # pylint: disable=protected-access
 
         message = {"OTHER_FIELD": "B" * 257_000}
         sender.send_messages(messages=[json.dumps(message).encode()], cursor=None)
-        assert sender._sent_count == 2
+        assert sender._sent_count == 2  # pylint: disable=protected-access

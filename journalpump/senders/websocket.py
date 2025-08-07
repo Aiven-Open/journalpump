@@ -246,6 +246,13 @@ class WebsocketRunner(Thread):
                 task.cancel()
         except ConnectionRefusedError as ex:
             self.log.warning("Websocket connection refused: %r. Retrying.", ex)
+        except websockets.exceptions.InvalidStatusCode as ex:  # pylint: disable=no-member
+            self.log.error(
+                "Websocket server rejected connection with HTTP status code: %r. Retrying.",
+                ex,
+            )
+        except (ProxyError, ProxyConnectionError, ProxyTimeoutError) as ex:
+            self.log.warning("SOCKS5 proxy connection error: %r. Retrying.", ex)
         except (ConnectionTimeoutError, asyncio.TimeoutError, CancelledError) as ex:
             self.log.warning("Websocket connection timed out: %r. Retrying.", ex)
         except socket.gaierror as ex:
@@ -253,13 +260,6 @@ class WebsocketRunner(Thread):
                 "DNS lookup for websocket endpoint or SOCKS5 proxy failed: %r. Retrying.",
                 ex,
             )
-        except websockets.exceptions.InvalidStatusCode as ex:
-            self.log.error(
-                "Websocket server rejected connection with HTTP status code: %r. Retrying.",
-                ex,
-            )
-        except (ProxyError, ProxyConnectionError, ProxyTimeoutError) as ex:
-            self.log.warning("SOCKS5 proxy connection error: %r. Retrying.", ex)
         except ssl.SSLCertVerificationError as ex:
             self.log.error("Websocket certificate verification error: %r. Retrying.", ex)
         except OSError as ex:  # Network unreachable, etc, may happen sporadically
