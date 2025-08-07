@@ -16,7 +16,8 @@ import snappy  # pylint: disable=import-error
 import socket
 import ssl
 import time
-import websockets
+import websockets.client
+import websockets.exceptions
 
 
 @enum.unique
@@ -178,7 +179,7 @@ class WebsocketRunner(Thread):
             )
 
         ws_compr = None if self.websocket_compression == WebsocketCompression.none else str(self.websocket_compression)
-        return await websockets.connect(  # pylint:disable=no-member
+        return await websockets.client.connect(  # pylint:disable=no-member
             self.websocket_uri,
             ssl=ssl_context,
             compression=ws_compr,
