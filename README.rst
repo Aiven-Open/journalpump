@@ -7,7 +7,7 @@ journalpump |BuildStatus|_
    :target: https://codecov.io/gh/aiven/journalpump
 
 journalpump is a daemon that takes log messages from journald and pumps them
-to a given output.  Currently supported outputs are Elasticsearch, Apache Kafka®,
+to a given output.  Currently supported outputs are Elasticsearch, OpenSearch, Apache Kafka®,
 logplex, rsyslog, websocket and AWS CloudWatch.  It reads messages from
 journald and optionally checks if they match a config rule and forwards them
 as JSON messages to the desired output.
