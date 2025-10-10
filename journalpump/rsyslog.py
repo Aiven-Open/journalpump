@@ -114,7 +114,9 @@ class SyslogTcpClient:
                 try:
                     self.socket = socket.socket(family, sock_type, sock_proto)
                     if self.ssl_context is not None:
-                        self.socket = self.ssl_context.wrap_socket(self.socket)
+                        # Passing server_hostname allows client to pass SNI (Server Name Identification)
+                        # field to server, so that the server can pick a correct server cert.
+                        self.socket = self.ssl_context.wrap_socket(self.socket, server_hostname=self.server)
                     self.socket.connect(sock_addr)
                     return
                 except Exception as ex:  # pylint: disable=broad-except
