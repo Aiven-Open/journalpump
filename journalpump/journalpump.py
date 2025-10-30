@@ -1044,16 +1044,16 @@ class JournalPump(ServiceDaemon, Tagged):
 
     def run(self):  # pylint: disable=too-many-statements
         last_stats_time = 0
-        poll_timeout = 0
+        poll_timeout_ms = 0
         buffered_events = {}
         hits = {}
 
         while self.running:
             self._close_stale_readers()
 
-            self.log.debug("Waiting for %dms", poll_timeout)
-            results = self.poller.poll(poll_timeout)
-            iteration_start_time = time.monotonic_ns()
+            self.log.debug("Waiting for %dms", poll_timeout_ms)
+            results = self.poller.poll(poll_timeout_ms)
+            iteration_start_time = time.monotonic()
 
             lines = 0
             # We keep valid events in case reader is busy with processing
@@ -1131,9 +1131,9 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.log.debug("No new journal lines received")
 
             self.ping_watchdog()
-            poll_timeout = max(
+            poll_timeout_ms = max(
                 0,
-                self.poll_interval_ms - (time.monotonic_ns() - iteration_start_time) // 1000,
+                self.poll_interval_ms - (time.monotonic() - iteration_start_time) * 1000,
             )
 
         self._close_stale_readers()
