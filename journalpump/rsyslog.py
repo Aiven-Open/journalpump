@@ -158,6 +158,10 @@ class SyslogTcpClient:
     def _should_retry(self, *, ex):
         if isinstance(ex, OSError):
             return ex.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT)
+        # retry to send when the SSL connection was closed unexpectedly
+        # with message 'EOF occurred in violation of protocol'
+        if isinstance(ex, ssl.SSLEOFError):
+            return True
         return False
 
     def log(self, *, facility, severity, timestamp, hostname, program, pid=None, msgid=None, msg=None, sd=None):
