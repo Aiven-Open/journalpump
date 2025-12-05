@@ -75,12 +75,26 @@ def _generate_format(logline):
 
 class SyslogTcpClient:
     def __init__(
-        self, *, server, port, rfc, max_msg=None, protocol=None, cacerts=None, keyfile=None, certfile=None, log_format=None
+        self,
+        *,
+        server,
+        port,
+        rfc,
+        max_msg=None,
+        protocol=None,
+        cacerts=None,
+        keyfile=None,
+        certfile=None,
+        log_format=None,
+        truncate_multiline=None,
     ):
         self.socket = None
         self.server = server
         self.port = port
         self.max_msg = max_msg or 2048
+        self.truncate_multiline = not (
+            isinstance(truncate_multiline, str) and truncate_multiline.lower() == "false"
+        )  # True by default
         self.socket_proto = socket.SOCK_STREAM
         self.ssl_context = None
         if rfc == "RFC5424":
@@ -144,6 +158,19 @@ class SyslogTcpClient:
                 if self.socket is None:
                     self._connect()
 
+                # Syslog over TCP (RFC 6587) supports 2 message framing methods:
+                # - Octet-counted framing: Each message is prefixed with its
+                #     length and a space (<length> <message>).
+                # - Non-transparent framing: Each message is terminated by a
+                #     newline (\n).
+                # So far, non-transparent framing was used by journalpump,
+                # and multi-line log messages were truncated to 1st line.
+                # We keep this behavior by default, but now expose a new config
+                # allowing to switch to octet-counted framing, so that
+                # multi-line log messages only get truncated by max size.
+                if not self.truncate_multiline:
+                    message = f"{len(message)} ".encode("utf-8") + message
+
                 self.socket.sendall(message[: self.max_msg - 1])
                 if len(message) >= self.max_msg:
                     self.socket.sendall(b"\n")
@@ -158,9 +185,25 @@ class SyslogTcpClient:
     def _should_retry(self, *, ex):
         if isinstance(ex, OSError):
             return ex.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT)
+        # retry to send when the SSL connection was closed unexpectedly
+        # with message 'EOF occurred in violation of protocol'
+        if isinstance(ex, ssl.SSLEOFError):
+            return True
         return False
 
-    def log(self, *, facility, severity, timestamp, hostname, program, pid=None, msgid=None, msg=None, sd=None):
+    def log(
+        self,
+        *,
+        facility,
+        severity,
+        timestamp,
+        hostname,
+        program,
+        pid=None,
+        msgid=None,
+        msg=None,
+        sd=None,
+    ):
         if 0 <= facility <= 23 and 0 <= severity <= 7:
             pri = facility * 8 + severity
         else:

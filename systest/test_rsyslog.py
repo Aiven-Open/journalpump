@@ -9,7 +9,9 @@ from systemd import journal
 from time import sleep
 
 import json
+import logging
 import os
+import pytest
 import random
 import socket
 import string
@@ -32,6 +34,8 @@ $template RemoteLogs,"{logfile}"
 *.* ?RemoteLogs
 & ~
 """
+
+log = logging.getLogger(__name__)
 
 
 class _TestRsyslogd:
@@ -67,13 +71,24 @@ class _TestRsyslogd:
         if os.environ.get("GITHUB_ACTIONS") == "true":
             try:
                 subprocess.run(
-                    ["sudo", "ln", "-sf", "/etc/apparmor.d/usr.sbin.rsyslogd", "/etc/apparmor.d/disable/"],
+                    [
+                        "sudo",
+                        "ln",
+                        "-sf",
+                        "/etc/apparmor.d/usr.sbin.rsyslogd",
+                        "/etc/apparmor.d/disable/",
+                    ],
                     check=False,
                     capture_output=True,
                     timeout=5,
                 )
                 subprocess.run(
-                    ["sudo", "apparmor_parser", "-R", "/etc/apparmor.d/usr.sbin.rsyslogd"],
+                    [
+                        "sudo",
+                        "apparmor_parser",
+                        "-R",
+                        "/etc/apparmor.d/usr.sbin.rsyslogd",
+                    ],
                     check=False,
                     capture_output=True,
                     timeout=5,
@@ -94,7 +109,14 @@ class _TestRsyslogd:
             self.process = None
 
 
-def _run_pump_test(*, config_path, logfile):
+def _run_pump_test(
+    *,
+    config_path,
+    logfile,
+    messages_to_send,
+    expected_message_count,
+    expected_multiline_support,
+):
     journalpump = None
     threads = []
     try:
@@ -106,10 +128,12 @@ def _run_pump_test(*, config_path, logfile):
         assert journalpump_initialized(journalpump), "Failed to initialize journalpump"
 
         identifier = "".join(random.sample(string.ascii_uppercase + string.digits, k=8))
-        journal.send(f"Info message for {identifier}", PRIORITY=journal.LOG_INFO)
-        journal.send(f"Warning message for {identifier}", PRIORITY=journal.LOG_WARNING)
-        journal.send(f"Error message for {identifier}", PRIORITY=journal.LOG_ERR)
-        journal.send(f"Critical message for {identifier}", PRIORITY=journal.LOG_CRIT)
+        for msg in messages_to_send:
+            msg_text = msg["text"].format(identifier=identifier)
+            kwargs = dict(msg)
+            kwargs.pop("text")
+            log.info("Sending: %s", msg_text)
+            journal.send(msg_text, **kwargs)
         # Wait for everything to trickle thru
         sleep(5)
     finally:
@@ -131,18 +155,75 @@ def _run_pump_test(*, config_path, logfile):
 
     # Check the results
     found = 0
+    multiline_support = False
     with open(logfile, "r", encoding="utf-8") as fp:
         lines = fp.readlines()
     for txt in ["Info", "Warning", "Error", "Critical"]:
         m = re.compile(rf".*{txt} message for {identifier}.*")
         for line in lines:
             if m.match(line):
+                log.info("Found: %s", line)
                 found += 1
+                if txt == "Info":
+                    multiline_support = line.endswith("example#012stack#012trace {%} -\n")
                 break
-    assert found == 4, "Expected messages not found in syslog"
+    assert found == expected_message_count, "Expected messages not found in syslog"
+    assert (
+        multiline_support == expected_multiline_support
+    ), f"Multi-line support is {multiline_support} which does not match expected {expected_multiline_support}"
 
 
-def test_rsyslogd_tcp_sender(tmpdir):
+@pytest.mark.parametrize(
+    "messages_to_send,truncate_multiline_config,expected_message_count,expected_multiline_support",
+    [
+        (
+            [
+                {"text": "Info message for {identifier}", "PRIORITY": journal.LOG_INFO},
+                {
+                    "text": "Warning message for {identifier}",
+                    "PRIORITY": journal.LOG_WARNING,
+                },
+                {"text": "Error message for {identifier}", "PRIORITY": journal.LOG_ERR},
+                {
+                    "text": "Critical message for {identifier}",
+                    "PRIORITY": journal.LOG_CRIT,
+                },
+            ],
+            {},  # config not specified, truncate_multiline=true by default
+            4,
+            False,
+        ),
+        (
+            [
+                {
+                    "text": "Info message for {identifier}\nexample\nstack\ntrace",
+                    "PRIORITY": journal.LOG_INFO,
+                },
+            ],
+            {"truncate_multiline": "true"},
+            1,
+            False,
+        ),
+        (
+            [
+                {
+                    "text": "Info message for {identifier}\nexample\nstack\ntrace",
+                    "PRIORITY": journal.LOG_INFO,
+                },
+            ],
+            {"truncate_multiline": "false"},
+            1,
+            True,
+        ),
+    ],
+)
+def test_rsyslogd_tcp_sender(
+    tmpdir,
+    messages_to_send,
+    truncate_multiline_config,
+    expected_message_count,
+    expected_multiline_support,
+):
     workdir = tmpdir.dirname
     logfile = f"{workdir}/test.log"
     config_path = f"{workdir}/journalpump.json"
@@ -158,6 +239,7 @@ def test_rsyslogd_tcp_sender(tmpdir):
                                 "rsyslog_port": 5140,
                                 "format": "custom",
                                 "logline": "<%pri%>%timestamp% %HOSTNAME% %app-name%[%procid%]: %msg% {%%} %not-valid-tag%",
+                                **dict(truncate_multiline_config),
                             },
                         },
                     },
@@ -168,6 +250,12 @@ def test_rsyslogd_tcp_sender(tmpdir):
     rsyslogd = _TestRsyslogd(workdir=workdir, logfile=logfile, port=5140)
     try:
         rsyslogd.start()
-        _run_pump_test(config_path=config_path, logfile=logfile)
+        _run_pump_test(
+            config_path=config_path,
+            logfile=logfile,
+            messages_to_send=messages_to_send,
+            expected_message_count=expected_message_count,
+            expected_multiline_support=expected_multiline_support,
+        )
     finally:
         rsyslogd.stop()

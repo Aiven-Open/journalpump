@@ -10,7 +10,11 @@ RSYSLOG_CONN_ERRORS = (socket.timeout, ConnectionRefusedError, TimeoutError)
 
 class RsyslogSender(LogSender):
     def __init__(self, *, config, **kwargs):
-        super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
+        super().__init__(
+            config=config,
+            max_send_interval=config.get("max_send_interval", 0.3),
+            **kwargs,
+        )
         self.rsyslog_client = None
         self.sd = None
         self.default_facility = 1
@@ -41,8 +45,14 @@ class RsyslogSender(LogSender):
                     keyfile=self.config.get("client_key"),
                     certfile=self.config.get("client_cert"),
                     log_format=self.config.get("logline"),
+                    truncate_multiline=self.config.get("truncate_multiline"),
                 )
-                self.log.info("Initialized Rsyslog Client %s, server: %s, port: %d", self.name, server, port)
+                self.log.info(
+                    "Initialized Rsyslog Client %s, server: %s, port: %d",
+                    self.name,
+                    server,
+                    port,
+                )
                 self.mark_connected()
                 break
             except RSYSLOG_CONN_ERRORS as ex:
