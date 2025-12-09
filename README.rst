@@ -567,6 +567,12 @@ timestamp:::date-rfc3339, HOSTNAME, app-name, procid, msgid, msg and structured-
 
 For example the rfc3164 log format would be defined as `<%pri%>%timestamp% %HOSTNAME% %app-name%[%procid%]: %msg%`
 
+``truncate_multiline`` (default ``true``)
+
+By default, log messages are sent using non-transparent framing and are terminated by newline.
+Set it to ``false`` if the server supports octet-counted framing and messages are multi-line.
+(see `RFC 6587 for Syslog over TCP message transfer <https://datatracker.ietf.org/doc/html/rfc6587#section-3.4.1>`_)
+
 ``structured_data`` (default ``null``)
 
 Content of structured data section (optional, required by some services to identify the sender).
