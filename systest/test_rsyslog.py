@@ -189,7 +189,7 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_CRIT,
                 },
             ],
-            {},  # config not specified, truncate_multiline=true by default
+            {},  # config not specified, truncate_multiline is True by default
             4,
             False,
         ),
@@ -200,7 +200,7 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_INFO,
                 },
             ],
-            {"truncate_multiline": "true"},
+            {"truncate_multiline": True},
             1,
             False,
         ),
@@ -211,7 +211,7 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_INFO,
                 },
             ],
-            {"truncate_multiline": "false"},
+            {"truncate_multiline": False},
             1,
             True,
         ),

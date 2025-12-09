@@ -92,11 +92,9 @@ class SyslogTcpClient:
         self.server = server
         self.port = port
         self.max_msg = max_msg or 2048
-        self.truncate_multiline = not (
-            isinstance(truncate_multiline, str) and truncate_multiline.lower() == "false"
-        )  # True by default
         self.socket_proto = socket.SOCK_STREAM
         self.ssl_context = None
+        self.truncate_multiline = True if truncate_multiline is None else truncate_multiline
         if rfc == "RFC5424":
             self.formatter = _rfc_5424_formatter
         elif rfc == "RFC3164":
