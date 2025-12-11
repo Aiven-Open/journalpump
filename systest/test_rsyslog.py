@@ -174,7 +174,7 @@ def _run_pump_test(
 
 
 @pytest.mark.parametrize(
-    "messages_to_send,truncate_multiline_config,expected_message_count,expected_multiline_support",
+    "messages_to_send,octet_counted_framing_config,expected_message_count,expected_multiline_support",
     [
         (
             [
@@ -189,7 +189,7 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_CRIT,
                 },
             ],
-            {},  # config not specified, truncate_multiline is True by default
+            {},  # config not specified, octet_counted_framing is False by default
             4,
             False,
         ),
@@ -200,7 +200,7 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_INFO,
                 },
             ],
-            {"truncate_multiline": True},
+            {"octet_counted_framing": False},
             1,
             False,
         ),
@@ -211,7 +211,7 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_INFO,
                 },
             ],
-            {"truncate_multiline": False},
+            {"octet_counted_framing": True},
             1,
             True,
         ),
@@ -220,7 +220,7 @@ def _run_pump_test(
 def test_rsyslogd_tcp_sender(
     tmpdir,
     messages_to_send,
-    truncate_multiline_config,
+    octet_counted_framing_config,
     expected_message_count,
     expected_multiline_support,
 ):
@@ -239,7 +239,7 @@ def test_rsyslogd_tcp_sender(
                                 "rsyslog_port": 5140,
                                 "format": "custom",
                                 "logline": "<%pri%>%timestamp% %HOSTNAME% %app-name%[%procid%]: %msg% {%%} %not-valid-tag%",
-                                **dict(truncate_multiline_config),
+                                **dict(octet_counted_framing_config),
                             },
                         },
                     },
