@@ -86,7 +86,7 @@ class SyslogTcpClient:
         keyfile=None,
         certfile=None,
         log_format=None,
-        truncate_multiline=None,
+        octet_counted_framing=None,
     ):
         self.socket = None
         self.server = server
@@ -94,7 +94,7 @@ class SyslogTcpClient:
         self.max_msg = max_msg or 2048
         self.socket_proto = socket.SOCK_STREAM
         self.ssl_context = None
-        self.truncate_multiline = True if truncate_multiline is None else truncate_multiline
+        self.octet_counted_framing = False if octet_counted_framing is None else octet_counted_framing
         if rfc == "RFC5424":
             self.formatter = _rfc_5424_formatter
         elif rfc == "RFC3164":
@@ -161,12 +161,13 @@ class SyslogTcpClient:
                 #     length and a space (<length> <message>).
                 # - Non-transparent framing: Each message is terminated by a
                 #     newline (\n).
-                # So far, non-transparent framing was used by journalpump,
-                # and multi-line log messages were truncated to 1st line.
+                # So far, only non-transparent framing was used by journalpump
+                # and multi-line log messages were terminated at first newline.
                 # We keep this behavior by default, but now expose a new config
-                # allowing to switch to octet-counted framing, so that
-                # multi-line log messages only get truncated by max size.
-                if not self.truncate_multiline:
+                # allowing to switch to octet-counted framing. Provided that this
+                # method is supported by the syslog server, multi-line messages
+                # will only get truncated according to the max_message_size.
+                if self.octet_counted_framing:
                     message = f"{len(message)} ".encode("utf-8") + message
 
                 self.socket.sendall(message[: self.max_msg - 1])
