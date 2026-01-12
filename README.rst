@@ -480,6 +480,28 @@ for partition selection.
 Kafka client key path, needed when you're using Kafka with SSL
 authentication.
 
+``security_protocol`` (default: fallback based on ssl setting)
+
+Security protocol to use for Kafka connections. Supported values are:
+``PLAINTEXT``, ``SSL``, ``SASL_PLAINTEXT``, and ``SASL_SSL``.
+If not specified, defaults to ``SSL`` when ``ssl`` is true, otherwise ``PLAINTEXT``.
+
+``sasl_mechanism`` (default ``PLAIN``)
+
+SASL mechanism to use for authentication when using ``SASL_PLAINTEXT`` or
+``SASL_SSL`` security protocols. Common values include ``PLAIN``, ``SCRAM-SHA-256``,
+and ``SCRAM-SHA-512``.
+
+``sasl_plain_username`` (default ``null``)
+
+Username for SASL authentication. Required when using ``SASL_PLAINTEXT`` or
+``SASL_SSL`` security protocols.
+
+``sasl_plain_password`` (default ``null``)
+
+Password for SASL authentication. Required when using ``SASL_PLAINTEXT`` or
+``SASL_SSL`` security protocols.
+
 ``socks5_proxy`` (default ``null``)
 
 Defined socks5 proxy to use for Kafka connections. This feature
