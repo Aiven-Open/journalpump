@@ -41,13 +41,31 @@ class KafkaSender(LogSender):
             "reconnect_backoff_max_ms": 10000,  # up the upper bound for backoff to 10 seconds
         }
 
-        if self.config.get("ssl"):
+        # Allow explicit security_protocol configuration or derive from ssl setting
+        security_protocol = self.config.get("security_protocol")
+        if security_protocol:
+            if security_protocol not in ("PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"):
+                raise ValueError(f"Invalid security_protocol value: {security_protocol}")
+            config["security_protocol"] = security_protocol
+        elif self.config.get("ssl"):
             config["security_protocol"] = "SSL"
-            config["ssl_cafile"] = self.config.get("ca")
-            config["ssl_certfile"] = self.config.get("certfile")
-            config["ssl_keyfile"] = self.config.get("keyfile")
         else:
             config["security_protocol"] = "PLAINTEXT"
+
+        # Configure SSL settings for SSL and SASL_SSL protocols
+        if config["security_protocol"] in ("SSL", "SASL_SSL"):
+            config["ssl_cafile"] = self.config.get("ca")
+        if config["security_protocol"] == "SSL":
+            config["ssl_certfile"] = self.config.get("certfile")
+            config["ssl_keyfile"] = self.config.get("keyfile")
+
+        # Configure SASL settings for SASL_PLAINTEXT and SASL_SSL protocols
+        if config["security_protocol"] in ("SASL_PLAINTEXT", "SASL_SSL"):
+            config["sasl_mechanism"] = self.config.get("sasl_mechanism", "PLAIN")
+            config["sasl_plain_username"] = self.config.get("sasl_plain_username")
+            config["sasl_plain_password"] = self.config.get("sasl_plain_password")
+            if not config["sasl_plain_username"] or not config["sasl_plain_password"]:
+                raise ValueError("SASL username and password must be provided for SASL authentication")
 
         return config
 
