@@ -18,10 +18,6 @@ class AWSCloudWatchSender(LogSender):
         self.log_group = self.config.get("aws_cloudwatch_log_group")
         self.log_stream = self.config.get("aws_cloudwatch_log_stream")
         self._next_sequence_token = None
-        self._init_logs()
-
-    def _init_logs(self):  # pylint: disable=too-many-statements
-        self.log.info("Initializing AWS CloudWatch")
 
         if self._logs is None:
             if self.log_group is None or self.log_stream is None:
@@ -35,6 +31,9 @@ class AWSCloudWatchSender(LogSender):
                 kwargs["aws_secret_access_key"] = self.config.get("aws_secret_access_key")
             botocore_session = session.get_session()
             self._logs = botocore_session.create_client("logs", **kwargs)
+
+    def _init_log_group(self):  # pylint: disable=too-many-statements
+        self.log.info("Initializing AWS CloudWatch")
 
         # Catch access denied exception(e.g. due to erroneous credentials)
         attempts_left = MAX_INIT_TRIES
@@ -101,6 +100,9 @@ class AWSCloudWatchSender(LogSender):
         self.log.error("Failed to init sender. AWS CloudWatch logs could not update sequence token.")
 
     def send_messages(self, *, messages, cursor):
+        if not self._connected:
+            self._init_log_group()
+
         log_events = []
         for msg in messages:
             raw_message = msg.decode("utf8")
@@ -123,13 +125,13 @@ class AWSCloudWatchSender(LogSender):
             self.log.error("Error sending events %r: %r", err_code, err_msg)
             self.stats.unexpected_exception(ex=err, where="sender", tags=self.make_tags({"app": "journalpump"}))
             self._backoff()
-            self._init_logs()
+            self._init_log_group()
         except Exception as ex:  # pylint: disable=broad-except
             self.mark_disconnected(ex)
             self.log.exception("Unexpected exception during send to AWS CloudWatch")
             self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
             self._backoff()
-            self._init_logs()
+            self._init_log_group()
         else:
             if 200 <= response["ResponseMetadata"]["HTTPStatusCode"] < 300:
                 self.mark_sent(messages=messages, cursor=cursor)

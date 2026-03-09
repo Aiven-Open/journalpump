@@ -194,30 +194,11 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
         fp.write(json.dumps(config))
     a = JournalPump(journalpump_path)
 
-    class MockCloudWatchPaginator(mock.Mock):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            # Paginate over three pages
-            self.paginate = mock.Mock(
-                return_value=[
-                    {"logStreams": [{"logStreamName": "page1", "uploadSequenceToken": "page1"}]},
-                    {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
-                    {"logStreams": [{"logStreamName": "page3", "uploadSequenceToken": "page3"}]},
-                ]
-            )
-
-    class MockCloudWatch(mock.Mock):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.create_log_group = mock.Mock(return_value=None)
-            self.create_log_stream = mock.Mock(return_value=None)
-            self.get_paginator = MockCloudWatchPaginator()
-
     assert len(a.readers) == 1
     for rn, r in a.readers.items():
         assert rn == "foo"
         mock_session = mock.MagicMock(spec=botocore.session.Session)
-        mock_session.create_client = mock.Mock(return_value=MockCloudWatch())
+        mock_session.create_client = mock.Mock()
         with mock.patch("botocore.session.get_session", return_value=mock_session), mock.patch.object(
             PumpReader, "has_persistent_files", return_value=True
         ):
@@ -234,13 +215,6 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             assert sn == "bar"
             s.running = False
             s.join()
-            # pylint: disable=protected-access
-            s._logs.create_log_group.assert_called_once_with(logGroupName="group")
-            s._logs.create_log_stream.assert_called_once_with(logGroupName="group", logStreamName="stream")
-            s._logs.get_paginator.assert_called_once_with("describe_log_streams")
-            s._logs.get_paginator().paginate.assert_called_once_with(logGroupName="group")
-            assert s._next_sequence_token == "token"
-            # pylint: enable=protected-access
             assert isinstance(s, AWSCloudWatchSender)
 
     # Google Cloud Logging sender
@@ -1160,6 +1134,17 @@ def test_os_sender():
 def test_awscloudwatch_sender():
     botocore_session = botocore.session.get_session()
     logs = botocore_session.create_client("logs", region_name="us-east-1")
+    sender = AWSCloudWatchSender(
+        name="awscloudwatch",
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+        config={
+            "aws_cloudwatch_log_group": "group",
+            "aws_cloudwatch_log_stream": "stream",
+        },
+        aws_cloudwatch_logs=logs,
+    )
 
     with Stubber(logs) as stubber:
         stubber.add_client_error("create_log_group", service_error_code="ResourceAlreadyExistsException")
@@ -1169,18 +1154,9 @@ def test_awscloudwatch_sender():
             {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
             {"logGroupName": "group"},
         )
-        sender = AWSCloudWatchSender(
-            name="awscloudwatch",
-            reader=mock.Mock(),
-            stats=mock.Mock(),
-            field_filter=None,
-            config={
-                "aws_cloudwatch_log_group": "group",
-                "aws_cloudwatch_log_stream": "stream",
-            },
-            aws_cloudwatch_logs=logs,
-        )
+        sender._init_log_group()
         assert sender._next_sequence_token == "token"  # pylint: disable=protected-access
+        stubber.assert_no_pending_responses()
 
     with Stubber(logs) as stubber:
         stubber.add_response(
@@ -1194,6 +1170,7 @@ def test_awscloudwatch_sender():
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._next_sequence_token == "token1"  # pylint: disable=protected-access
         assert sender._sent_count == 1  # pylint: disable=protected-access
+        stubber.assert_no_pending_responses()
 
     with Stubber(logs) as stubber:
         expected_args = {
@@ -1215,6 +1192,7 @@ def test_awscloudwatch_sender():
             sender.send_messages(messages=[b'{"MESSAGE": "Hello World!"}'], cursor=None)
         assert sender._next_sequence_token == "token2"  # pylint: disable=protected-access
         assert sender._sent_count == 2  # pylint: disable=protected-access
+        stubber.assert_no_pending_responses()
 
     with Stubber(logs) as stubber:
         expected_args = {
@@ -1240,6 +1218,7 @@ def test_awscloudwatch_sender():
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._next_sequence_token == "token2"  # pylint: disable=protected-access
         assert sender._sent_count == 3  # pylint: disable=protected-access
+        stubber.assert_no_pending_responses()
 
     with Stubber(logs) as stubber:
         stubber.add_client_error("put_log_events", service_error_code="ThrottlingException")
@@ -1253,6 +1232,7 @@ def test_awscloudwatch_sender():
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._connected  # pylint: disable=protected-access
         assert sender._sent_count == 3  # pylint: disable=protected-access
+        stubber.assert_no_pending_responses()
 
     with Stubber(logs) as stubber:
         stubber.add_client_error("put_log_events", service_error_code="InternalFailure")
@@ -1266,11 +1246,23 @@ def test_awscloudwatch_sender():
         sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         assert sender._connected  # pylint: disable=protected-access
         assert sender._sent_count == 3  # pylint: disable=protected-access
+        stubber.assert_no_pending_responses()
 
 
 def test_awscloudwatch_sender_init():
     botocore_session = botocore.session.get_session()
     logs = botocore_session.create_client("logs", region_name="us-east-1")
+    sender = AWSCloudWatchSender(
+        name="awscloudwatch",
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+        config={
+            "aws_cloudwatch_log_group": "group",
+            "aws_cloudwatch_log_stream": "stream",
+        },
+        aws_cloudwatch_logs=logs,
+    )
 
     # Test that AWSCloudWatchSender correctly raises SenderInitializationError after
     # aws_cloudwatch.MAX_INIT_TRIES attempts
@@ -1283,17 +1275,8 @@ def test_awscloudwatch_sender_init():
             )
 
         with pytest.raises(SenderInitializationError):
-            AWSCloudWatchSender(
-                name="awscloudwatch",
-                reader=mock.Mock(),
-                stats=mock.Mock(),
-                field_filter=None,
-                config={
-                    "aws_cloudwatch_log_group": "group",
-                    "aws_cloudwatch_log_stream": "stream",
-                },
-                aws_cloudwatch_logs=logs,
-            )
+            sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
+        stubber.assert_no_pending_responses()
 
     # Test that AWSCloudWatchSender initializes correctly when init is retried
     # after an AccessDeniedException
@@ -1310,19 +1293,19 @@ def test_awscloudwatch_sender_init():
             {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
             {"logGroupName": "group"},
         )
-        sender = AWSCloudWatchSender(
-            name="awscloudwatch",
-            reader=mock.Mock(),
-            stats=mock.Mock(),
-            field_filter=None,
-            config={
-                "aws_cloudwatch_log_group": "group",
-                "aws_cloudwatch_log_stream": "stream",
+        stubber.add_response(
+            "put_log_events",
+            {
+                "ResponseMetadata": {"HTTPStatusCode": 200},
+                "nextSequenceToken": "token2",
+                "rejectedLogEventsInfo": {},
             },
-            aws_cloudwatch_logs=logs,
         )
+        sender.mark_disconnected()
+        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         # _connected is set to True after initialization is completed
         assert sender._connected  # pylint: disable=protected-access
+        stubber.assert_no_pending_responses()
 
     # Test that AWSCloudWatchSender initializes correctly when init is retried
     # after a ServiceUnavailable error
@@ -1339,25 +1322,36 @@ def test_awscloudwatch_sender_init():
             {"logStreams": [{"logStreamName": "stream", "uploadSequenceToken": "token"}]},
             {"logGroupName": "group"},
         )
-        sender = AWSCloudWatchSender(
-            name="awscloudwatch",
-            reader=mock.Mock(),
-            stats=mock.Mock(),
-            field_filter=None,
-            config={
-                "aws_cloudwatch_log_group": "group",
-                "aws_cloudwatch_log_stream": "stream",
+        stubber.add_response(
+            "put_log_events",
+            {
+                "ResponseMetadata": {"HTTPStatusCode": 200},
+                "nextSequenceToken": "token2",
+                "rejectedLogEventsInfo": {},
             },
-            aws_cloudwatch_logs=logs,
         )
+        sender.mark_disconnected()
+        sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         # _connected is set to True after initialization is completed
         assert sender._connected  # pylint: disable=protected-access
+        stubber.assert_no_pending_responses()
 
 
 # Exceptions from botocore.paginate need to be handled in AWSCloudWatch.__init__
 def test_awscloudwatch_sender_init_paginate():
     botocore_session = botocore.session.get_session()
     logs = botocore_session.create_client("logs", region_name="us-east-1")
+    sender = AWSCloudWatchSender(
+        name="awscloudwatch",
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+        config={
+            "aws_cloudwatch_log_group": "group",
+            "aws_cloudwatch_log_stream": "stream",
+        },
+        aws_cloudwatch_logs=logs,
+    )
 
     # Test that AWSCloudWatchSender correctly handles immediately the AccessDeniedException embedded in a ClientError
     with Stubber(logs) as stubber:
@@ -1371,19 +1365,10 @@ def test_awscloudwatch_sender_init_paginate():
                 {"Error": {"Code": "AccessDeniedException", "Message": "DUMMY"}}, "DescribeLogStreams"
             ),
         ):
-            sender = AWSCloudWatchSender(
-                name="awscloudwatch",
-                reader=mock.Mock(),
-                stats=mock.Mock(),
-                field_filter=None,
-                config={
-                    "aws_cloudwatch_log_group": "group",
-                    "aws_cloudwatch_log_stream": "stream",
-                },
-                aws_cloudwatch_logs=logs,
-            )
+            sender._init_log_group()
             # _connected is set to False as soon as the Error Code is "AccessDeniedException"
             assert not sender._connected  # pylint: disable=protected-access
+        stubber.assert_no_pending_responses()
 
 
 class WorkingSender:
