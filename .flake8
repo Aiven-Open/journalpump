@@ -1,12 +1,20 @@
 [flake8]
 
 max-line-length = 125
+# E123: Closing brackets indent
+# E126: Hanging indents
+# E129: Visual indent
+# E203: Whitespace before ':'
+# E501: Max line length
+# E722: Bare except
+# W503: Breaks & binary operators
+# W504: Line break after binary operator (conflicts with our yapf style)
 ignore =
-  E123,  # Closing brackets indent
-  E126,  # Hanging indents
-  E129,  # Visual indent
-  E203,  # whitespace before ':'
-  E501,  # Max line length
-  E722,  # bare-except
-  W503,  # Breaks & binary operators
-  W504,  # line break after binary operator (conflicts with our yapf style)
+  E123,
+  E126,
+  E129,
+  E203,
+  E501,
+  E722,
+  W503,
+  W504,
