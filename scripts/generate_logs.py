@@ -69,7 +69,7 @@ class JournalControlProcess:
         self._runtime_dir: Optional[pathlib.Path] = None
         self._journald_process: Optional[subprocess.Popen] = None
         self._sender_process: Optional[multiprocessing.Process] = None
-        self._sender_queue: multiprocessing.Queue = multiprocessing.JoinableQueue()
+        self._sender_queue: multiprocessing.JoinableQueue = multiprocessing.JoinableQueue()
         self._uid = uid
 
     @property
@@ -157,8 +157,7 @@ class JournalControlProcess:
         shutil.rmtree(self._runtime_dir)
 
 
-_PARSER = argparse.ArgumentParser(
-    usage="""Genrate journald log files.
+_PARSER = argparse.ArgumentParser(usage="""Genrate journald log files.
 This program reads messages from stdin in following format
 
 msg Test 1
@@ -168,8 +167,7 @@ msg Test 2
 
 msg command argument be either plain message or json object
 rotate command invokes journald rotation
-"""
-)
+""")
 _PARSER.add_argument("--uid", type=int, default=1000, help="user id of log sender")
 
 

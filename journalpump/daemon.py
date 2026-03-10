@@ -6,6 +6,7 @@
 Common Daemon functionality
 
 """
+
 from systemd import daemon, journal
 
 import json
