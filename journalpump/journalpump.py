@@ -30,6 +30,7 @@ else:
 
 _5_MB = 5 * 1024 * 1024
 CHUNK_SIZE = 5000
+TRUNCATED_MESSAGE_PREVIEW_SIZE = 1024
 
 
 def _convert_uuid(s):
@@ -761,7 +762,7 @@ class JournalObjectHandler:
 
         json_entry = json.dumps(data, default=default_json_serialization).encode("utf8")
         if len(json_entry) > MAX_KAFKA_MESSAGE_SIZE:
-            json_entry = self._truncate_long_message(json_entry)
+            json_entry = self._truncate_long_message(json_entry, data.get("timestamp"))
 
         self.json_objects[ff_name] = json_entry
         return json_entry
@@ -769,8 +770,9 @@ class JournalObjectHandler:
     def _filter_by_log_level(self, data, unit_log_levels):
         return unit_log_levels.filter_by_level(data) if unit_log_levels else data
 
-    def _truncate_long_message(self, json_entry):
+    def _truncate_long_message(self, json_entry, timestamp=None):
         error = f"too large message {len(json_entry)} bytes vs maximum {MAX_KAFKA_MESSAGE_SIZE} bytes"
+        truncated_json_entry = json_entry[:TRUNCATED_MESSAGE_PREVIEW_SIZE]
         if not self.error_reported:
             self.pump.stats.increase(
                 "journal.read_error",
@@ -781,12 +783,14 @@ class JournalObjectHandler:
                     }
                 ),
             )
-            self.log.warning("%s: %s ...", error, json_entry[:1024])
+            self.log.warning("%s: %s ...", error, truncated_json_entry)
             self.error_reported = True
         entry = {
             "error": error,
-            "partial_data": json_entry[:1024],
+            "partial_data": truncated_json_entry,
         }
+        if timestamp is not None:
+            entry["timestamp"] = timestamp
         return json.dumps(entry, default=default_json_serialization).encode("utf8")
 
     def _apply_secret_filters(self, data):

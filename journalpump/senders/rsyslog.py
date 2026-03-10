@@ -1,6 +1,7 @@
 from .base import LogSender
 from journalpump.rsyslog import SyslogTcpClient
 
+import datetime
 import json
 import socket
 import time
@@ -80,7 +81,12 @@ class RsyslogSender(LogSender):
                     facility = self.default_facility
 
                 severity = int(message.get("PRIORITY", self.default_severity))
-                timestamp = message["timestamp"][:26] + "Z"  # Assume UTC for now
+                raw_timestamp = message.get("timestamp")
+                if raw_timestamp:
+                    timestamp = raw_timestamp[:26] + "Z"  # Assume UTC for now
+                else:
+                    self.log.warning("Message missing 'timestamp' field, using current time as fallback")
+                    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
                 hostname = message.get("HOSTNAME")
                 appname = message.get(
                     "SYSLOG_IDENTIFIER",
