@@ -31,3 +31,4 @@ reports=no
 
 [TYPECHECK]
 ignored-classes=responses
+ignored-modules=re2
