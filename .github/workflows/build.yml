@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         # only use oldest and newest version for the lint step
-        python-version: ["3.9", "3.11"]
+        python-version: ["3.10", "3.14"]
 
     steps:
 
@@ -47,7 +47,7 @@ jobs:
     strategy:
       max-parallel: 4
       matrix:
-        python-version: ["3.9", "3.11"]
+        python-version: ["3.10", "3.14"]
 
     steps:
       - id: checkout-code
