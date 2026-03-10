@@ -8,6 +8,8 @@ from journalpump.senders.elasticsearch_opensearch_sender import (
 from typing import Any, Dict
 from unittest import mock
 
+import datetime
+import json
 import logging
 import pytest
 
@@ -272,3 +274,84 @@ def test_elasticsearch_index_mapping_with_type() -> None:
             },
         },
     } == mapping
+
+
+def _make_es_sender(sender_type: SenderType):
+    clazz = OpenSearchSender if sender_type == SenderType.opensearch else ElasticsearchSender
+    sender = clazz(
+        config={f"{sender_type.value}_url": "http://localhost:9200"},
+        name=sender_type.value,
+        reader=mock.Mock(),
+        stats=mock.Mock(),
+        field_filter=None,
+    )
+    sender._version = (
+        Version(major=1, minor=3, patch=0) if sender_type == SenderType.opensearch else Version(major=8, minor=0, patch=0)
+    )
+    return sender
+
+
+@pytest.mark.parametrize(
+    "sender_type",
+    [
+        SenderType.opensearch,
+        SenderType.elasticsearch,
+    ],
+)
+def test_send_messages_uses_current_date_when_timestamp_missing(sender_type: SenderType) -> None:
+    """When a message has no 'timestamp' field, send_messages falls back to the current date
+    for index naming and does not raise a KeyError."""
+    # pylint:disable=protected-access
+    sender = _make_es_sender(sender_type)
+
+    msg_without_timestamp = json.dumps({"MESSAGE": "audit log line", "PRIORITY": "6"}).encode("utf-8")
+
+    mock_response = mock.Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {}
+
+    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+
+    with mock.patch.object(sender, "_load_indices", return_value=True), mock.patch.object(
+        sender, "_indices", {f"{sender._config.index_name}-{today}": True}, create=True
+    ), mock.patch.object(sender, "_create_index_and_mapping"), mock.patch.object(sender, "_session") as mock_session:
+        mock_session.post.return_value = mock_response
+        with mock.patch.object(sender.log, "warning") as mock_warn:
+            result = sender.send_messages(messages=[msg_without_timestamp], cursor="c1")
+
+    assert result is True
+    mock_warn.assert_called_once()
+    assert "timestamp" in mock_warn.call_args.args[0].lower()
+
+
+@pytest.mark.parametrize(
+    "sender_type",
+    [
+        SenderType.opensearch,
+        SenderType.elasticsearch,
+    ],
+)
+def test_send_messages_uses_timestamp_for_index_name(sender_type: SenderType) -> None:
+    """When a message has a 'timestamp' field, its date portion is used for the index name."""
+    # pylint:disable=protected-access
+    sender = _make_es_sender(sender_type)
+
+    msg_with_timestamp = json.dumps(
+        {"MESSAGE": "log line", "timestamp": "2025-06-26T14:52:33.581000", "PRIORITY": "6"}
+    ).encode("utf-8")
+
+    expected_index = f"{sender._config.index_name}-2025-06-26"
+
+    mock_response = mock.Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {}
+
+    with mock.patch.object(sender, "_load_indices", return_value=True), mock.patch.object(
+        sender, "_indices", {expected_index: True}, create=True
+    ), mock.patch.object(sender, "_create_index_and_mapping"), mock.patch.object(sender, "_session") as mock_session:
+        mock_session.post.return_value = mock_response
+        with mock.patch.object(sender.log, "warning") as mock_warn:
+            result = sender.send_messages(messages=[msg_with_timestamp], cursor="c1")
+
+    assert result is True
+    mock_warn.assert_not_called()

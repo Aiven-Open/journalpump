@@ -8,6 +8,7 @@ from requests import Timeout as RequestsTimeout
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from typing import Any, Dict, Set, Union
 
+import datetime
 import enum
 import json
 import time
@@ -176,7 +177,13 @@ class _EsOsLogSenderBase(LogSender):
             for msg in messages:
                 message = json.loads(msg.decode("utf8"))
                 # ISO datetime first 10 characters are equivalent to the date we need i.e. '2018-04-14'
-                idx_name = f"""{self._config.index_name}-{message["timestamp"][:10]}"""
+                raw_timestamp = message.get("timestamp")
+                if raw_timestamp:
+                    idx_date = raw_timestamp[:10]
+                else:
+                    self.log.warning("Message missing 'timestamp' field, using current date for index name")
+                    idx_date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+                idx_name = f"{self._config.index_name}-{idx_date}"
                 if idx_name not in self._indices:
                     self._create_index_and_mapping(index_name=idx_name, message=message)
 

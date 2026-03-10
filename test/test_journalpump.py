@@ -975,6 +975,26 @@ class TestJournalObjectHandler(TestCase):
 
         self.pump.stats.increase.assert_called_once_with("journal.read_error", tags="tags")
 
+    def test_truncate_long_message_preserves_timestamp(self):
+        """Truncated messages must include the original 'timestamp' field so senders do not crash."""
+        self.pump.make_tags.return_value = "tags"
+        too_large = OrderedDict(
+            MESSAGE="x" * MAX_KAFKA_MESSAGE_SIZE,
+            REALTIME_TIMESTAMP=1_000_000,
+        )
+        jobject = JournalObject(entry=too_large, cursor=10)
+        handler = JournalObjectHandler(jobject, self.reader, self.pump)
+        handler.process()
+
+        # sender_c has no field filter, so it receives the (possibly truncated) full entry
+        assert len(self.sender_c.msg_buffer.messages) == 1
+        raw, _ = self.sender_c.msg_buffer.messages[0]
+        parsed = json.loads(raw.decode("utf-8"))
+
+        assert "timestamp" in parsed, "truncated message must contain 'timestamp' for downstream senders"
+        assert "error" in parsed, "truncated message must contain the 'error' field"
+        assert "partial_data" in parsed, "truncated message must contain 'partial_data'"
+
     def test_log_level_filtering(self):
         expected_results = 0
         for priority in LOG_SEVERITY_MAPPING.values():
