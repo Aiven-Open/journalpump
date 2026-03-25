@@ -1,17 +1,12 @@
 # Use pip for build requirements to harmonize between OS versions
 mypy
 pylint
-pylint-quotes
 pytest
 pytest-cov==3.0.0
 pytest-mock
-pytest-timeout
-pytest-xdist
 types-requests
-yapf==0.27.0
 flake8
 isort==5.12
 coverage
-coveralls
 pre-commit
 responses
