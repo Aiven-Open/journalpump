@@ -595,6 +595,14 @@ By default, log messages are sent using non-transparent framing and are terminat
 Set it to ``true`` if the server supports octet-counted framing and messages are multi-line.
 (see `RFC 6587 for Syslog over TCP message transfer <https://datatracker.ietf.org/doc/html/rfc6587#section-3.4.1>`_)
 
+``max_message_size`` (default ``2048``)
+
+Maximum size in bytes of the message body sent to the syslog server. Messages longer than this
+are truncated. With non-transparent framing the truncated body is terminated with a newline.
+With octet-counted framing the truncated body is wrapped in a ``<length> SP <body>`` frame
+whose length matches the actual body bytes sent (RFC 6587 section 3.4.1), so the stream
+framing is never corrupted by an oversize message.
+
 ``structured_data`` (default ``null``)
 
 Content of structured data section (optional, required by some services to identify the sender).
