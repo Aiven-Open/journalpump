@@ -116,6 +116,7 @@ def _run_pump_test(
     messages_to_send,
     expected_message_count,
     expected_multiline_support,
+    expected_subsequent_message=None,
 ):
     journalpump = None
     threads = []
@@ -156,6 +157,7 @@ def _run_pump_test(
     # Check the results
     found = 0
     multiline_support = False
+    subsequent_message_found = False
     with open(logfile, "r", encoding="utf-8") as fp:
         lines = fp.readlines()
     for txt in ["Info", "Warning", "Error", "Critical"]:
@@ -167,6 +169,16 @@ def _run_pump_test(
                 if txt == "Info":
                     multiline_support = line.endswith("example#012stack#012trace {%} -\n")
                 break
+    if expected_subsequent_message is not None:
+        subsequent_pattern = re.compile(rf".*{expected_subsequent_message} for {identifier}.*")
+        for line in lines:
+            if subsequent_pattern.match(line):
+                log.info("Found subsequent message: %s", line)
+                subsequent_message_found = True
+                break
+        assert (
+            subsequent_message_found
+        ), "Subsequent message not found — connection likely desynced after oversize octet-counted frame"
     assert found == expected_message_count, "Expected messages not found in syslog"
     assert (
         multiline_support == expected_multiline_support
@@ -174,7 +186,7 @@ def _run_pump_test(
 
 
 @pytest.mark.parametrize(
-    "messages_to_send,octet_counted_framing_config,expected_message_count,expected_multiline_support",
+    "messages_to_send,sender_config,expected_message_count,expected_multiline_support,expected_subsequent_message",
     [
         (
             [
@@ -192,6 +204,7 @@ def _run_pump_test(
             {},  # config not specified, octet_counted_framing is False by default
             4,
             False,
+            None,
         ),
         (
             [
@@ -203,6 +216,7 @@ def _run_pump_test(
             {"octet_counted_framing": False},
             1,
             False,
+            None,
         ),
         (
             [
@@ -214,15 +228,35 @@ def _run_pump_test(
             {"octet_counted_framing": True},
             1,
             True,
+            None,
+        ),
+        # Verify that an oversize octet-counted frame is truncated without desyncing the stream.
+        # A short subsequent message on the same connection must still be delivered correctly.
+        (
+            [
+                {
+                    "text": "Info message for {identifier}\n" + "X" * 300,
+                    "PRIORITY": journal.LOG_INFO,
+                },
+                {
+                    "text": "Critical message for {identifier}",
+                    "PRIORITY": journal.LOG_CRIT,
+                },
+            ],
+            {"octet_counted_framing": True, "max_message_size": 80},
+            2,
+            False,
+            "Critical message",
         ),
     ],
 )
 def test_rsyslogd_tcp_sender(
     tmpdir,
     messages_to_send,
-    octet_counted_framing_config,
+    sender_config,
     expected_message_count,
     expected_multiline_support,
+    expected_subsequent_message,
 ):
     workdir = tmpdir.dirname
     logfile = f"{workdir}/test.log"
@@ -239,7 +273,7 @@ def test_rsyslogd_tcp_sender(
                                 "rsyslog_port": 5140,
                                 "format": "custom",
                                 "logline": "<%pri%>%timestamp% %HOSTNAME% %app-name%[%procid%]: %msg% {%%} %not-valid-tag%",
-                                **dict(octet_counted_framing_config),
+                                **dict(sender_config),
                             },
                         },
                     },
@@ -256,6 +290,7 @@ def test_rsyslogd_tcp_sender(
             messages_to_send=messages_to_send,
             expected_message_count=expected_message_count,
             expected_multiline_support=expected_multiline_support,
+            expected_subsequent_message=expected_subsequent_message,
         )
     finally:
         rsyslogd.stop()

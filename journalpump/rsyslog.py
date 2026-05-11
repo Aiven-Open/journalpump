@@ -147,29 +147,32 @@ class SyslogTcpClient:
         finally:
             self.socket = None
 
-    def send(self, message):
+    def send(self, message: bytes) -> None:
         for retry in [True, False]:
             try:
                 if self.socket is None:
                     self._connect()
+                assert self.socket is not None
 
-                # Syslog over TCP (RFC 6587) supports 2 message framing methods:
-                # - Octet-counted framing: Each message is prefixed with its
-                #     length and a space (<length> <message>).
-                # - Non-transparent framing: Each message is terminated by a
-                #     newline (\n).
-                # So far, only non-transparent framing was used by journalpump
-                # and multi-line log messages were terminated at first newline.
-                # We keep this behavior by default, but now expose a new config
-                # allowing to switch to octet-counted framing. Provided that this
-                # method is supported by the syslog server, multi-line messages
-                # will only get truncated according to the max_message_size.
+                # RFC 6587 defines two framing methods for syslog over TCP.
                 if self.octet_counted_framing:
-                    message = f"{len(message)} ".encode("utf-8") + message
-
-                self.socket.sendall(message[: self.max_msg - 1])
-                if len(message) >= self.max_msg:
-                    self.socket.sendall(b"\n")
+                    # Octet-counted framing (RFC 6587 section 3.4.1):
+                    # <MSGLEN> SP <SYSLOG-MSG>. The receiver reads exactly
+                    # <MSGLEN> bytes after the space, so the advertised length
+                    # must equal the body bytes actually sent. max_message_size
+                    # bounds the body (matching rsyslog MaxMessageSize semantics).
+                    # No trailing newline — it would be parsed as the start of
+                    # the next frame's length prefix and desync the stream.
+                    body = message[: self.max_msg]
+                    frame = f"{len(body)} ".encode("utf-8") + body
+                    self.socket.sendall(frame)
+                else:
+                    # Non-transparent framing (RFC 6587 section 3.4.2): frames
+                    # are delimited by a trailing newline. The formatter already
+                    # appends '\n'; when we truncate we add it explicitly.
+                    self.socket.sendall(message[: self.max_msg - 1])
+                    if len(message) >= self.max_msg:
+                        self.socket.sendall(b"\n")
 
                 break
             except Exception as ex:  # pylint: disable=broad-except
