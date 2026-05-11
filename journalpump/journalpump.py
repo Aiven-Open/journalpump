@@ -102,6 +102,17 @@ class PumpReader(journal.Reader):
 
         return output
 
+    @staticmethod
+    def _parse_seqnum_from_cursor(cursor) -> int | None:
+        # cursor format: s=...;i=<hex_seqnum>;b=...;m=...;t=...;x=...
+        for part in cursor.split(";"):
+            if part.startswith("i="):
+                try:
+                    return int(part[2:], 16)
+                except ValueError:
+                    return None
+        return None
+
     def get_next(self, skip=1):
         # pylint: disable=no-member, protected-access
         """Private get_next implementation that doesn't store the cursor since we don't want it"""
@@ -109,7 +120,11 @@ class PumpReader(journal.Reader):
             entry = super()._get_all()
             if entry:
                 entry["__REALTIME_TIMESTAMP"] = self._get_realtime()
-                return JournalObject(cursor=self._get_cursor(), entry=self.convert_entry(entry))
+                cursor = self._get_cursor()
+                seqnum = self._parse_seqnum_from_cursor(cursor)
+                if seqnum is not None:
+                    entry["__SEQNUM"] = seqnum
+                return JournalObject(cursor=cursor, entry=self.convert_entry(entry))
 
         return None
 

@@ -24,6 +24,7 @@ from journalpump.senders.logplex import LogplexSender
 from journalpump.senders.rsyslog import RsyslogSender
 from journalpump.types import LOG_SEVERITY_MAPPING
 from journalpump.util import default_json_serialization
+from systemd import journal
 from time import sleep
 from unittest import mock, TestCase
 
@@ -259,6 +260,50 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             s.running = False
             s.join()
             assert isinstance(s, GoogleCloudLoggingSender)
+
+
+def test_pump_reader_get_next_includes_seqnum():
+    reader = PumpReader()
+    cursor = "s=abc;i=1f4;b=def;m=123;t=456;x=789"
+    expected_seqnum = 0x1F4  # decimal 500
+    entry_data = {"MESSAGE": b"hello", "__REALTIME_TIMESTAMP": b"1000000"}
+
+    with (
+        mock.patch.object(journal.Reader, "_next", return_value=True),
+        mock.patch.object(journal.Reader, "_get_all", return_value=entry_data),
+        mock.patch.object(reader, "_get_realtime", return_value=1000000),
+        mock.patch.object(reader, "_get_cursor", return_value=cursor),
+    ):
+        result = reader.get_next()
+
+    assert result is not None
+    assert "__SEQNUM" in result.entry
+    assert result.entry["__SEQNUM"] == expected_seqnum
+    assert isinstance(result.entry["__SEQNUM"], int)
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "s=abc;b=def;m=123;t=456;x=789",  # no i= field
+        "s=abc;i=;b=def;m=123;t=456;x=789",  # empty i= value
+        "s=abc;i=xyz;b=def;m=123;t=456;x=789",  # non-hex i= value
+    ],
+)
+def test_pump_reader_get_next_seqnum_missing_or_invalid(cursor):
+    reader = PumpReader()
+    entry_data = {"MESSAGE": b"hello", "__REALTIME_TIMESTAMP": b"1000000"}
+
+    with (
+        mock.patch.object(journal.Reader, "_next", return_value=True),
+        mock.patch.object(journal.Reader, "_get_all", return_value=entry_data),
+        mock.patch.object(reader, "_get_realtime", return_value=1000000),
+        mock.patch.object(reader, "_get_cursor", return_value=cursor),
+    ):
+        result = reader.get_next()
+
+    assert result is not None
+    assert "__SEQNUM" not in result.entry
 
 
 def test_journal_reader_tagging(tmpdir):
