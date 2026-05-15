@@ -1,7 +1,8 @@
-from journalpump import __version__
+import os
+
 from setuptools import find_packages, setup
 
-import os
+from journalpump import __version__
 
 setup(
     name="journalpump",
