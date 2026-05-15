@@ -35,8 +35,8 @@ class WebsocketMockServer(threading.Thread):
             self.log.info("WS: Received message: %r", message)
             self.in_queue.append(message)
 
-    async def process_connection(self, websocket, path):
-        self.log.info("WS: Client connection accepted on %s", path)
+    async def process_connection(self, websocket):
+        self.log.info("WS: Client connection accepted")
         pending = set()
 
         try:
@@ -71,7 +71,6 @@ class WebsocketMockServer(threading.Thread):
             self.process_connection,
             "127.0.0.1",
             self.port,
-            loop=self.loop,
             ssl=ctx,
             close_timeout=10,
         ) as server:

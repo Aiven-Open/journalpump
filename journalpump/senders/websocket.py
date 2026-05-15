@@ -16,7 +16,7 @@ import snappy  # pylint: disable=import-error
 import socket
 import ssl
 import time
-import websockets.client
+import websockets.asyncio.client
 import websockets.exceptions
 
 
@@ -77,7 +77,7 @@ class WebsocketRunner(Thread):
 
         self.socks5_proxy = None
         if self.socks5_proxy_url:
-            self.socks5_proxy = Proxy.from_url(self.socks5_proxy_url, loop=self.websocket_loop)
+            self.socks5_proxy = Proxy.from_url(self.socks5_proxy_url)
 
     async def consumer_handler(self, websocket):
         # Dummy consumer to read and ignore messages from the websocket
@@ -179,15 +179,20 @@ class WebsocketRunner(Thread):
             )
 
         ws_compr = None if self.websocket_compression == WebsocketCompression.none else str(self.websocket_compression)
-        return await websockets.client.connect(  # pylint:disable=no-member
+        kwargs = {
+            "compression": ws_compr,
+            "additional_headers": headers,
+            "close_timeout": 20,
+            "max_size": MAX_KAFKA_MESSAGE_SIZE * 2,
+        }
+        if ssl_context is not None:
+            kwargs["ssl"] = ssl_context
+            kwargs["server_hostname"] = url_parsed.hostname
+        if sock is not None:
+            kwargs["sock"] = sock
+        return await websockets.asyncio.client.connect(
             self.websocket_uri,
-            ssl=ssl_context,
-            compression=ws_compr,
-            extra_headers=headers,
-            sock=sock,
-            server_hostname=url_parsed.hostname if self.ssl_enabled else None,
-            close_timeout=20,
-            max_size=MAX_KAFKA_MESSAGE_SIZE * 2,
+            **kwargs,
         )
 
     async def websocket_connect(self, *, timeout=30):
@@ -247,7 +252,7 @@ class WebsocketRunner(Thread):
                 task.cancel()
         except ConnectionRefusedError as ex:
             self.log.warning("Websocket connection refused: %r. Retrying.", ex)
-        except websockets.exceptions.InvalidStatusCode as ex:  # pylint: disable=no-member
+        except websockets.exceptions.InvalidStatus as ex:
             self.log.error(
                 "Websocket server rejected connection with HTTP status code: %r. Retrying.",
                 ex,
