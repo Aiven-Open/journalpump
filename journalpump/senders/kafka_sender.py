@@ -2,6 +2,7 @@ from .base import LogSender
 from kafka import errors, KafkaAdminClient, KafkaProducer
 from kafka.admin import NewTopic
 
+import inspect
 import logging
 import socket
 
@@ -15,7 +16,23 @@ try:
 except ImportError:
     zstd = None
 
-KAFKA_CONN_ERRORS = tuple(errors.RETRY_ERROR_TYPES) + (
+
+def _get_retriable_kafka_errors():
+    """Build the set of retriable Kafka error types.
+
+    kafka-python < 2.1 provides errors.RETRY_ERROR_TYPES.
+    kafka-python >= 2.1 marks individual error classes with retriable = True.
+    """
+    if hasattr(errors, "RETRY_ERROR_TYPES"):
+        return tuple(errors.RETRY_ERROR_TYPES)
+    return tuple(
+        obj
+        for _name, obj in inspect.getmembers(errors)
+        if inspect.isclass(obj) and issubclass(obj, errors.KafkaError) and getattr(obj, "retriable", False)
+    )
+
+
+KAFKA_CONN_ERRORS = _get_retriable_kafka_errors() + (
     errors.UnknownError,
     socket.timeout,
     TimeoutError,
