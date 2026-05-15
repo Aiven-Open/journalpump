@@ -1,7 +1,8 @@
-from journalpump import __version__
+import os
+
 from setuptools import find_packages, setup
 
-import os
+from journalpump import __version__
 
 setup(
     name="journalpump",
@@ -10,10 +11,11 @@ setup(
     packages=find_packages(exclude=["test", "systest"]),
     extras_require={},
     install_requires=[
-        "kafka-python",
+        "kafka-python<2.4.0",
         "requests",
-        "websockets",
+        "websockets<14.0",
         "aiohttp-socks",
+        "python-snappy",
         "botocore",
         "google-api-python-client",
         "google-auth",
