@@ -243,7 +243,7 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_CRIT,
                 },
             ],
-            {"octet_counted_framing": True, "max_message_size": 80},
+            {"octet_counted_framing": True, "max_message_size": 200},
             2,
             False,
             "Critical message",
@@ -266,6 +266,7 @@ def test_rsyslogd_tcp_sender(
             {
                 "readers": {
                     "syslog-tcp": {
+                        "initial_position": "tail",
                         "senders": {
                             "rsyslog": {
                                 "output_type": "rsyslog",

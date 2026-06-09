@@ -471,6 +471,19 @@ class JournalReader(Tagged):
             self.read_next()
         elif self.initial_position == "tail":
             self.journald_reader.seek_tail()
+            # sd_journal_next() is not allowed immediately after sd_journal_seek_tail();
+            # call get_previous() first to land on the last entry, then read_next()
+            # to step past it and position at the true tail.
+            try:
+                self.journald_reader.get_previous()
+            except OSError as ex:
+                # A corrupt last entry can raise "Bad message" while materializing
+                # fields; the cursor has still advanced, so handle it like
+                # read_next() and carry on instead of failing reader init.
+                if "Bad message" not in str(ex):
+                    raise
+                self.stats.increase("journal.corrupted_log_entry", tags=self.make_tags())
+                self.log.warning("Corrupted log entry in %s", self.name)
             self.read_next()
         elif self.initial_position == "head":
             self.journald_reader.seek_head()

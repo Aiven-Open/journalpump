@@ -1640,3 +1640,77 @@ def test_broken_reader(mocker, caplog):
     caplog.clear()
     journal_reader.create_journald_reader_if_missing()
     assert ["Corrupted log entry in foo"] == [r.message for r in caplog.records]
+
+
+def test_tail_initialization_steps_past_last_entry(mocker):
+    # sd_journal_next() is not allowed immediately after sd_journal_seek_tail();
+    # get_previous() must run first to land on the last entry, then read_next()
+    # steps past it to the true tail.
+    calls = []
+    journal_reader = JournalReader(
+        name="foo",
+        config={"senders": {}},
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        initial_position="tail",
+        searches=[],
+    )
+
+    mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
+    mocker.patch.object(PumpReader, "seek_tail", side_effect=lambda: calls.append("seek_tail"))
+    mocker.patch.object(PumpReader, "get_previous", side_effect=lambda: calls.append("get_previous"))
+    mocker.patch.object(JournalReader, "read_next", side_effect=lambda: calls.append("read_next"))
+
+    journal_reader.create_journald_reader_if_missing()
+
+    assert calls == ["seek_tail", "get_previous", "read_next"]
+
+
+def test_tail_initialization_tolerates_corrupt_last_entry(mocker, caplog):
+    # A corrupt last entry can raise "Bad message" while get_previous() materializes
+    # its fields; reader init must swallow it and still position at the tail.
+    stats = mock.Mock()
+    journal_reader = JournalReader(
+        name="foo",
+        config={"senders": {}},
+        field_filters={},
+        geoip=None,
+        stats=stats,
+        initial_position="tail",
+        searches=[],
+    )
+
+    mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
+    mocker.patch.object(PumpReader, "seek_tail")
+    mocker.patch.object(PumpReader, "get_previous", side_effect=OSError("Bad message"))
+    read_next = mocker.patch.object(JournalReader, "read_next")
+
+    caplog.clear()
+    journal_reader.create_journald_reader_if_missing()
+
+    assert journal_reader.journald_reader is not None
+    read_next.assert_called_once()
+    assert "Corrupted log entry in foo" in [r.message for r in caplog.records]
+    stats.increase.assert_any_call("journal.corrupted_log_entry", tags=mock.ANY)
+
+
+def test_tail_initialization_reraises_unexpected_oserror(mocker):
+    # Only "Bad message" is tolerated; any other OSError must propagate.
+    journal_reader = JournalReader(
+        name="foo",
+        config={"senders": {}},
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        initial_position="tail",
+        searches=[],
+    )
+
+    mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
+    mocker.patch.object(PumpReader, "seek_tail")
+    mocker.patch.object(PumpReader, "get_previous", side_effect=OSError("input/output error"))
+    mocker.patch.object(JournalReader, "read_next")
+
+    with pytest.raises(OSError, match="input/output error"):
+        journal_reader.create_journald_reader_if_missing()
