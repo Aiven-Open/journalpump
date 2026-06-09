@@ -1,7 +1,7 @@
 from .data import GCP_PRIVATE_KEY
 from botocore.stub import Stubber
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timezone
 from journalpump import senders
 from journalpump.journalpump import (
     _5_MB,
@@ -975,7 +975,7 @@ class TestJournalObjectHandler(TestCase):
                 b=2,
                 c=3,
                 REALTIME_TIMESTAMP=1,
-                timestamp=datetime.utcfromtimestamp(1),
+                timestamp=datetime.fromtimestamp(1, timezone.utc).replace(tzinfo=None),
             ),
             default=default_json_serialization,
         ).encode("utf-8")
