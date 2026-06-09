@@ -87,6 +87,7 @@ class SyslogTcpClient:
         certfile=None,
         log_format=None,
         octet_counted_framing=None,
+        escape_newlines=None,
     ):
         self.socket = None
         self.server = server
@@ -95,6 +96,7 @@ class SyslogTcpClient:
         self.socket_proto = socket.SOCK_STREAM
         self.ssl_context = None
         self.octet_counted_framing = False if octet_counted_framing is None else octet_counted_framing
+        self.escape_newlines = False if escape_newlines is None else escape_newlines
         if rfc == "RFC5424":
             self.formatter = _rfc_5424_formatter
         elif rfc == "RFC3164":
@@ -211,6 +213,8 @@ class SyslogTcpClient:
         proc_id = pid if pid else NILVALUE
         msg_id = msgid if msgid else NILVALUE
         message = msg if msg else NILVALUE
+        if self.escape_newlines:
+            message = message.replace("\r", "\\r").replace("\n", "\\n")
         rfc3164date = datetime.datetime.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S").strftime("%b %d %H:%M:%S")
 
         self.send(

@@ -47,6 +47,7 @@ class RsyslogSender(LogSender):
                     certfile=self.config.get("client_cert"),
                     log_format=self.config.get("logline"),
                     octet_counted_framing=self.config.get("octet_counted_framing"),
+                    escape_newlines=self.config.get("escape_newlines"),
                 )
                 self.log.info(
                     "Initialized Rsyslog Client %s, server: %s, port: %d",
