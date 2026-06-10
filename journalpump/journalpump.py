@@ -757,9 +757,11 @@ class JournalObjectHandler:
 
         # Always set a timestamp field that gets turned into an ISO timestamp based on REALTIME_TIMESTAMP if available
         if "REALTIME_TIMESTAMP" in data:
-            timestamp = datetime.datetime.utcfromtimestamp(data["REALTIME_TIMESTAMP"])
+            timestamp = datetime.datetime.fromtimestamp(data["REALTIME_TIMESTAMP"], datetime.timezone.utc).replace(
+                tzinfo=None
+            )
         else:
-            timestamp = datetime.datetime.utcnow()
+            timestamp = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
         data["timestamp"] = timestamp
 
         if extra_field_values:
@@ -836,7 +838,7 @@ class JournalPump(ServiceDaemon, Tagged):
         self.previous_state = None
         self.last_state_save_time = time.monotonic()
         ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
-        self.start_time_str = datetime.datetime.utcnow().isoformat()
+        self.start_time_str = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
         self.configure_field_filters()
         self.configure_unit_log_levels()
         self.configure_readers()
