@@ -115,7 +115,7 @@ def _run_pump_test(
     logfile,
     messages_to_send,
     expected_message_count,
-    expected_multiline_support,
+    expected_info_line_ending: str | None = None,
     expected_subsequent_message=None,
 ):
     journalpump = None
@@ -156,7 +156,7 @@ def _run_pump_test(
 
     # Check the results
     found = 0
-    multiline_support = False
+    info_line = None
     subsequent_message_found = False
     with open(logfile, "r", encoding="utf-8") as fp:
         lines = fp.readlines()
@@ -167,7 +167,7 @@ def _run_pump_test(
                 log.info("Found: %s", line)
                 found += 1
                 if txt == "Info":
-                    multiline_support = line.endswith("example#012stack#012trace {%} -\n")
+                    info_line = line
                 break
     if expected_subsequent_message is not None:
         subsequent_pattern = re.compile(rf".*{expected_subsequent_message} for {identifier}.*")
@@ -180,13 +180,15 @@ def _run_pump_test(
             subsequent_message_found
         ), "Subsequent message not found — connection likely desynced after oversize octet-counted frame"
     assert found == expected_message_count, "Expected messages not found in syslog"
-    assert (
-        multiline_support == expected_multiline_support
-    ), f"Multi-line support is {multiline_support} which does not match expected {expected_multiline_support}"
+    if expected_info_line_ending is not None:
+        assert info_line is not None, "Info message not found in syslog"
+        assert info_line.endswith(
+            expected_info_line_ending
+        ), f"Info line ending mismatch: expected {expected_info_line_ending!r}, got {info_line!r}"
 
 
 @pytest.mark.parametrize(
-    "messages_to_send,sender_config,expected_message_count,expected_multiline_support,expected_subsequent_message",
+    "messages_to_send,sender_config,expected_message_count,expected_info_line_ending,expected_subsequent_message",
     [
         (
             [
@@ -203,7 +205,7 @@ def _run_pump_test(
             ],
             {},  # config not specified, octet_counted_framing is False by default
             4,
-            False,
+            None,
             None,
         ),
         (
@@ -215,7 +217,7 @@ def _run_pump_test(
             ],
             {"octet_counted_framing": False},
             1,
-            False,
+            None,
             None,
         ),
         (
@@ -227,7 +229,19 @@ def _run_pump_test(
             ],
             {"octet_counted_framing": True},
             1,
-            True,
+            "example#012stack#012trace {%} -\n",
+            None,
+        ),
+        (
+            [
+                {
+                    "text": "Info message for {identifier}\nexample\nstack\ntrace",
+                    "PRIORITY": journal.LOG_INFO,
+                },
+            ],
+            {"escape_newlines": True},
+            1,
+            "example\\nstack\\ntrace {%} -\n",
             None,
         ),
         # Verify that an oversize octet-counted frame is truncated without desyncing the stream.
@@ -243,9 +257,9 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_CRIT,
                 },
             ],
-            {"octet_counted_framing": True, "max_message_size": 80},
+            {"octet_counted_framing": True, "max_message_size": 200},
             2,
-            False,
+            None,
             "Critical message",
         ),
     ],
@@ -255,7 +269,7 @@ def test_rsyslogd_tcp_sender(
     messages_to_send,
     sender_config,
     expected_message_count,
-    expected_multiline_support,
+    expected_info_line_ending,
     expected_subsequent_message,
 ):
     workdir = tmpdir.dirname
@@ -289,7 +303,7 @@ def test_rsyslogd_tcp_sender(
             logfile=logfile,
             messages_to_send=messages_to_send,
             expected_message_count=expected_message_count,
-            expected_multiline_support=expected_multiline_support,
+            expected_info_line_ending=expected_info_line_ending,
             expected_subsequent_message=expected_subsequent_message,
         )
     finally:

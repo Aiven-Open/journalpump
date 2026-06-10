@@ -21,7 +21,9 @@ class _StubSocket:
         pass
 
 
-def _make_client(*, max_msg: int, octet_counted_framing: bool) -> tuple[SyslogTcpClient, _StubSocket]:
+def _make_client(
+    *, max_msg: int, octet_counted_framing: bool = False, escape_newlines: bool = False
+) -> tuple[SyslogTcpClient, _StubSocket]:
     with mock.patch.object(SyslogTcpClient, "_connect"):
         client = SyslogTcpClient(
             server="127.0.0.1",
@@ -29,6 +31,7 @@ def _make_client(*, max_msg: int, octet_counted_framing: bool) -> tuple[SyslogTc
             rfc="RFC5424",
             max_msg=max_msg,
             octet_counted_framing=octet_counted_framing,
+            escape_newlines=escape_newlines,
         )
     sock = _StubSocket()
     client.socket = sock
@@ -176,3 +179,31 @@ class TestOctetCountedFraming:
         frames = _parse_octet_counted_frames(bytes(sock.sent))
         assert len(frames) == 1
         assert len(frames[0]) <= max_msg
+
+
+class TestEscapeNewlines:
+    """escape_newlines=True escapes embedded CR/LF in the message before framing."""
+
+    def _log_multiline(self, *, escape_newlines: bool) -> bytes:
+        client, sock = _make_client(max_msg=4096, escape_newlines=escape_newlines)
+        client.log(
+            facility=1,
+            severity=6,
+            timestamp="2024-01-01T00:00:00.000000Z",
+            hostname="host",
+            program="app",
+            msg="line1\nline2\r\nline3",
+        )
+        return bytes(sock.sent)
+
+    def test_disabled_keeps_raw_newlines(self):
+        sent = self._log_multiline(escape_newlines=False)
+        assert sent == b"<14>1 2024-01-01T00:00:00.000000Z host app - - line1\nline2\r\nline3\n"
+
+    def test_enabled_escapes_newlines(self):
+        sent = self._log_multiline(escape_newlines=True)
+        assert sent == b"<14>1 2024-01-01T00:00:00.000000Z host app - - line1\\nline2\\r\\nline3\n"
+
+    def test_enabled_single_trailing_real_newline(self):
+        sent = self._log_multiline(escape_newlines=True)
+        assert sent.count(b"\n") == 1
