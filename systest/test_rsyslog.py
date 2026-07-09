@@ -280,6 +280,7 @@ def test_rsyslogd_tcp_sender(
             {
                 "readers": {
                     "syslog-tcp": {
+                        "initial_position": "tail",
                         "senders": {
                             "rsyslog": {
                                 "output_type": "rsyslog",
