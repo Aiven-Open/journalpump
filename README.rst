@@ -326,7 +326,7 @@ This feature requires latest version of ``python-systemd`` `with namespace suppo
 Require that the logs message matches only against certain _SYSTEMD_UNITs.
 If not set, we allow log events from all units.
 
-``flags`` (default ``LOCAL_ONLY``)
+``journal_flags`` (default ``LOCAL_ONLY``)
 
 ``"LOCAL_ONLY"`` opens journal on local machine only; ``"RUNTIME_ONLY"`` opens only volatile journal files;
 and ``"SYSTEM"`` opens journal files of system services and the kernel, ``"CURRENT_USER"`` opens files of the
