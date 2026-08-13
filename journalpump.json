@@ -40,7 +40,7 @@
             }
         },
         "sshd": {
-            "flags": 4,
+            "journal_flags": ["SYSTEM"],
             "units_to_match": [
                 "sshd.service"
             ],
