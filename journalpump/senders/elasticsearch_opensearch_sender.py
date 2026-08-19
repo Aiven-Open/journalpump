@@ -6,7 +6,7 @@ from journalpump.senders.base import LogSender
 from journalpump.util import default_json_serialization, get_requests_session
 from requests import Timeout as RequestsTimeout
 from requests.exceptions import ConnectionError as RequestsConnectionError
-from typing import Any
+from typing import Any, ClassVar
 
 import datetime
 import enum
@@ -74,7 +74,7 @@ class _EsOsLogSenderBase(LogSender):
 
     _ONE_HOUR_LAST_INDEX_CHECK = 3600
 
-    _SUCCESS_HTTP_STATUSES = {HTTPStatus.OK, HTTPStatus.CREATED}
+    _SUCCESS_HTTP_STATUSES: ClassVar[set[HTTPStatus]] = {HTTPStatus.OK, HTTPStatus.CREATED}
 
     def __init__(self, *, sender_config: Config, config: dict[str, Any], **kwargs) -> None:
         super().__init__(

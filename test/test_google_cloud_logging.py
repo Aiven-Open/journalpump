@@ -2,13 +2,14 @@ from .data import GCP_PRIVATE_KEY
 from googleapiclient.http import RequestMockBuilder as GoogleApiClientRequestMockBuilder
 from httplib2 import Response as HttpLib2Response
 from journalpump.senders.google_cloud_logging import GoogleCloudLoggingSender
+from typing import Any, ClassVar
 from unittest import mock
 
 import json
 
 
 class TestGoogleCloudLoggingSender:
-    CONFIG = {
+    CONFIG: ClassVar[dict[str, Any]] = {
         "google_cloud_logging_project_id": "project-id",
         "google_cloud_logging_log_id": "log-id",
         "google_cloud_logging_resource_labels": {

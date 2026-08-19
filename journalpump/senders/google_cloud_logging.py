@@ -3,6 +3,7 @@ from google.auth import default as get_application_default
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import Error as GoogleApiClientError
+from typing import ClassVar
 
 import contextlib
 import json
@@ -12,7 +13,7 @@ logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
 
 
 class GoogleCloudLoggingSender(LogSender):
-    _SEVERITY_MAPPING = {  # mapping from journald priority to cloud logging severity
+    _SEVERITY_MAPPING: ClassVar[dict[int, str]] = {  # mapping from journald priority to cloud logging severity
         7: "DEBUG",
         6: "INFO",
         5: "NOTICE",
