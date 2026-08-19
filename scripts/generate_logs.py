@@ -175,7 +175,7 @@ def main():
     args = _PARSER.parse_args()
 
     if os.geteuid() != 0:
-        raise Exception("Should be run as a root user to be able to rotate")
+        sys.exit("Should be run as a root user to be able to rotate")
 
     logs_dir = pathlib.Path(tempfile.mkdtemp(prefix="journald_logs_"))
     uid = args.uid

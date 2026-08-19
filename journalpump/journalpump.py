@@ -410,7 +410,7 @@ class JournalReader(Tagged):
                 self.stats.increase("journal.corrupted_log_entry", tags=tags)
                 self.log.warning("Corrupted log entry in %s", self.name)
                 return None
-            raise ex
+            raise
         except StopIteration:
             self.log.debug("No more journal entries to read")
             return None
@@ -566,7 +566,9 @@ class JournalReader(Tagged):
             return []
 
         if not isinstance(secret_filters, list):
-            raise ValueError("invalid secret_filters configuration - must be a list")
+            # ValueError, not the TypeError ruff suggests: every rejection of this config key
+            # raises ValueError, and callers distinguish bad config by that one type.
+            raise ValueError("invalid secret_filters configuration - must be a list")  # noqa: TRY004
 
         for secret_filter in secret_filters:
             if secret_filter.get("replacement") is None:
