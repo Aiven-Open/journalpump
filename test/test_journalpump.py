@@ -1098,7 +1098,7 @@ def test_journalpump_state_file(tmpdir):
         fp.write(json.dumps(config))
 
     pump = JournalPump(journalpump_path)
-    for _, reader in pump.readers.items():
+    for reader in pump.readers.values():
         reader.initialize_senders()
         sleep(1.1)
         reader.request_stop()
@@ -1507,7 +1507,7 @@ def test_single_sender_init_fail():
     journal_reader.initialize_senders()
     # Now we should have both "bar" and "cafe"
     assert len(journal_reader.senders) == 2
-    assert sorted(list(journal_reader.senders.keys())) == ["bar", "cafe"]
+    assert sorted(journal_reader.senders.keys()) == ["bar", "cafe"]
     assert journal_reader._initialized_senders == {  # pylint: disable=protected-access
         "bar",
         "cafe",

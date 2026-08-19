@@ -140,7 +140,7 @@ class _EsOsLogSenderBase(LogSender):
     def _check_indices(self) -> None:
         aliases = self._session.get(self._indices_url).json()
         index_full_prefix = f"{self._config.index_name}-"
-        indices = sorted(key for key in aliases.keys() if key.startswith(index_full_prefix))
+        indices = sorted(key for key in aliases if key.startswith(index_full_prefix))
         self.log.info(
             "Checking indices, currently: %r are available, max_indices: %r",
             indices,

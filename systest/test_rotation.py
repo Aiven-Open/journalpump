@@ -31,7 +31,7 @@ class LogFiles:
 
     def __init__(self, destination: Path, source: str) -> None:
         orig_path = Path(__file__).parent / "data" / source
-        self._orig_log_files: list[Path] = list(reversed(sorted(orig_path.glob("*.journal"))))
+        self._orig_log_files: list[Path] = sorted(orig_path.glob("*.journal"), reverse=True)
         self._rotate_to: Path | None = None
         self._destination: Path = destination
         self._current_log_files: list[Path] = []
@@ -212,13 +212,13 @@ def test_journalpump_rotated_files(journalpump_factory, journal_log_dir):
     lf = LogFiles(journal_log_dir, source=LogFiles.ROTATED_LOGS)
     lf.rotate()
     messages = stub_sender.get_messages(10, timeout=3)
-    assert set(m["MESSAGE"] for m in messages) == {f"Message {i}" for i in range(10)}
+    assert {m["MESSAGE"] for m in messages} == {f"Message {i}" for i in range(10)}
 
     lf.rotate()
     lf.rotate()
 
     messages = stub_sender.get_messages(20, timeout=3)
-    assert set(m["MESSAGE"] for m in messages) == {f"Message {i}" for i in range(10, 30)}
+    assert {m["MESSAGE"] for m in messages} == {f"Message {i}" for i in range(10, 30)}
 
 
 @pytest.mark.parametrize("msg_buffer_max_length", [3, 5, 10])
@@ -240,7 +240,7 @@ def test_journalpump_rotated_files_threshold(journalpump_factory, journal_log_di
         messages = stub_sender.get_messages(msg_buffer_max_length, timeout=3)
         expected = {f"Message {i}" for i in range(it * msg_buffer_max_length, msg_buffer_max_length * (it + 1))}
         assert len(messages) == msg_buffer_max_length
-        assert set(m["MESSAGE"] for m in messages) == expected
+        assert {m["MESSAGE"] for m in messages} == expected
 
 
 @pytest.mark.parametrize("size,num_messages", [(50, 1), (1000, 2)])
@@ -261,7 +261,7 @@ def test_journalpump_rotated_files_threshold_bytes(journalpump_factory, journal_
         messages = stub_sender.get_messages(num_messages, timeout=3)
         expected = {f"Message {i}" for i in range(it * num_messages, num_messages * (it + 1))}
         assert len(messages) == num_messages
-        assert set(m["MESSAGE"] for m in messages) == expected
+        assert {m["MESSAGE"] for m in messages} == expected
 
 
 def _lsof_is_file_open(filenames: list[str]) -> dict[str, bool]:
@@ -399,4 +399,4 @@ def test_journalpump_bad_message(journalpump_factory, journal_log_dir):
     lf.rotate()
     lf.rotate()
     messages = stub_sender.get_messages(10, timeout=3)
-    assert set(m["MESSAGE"] for m in messages) == {f"Message {i}" for i in range(10, 20)}
+    assert {m["MESSAGE"] for m in messages} == {f"Message {i}" for i in range(10, 20)}

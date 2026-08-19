@@ -141,8 +141,8 @@ def _run_pump_test(
         # Stop the journalpump and senders
         if journalpump is not None:
             journalpump.running = False
-            for _, reader in journalpump.readers.items():
-                for _, sender in reader.senders.items():
+            for reader in journalpump.readers.values():
+                for sender in reader.senders.values():
                     threads.append(sender)
                     sender.request_stop()
 
