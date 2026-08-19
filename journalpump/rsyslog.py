@@ -188,9 +188,7 @@ class SyslogTcpClient:
             return ex.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT)
         # retry to send when the SSL connection was closed unexpectedly
         # with message 'EOF occurred in violation of protocol'
-        if isinstance(ex, ssl.SSLEOFError):
-            return True
-        return False
+        return isinstance(ex, ssl.SSLEOFError)
 
     def log(
         self,

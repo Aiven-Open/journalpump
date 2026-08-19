@@ -558,10 +558,7 @@ class JournalReader(Tagged):
             yield output
 
     def _configure_secret_filter_metrics(self, config):
-        secret_filter_metrics = config.get("secret_filter_metrics")
-        if secret_filter_metrics is True:
-            return True
-        return False
+        return config.get("secret_filter_metrics") is True
 
     def _validate_and_build_secret_filters(self, config):
         secret_filters = config.get("secret_filters")
@@ -663,9 +660,7 @@ class JournalReader(Tagged):
 def check_match(*, entry: Mapping[str, Any], match_key: str | None, match_value: Any) -> bool:
     if not match_key:
         return True
-    if entry.get(match_key) == match_value:
-        return True
-    return False
+    return entry.get(match_key) == match_value
 
 
 class FieldFilter:
@@ -733,9 +728,8 @@ class JournalObjectHandler:
             self.log.debug("No more journal entries to read")
             return SingleMessageReadResult(has_more=False, bytes_read=None)
 
-        if self.reader.searches:
-            if not self.reader.perform_searches(self.jobject):
-                return SingleMessageReadResult(has_more=True, bytes_read=None)
+        if self.reader.searches and not self.reader.perform_searches(self.jobject):
+            return SingleMessageReadResult(has_more=True, bytes_read=None)
 
         if not self.pump.check_match(new_entry):
             return SingleMessageReadResult(has_more=True, bytes_read=None)
