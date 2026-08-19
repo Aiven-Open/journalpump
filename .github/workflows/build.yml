@@ -71,13 +71,7 @@ jobs:
           pip install -e .
 
       - id: unittest
-        run: make coverage
+        run: make unittest
 
       - id: systest
         run: make systest
-
-      - id: upload-codecov
-        # Third-party action pinned to v5.5.2
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de
-        with:
-          verbose: true
