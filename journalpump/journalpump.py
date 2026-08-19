@@ -109,7 +109,7 @@ class PumpReader(journal.Reader):
         for part in cursor.split(";"):
             if part.startswith("i="):
                 try:
-                    return int(part[2:], 16)
+                    return int(part.removeprefix("i="), 16)
                 except ValueError:
                     return None
         return None
