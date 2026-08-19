@@ -1060,7 +1060,7 @@ def test_journalpump_resume_cursor(tmpdir) -> None:
                 "senders": {"fake_syslog": {"sent": {"cursor": "sender_cursor"}}},
             },
         },
-        "start_time": datetime.now().isoformat(),
+        "start_time": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     }
 
     with open(journalpump_path, "w", encoding="utf-8") as fp:

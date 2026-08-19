@@ -213,7 +213,11 @@ class SyslogTcpClient:
         message = msg if msg else NILVALUE
         if self.escape_newlines:
             message = message.replace("\r", "\\r").replace("\n", "\\n")
-        rfc3164date = datetime.datetime.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S").strftime("%b %d %H:%M:%S")
+        # Callers pass UTC; RFC3164 has no offset field, so this only reformats the wall clock.
+        parsed_timestamp = datetime.datetime.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S").replace(
+            tzinfo=datetime.timezone.utc
+        )
+        rfc3164date = parsed_timestamp.strftime("%b %d %H:%M:%S")
 
         self.send(
             self.formatter(
