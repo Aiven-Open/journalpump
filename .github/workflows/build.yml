@@ -23,9 +23,32 @@ jobs:
         uses: actions/checkout@v6
 
       - id: system-dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libsystemd-dev libsnappy-dev
+          # Prefer azure.archive.ubuntu.com (fast from these VMs). Apt already
+          # lists archive.ubuntu.com as a fallback, but failover is per-file and
+          # a TCP stall never counts as failure, so it can hang for hours.
+          # https://github.com/actions/runner-images/issues/12949
+          apt_get() {
+            sudo DEBIAN_FRONTEND=noninteractive timeout -k 5 45 apt-get \
+              -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=15 \
+              -o Acquire::https::Timeout=15 \
+              "$@"
+          }
+          pin_archive() {
+            for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
+              if [ -f "$f" ]; then
+                sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' "$f"
+              fi
+            done
+          }
+          if ! apt_get update || ! apt_get install -y libsystemd-dev libsnappy-dev; then
+            echo "Azure Ubuntu mirror failed or timed out; pinning to archive.ubuntu.com"
+            pin_archive
+            apt_get update
+            apt_get install -y libsystemd-dev libsnappy-dev
+          fi
 
       - id: prepare-python
         uses: actions/setup-python@v6
@@ -54,9 +77,32 @@ jobs:
         uses: actions/checkout@v6
 
       - id: system-dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libsystemd-dev libsnappy-dev
+          # Prefer azure.archive.ubuntu.com (fast from these VMs). Apt already
+          # lists archive.ubuntu.com as a fallback, but failover is per-file and
+          # a TCP stall never counts as failure, so it can hang for hours.
+          # https://github.com/actions/runner-images/issues/12949
+          apt_get() {
+            sudo DEBIAN_FRONTEND=noninteractive timeout -k 5 45 apt-get \
+              -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=15 \
+              -o Acquire::https::Timeout=15 \
+              "$@"
+          }
+          pin_archive() {
+            for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
+              if [ -f "$f" ]; then
+                sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' "$f"
+              fi
+            done
+          }
+          if ! apt_get update || ! apt_get install -y libsystemd-dev libsnappy-dev; then
+            echo "Azure Ubuntu mirror failed or timed out; pinning to archive.ubuntu.com"
+            pin_archive
+            apt_get update
+            apt_get install -y libsystemd-dev libsnappy-dev
+          fi
 
       - id: prepare-python
         uses: actions/setup-python@v6
