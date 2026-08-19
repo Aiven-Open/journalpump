@@ -20,7 +20,7 @@ jobs:
     steps:
 
       - id: checkout-code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - id: system-dependencies
         timeout-minutes: 5
@@ -51,7 +51,7 @@ jobs:
           fi
 
       - id: prepare-python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -74,7 +74,7 @@ jobs:
 
     steps:
       - id: checkout-code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - id: system-dependencies
         timeout-minutes: 5
@@ -105,7 +105,7 @@ jobs:
           fi
 
       - id: prepare-python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
