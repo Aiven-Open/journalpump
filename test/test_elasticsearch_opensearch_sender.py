@@ -5,7 +5,7 @@ from journalpump.senders.elasticsearch_opensearch_sender import (
     SenderType,
     Version,
 )
-from typing import Any, Dict
+from typing import Any
 from unittest import mock
 
 import datetime
@@ -107,7 +107,7 @@ def test_config_raises_value_error_for_empty_url(sender_type: SenderType) -> Non
 )
 def test_sender_set_max_send_interval_config(clazz: type, sender_type: SenderType) -> None:
     # pylint:disable=protected-access
-    config: Dict[str, Any] = {f"{sender_type.value}_url": "http://aaa"}
+    config: dict[str, Any] = {f"{sender_type.value}_url": "http://aaa"}
     default_sender = clazz(
         config=config,
         name=sender_type.value,
@@ -312,9 +312,12 @@ def test_send_messages_uses_current_date_when_timestamp_missing(sender_type: Sen
 
     today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 
-    with mock.patch.object(sender, "_load_indices", return_value=True), mock.patch.object(
-        sender, "_indices", {f"{sender._config.index_name}-{today}": True}, create=True
-    ), mock.patch.object(sender, "_create_index_and_mapping"), mock.patch.object(sender, "_session") as mock_session:
+    with (
+        mock.patch.object(sender, "_load_indices", return_value=True),
+        mock.patch.object(sender, "_indices", {f"{sender._config.index_name}-{today}": True}, create=True),
+        mock.patch.object(sender, "_create_index_and_mapping"),
+        mock.patch.object(sender, "_session") as mock_session,
+    ):
         mock_session.post.return_value = mock_response
         with mock.patch.object(sender.log, "warning") as mock_warn:
             result = sender.send_messages(messages=[msg_without_timestamp], cursor="c1")
@@ -346,9 +349,12 @@ def test_send_messages_uses_timestamp_for_index_name(sender_type: SenderType) ->
     mock_response.status_code = 200
     mock_response.json.return_value = {}
 
-    with mock.patch.object(sender, "_load_indices", return_value=True), mock.patch.object(
-        sender, "_indices", {expected_index: True}, create=True
-    ), mock.patch.object(sender, "_create_index_and_mapping"), mock.patch.object(sender, "_session") as mock_session:
+    with (
+        mock.patch.object(sender, "_load_indices", return_value=True),
+        mock.patch.object(sender, "_indices", {expected_index: True}, create=True),
+        mock.patch.object(sender, "_create_index_and_mapping"),
+        mock.patch.object(sender, "_session") as mock_session,
+    ):
         mock_session.post.return_value = mock_response
         with mock.patch.object(sender.log, "warning") as mock_warn:
             result = sender.send_messages(messages=[msg_with_timestamp], cursor="c1")

@@ -1,9 +1,9 @@
 from .util import journalpump_initialized
+from collections.abc import Callable
 from journalpump import senders
 from journalpump.journalpump import JournalPump, JournalReader, PumpReader, statsd
 from journalpump.senders.base import MsgBuffer
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
 
 import json
 import logging
@@ -31,10 +31,10 @@ class LogFiles:
 
     def __init__(self, destination: Path, source: str) -> None:
         orig_path = Path(__file__).parent / "data" / source
-        self._orig_log_files: List[Path] = list(reversed(sorted(orig_path.glob("*.journal"))))
-        self._rotate_to: Optional[Path] = None
+        self._orig_log_files: list[Path] = list(reversed(sorted(orig_path.glob("*.journal"))))
+        self._rotate_to: Path | None = None
         self._destination: Path = destination
-        self._current_log_files: List[Path] = []
+        self._current_log_files: list[Path] = []
 
     @property
     def log_files(self):
@@ -98,7 +98,7 @@ class _MsgBuffer(MsgBuffer):
     def __init__(self) -> None:
         super().__init__()
         self.has_messages = threading.Event()
-        self.wait_threshold: Optional[int] = None
+        self.wait_threshold: int | None = None
 
     def add_item(self, *, item, cursor):
         super().add_item(item=item, cursor=cursor)
@@ -118,9 +118,9 @@ class _MsgBuffer(MsgBuffer):
 
 
 class StubSender:
-    field_filter: Optional[dict] = None
-    unit_log_levels: Optional[dict] = None
-    extra_field_values: Optional[dict] = None
+    field_filter: dict | None = None
+    unit_log_levels: dict | None = None
+    extra_field_values: dict | None = None
 
     def __init__(self, *args, **kwargs):  # pylint: disable=unused-argument
         self.msg_buffer = _MsgBuffer()
@@ -212,7 +212,7 @@ def test_journalpump_rotated_files(journalpump_factory, journal_log_dir):
     lf = LogFiles(journal_log_dir, source=LogFiles.ROTATED_LOGS)
     lf.rotate()
     messages = stub_sender.get_messages(10, timeout=3)
-    assert set(m["MESSAGE"] for m in messages) == {f"Message {i}" for i in range(0, 10)}
+    assert set(m["MESSAGE"] for m in messages) == {f"Message {i}" for i in range(10)}
 
     lf.rotate()
     lf.rotate()
@@ -264,7 +264,7 @@ def test_journalpump_rotated_files_threshold_bytes(journalpump_factory, journal_
         assert set(m["MESSAGE"] for m in messages) == expected
 
 
-def _lsof_is_file_open(filenames: List[str]) -> Dict[str, bool]:
+def _lsof_is_file_open(filenames: list[str]) -> dict[str, bool]:
     """Check if file is open using lsof"""
     # psutil doesn't show deleted files, but this exactly what we want to test
     output = subprocess.check_output(["lsof", "-p", str(os.getpid()), "-w"]).decode().split("\n")
@@ -332,7 +332,7 @@ def test_journalpump_rotated_files_deletion(journalpump_factory, journal_log_dir
 
 def test_journalpump_stats_sender(mocker, journalpump_factory, journal_log_dir):
     stub_sender = StubSender()
-    stats: Dict[str, int] = {}
+    stats: dict[str, int] = {}
 
     class StatStub:
         def increase(self, name: str, **kwargs):  # pylint: disable=unused-argument
@@ -387,9 +387,9 @@ def test_journalpump_stats_sender(mocker, journalpump_factory, journal_log_dir):
     lf.rotate()
     lf.rotate()
 
-    assert _wait_for(
-        lambda: stats.get("stats-messages") == 13, timeout=3
-    ), f"Not enough messages mathing search criteria got {stats.get('stats-messages')}"
+    assert _wait_for(lambda: stats.get("stats-messages") == 13, timeout=3), (
+        f"Not enough messages mathing search criteria got {stats.get('stats-messages')}"
+    )
 
 
 def test_journalpump_bad_message(journalpump_factory, journal_log_dir):

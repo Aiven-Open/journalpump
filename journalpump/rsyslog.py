@@ -166,7 +166,7 @@ class SyslogTcpClient:
                     # No trailing newline — it would be parsed as the start of
                     # the next frame's length prefix and desync the stream.
                     body = message[: self.max_msg]
-                    frame = f"{len(body)} ".encode("utf-8") + body
+                    frame = f"{len(body)} ".encode() + body
                     self.socket.sendall(frame)
                 else:
                     # Non-transparent framing (RFC 6587 section 3.4.2): frames

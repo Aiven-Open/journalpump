@@ -1,5 +1,4 @@
 from threading import Lock, Thread
-from typing import Dict, Optional
 
 import logging
 import os
@@ -43,7 +42,7 @@ class Tagged:
         self._tags = (tags or {}).copy()
         self._tags.update(kw)
 
-    def make_tags(self, tags: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    def make_tags(self, tags: dict[str, str] | None = None) -> dict[str, str]:
         output = self._tags.copy()
         if tags:
             for tag_name, tag_value in tags.items():

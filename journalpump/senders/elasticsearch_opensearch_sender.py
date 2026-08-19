@@ -6,7 +6,7 @@ from journalpump.senders.base import LogSender
 from journalpump.util import default_json_serialization, get_requests_session
 from requests import Timeout as RequestsTimeout
 from requests.exceptions import ConnectionError as RequestsConnectionError
-from typing import Any, Dict, Set, Union
+from typing import Any
 
 import datetime
 import enum
@@ -30,7 +30,7 @@ class Version:
         return f"version: {self.major}.{self.minor}.{self.patch}"
 
     @staticmethod
-    def from_json(response_json: Dict[str, Any]) -> "Version":
+    def from_json(response_json: dict[str, Any]) -> "Version":
         version_number = str(response_json["version"]["number"])  # help mypy here
         m, mi, p = tuple(map(int, version_number.split(".")))
         return Version(major=m, minor=mi, patch=p)
@@ -54,7 +54,7 @@ class Config:
         return f"{self.session_url}/{path}"
 
     @staticmethod
-    def create(*, sender_type: SenderType, config: Dict[str, Any]) -> "Config":
+    def create(*, sender_type: SenderType, config: dict[str, Any]) -> "Config":
         if f"{sender_type.value}_url" not in config:
             raise ValueError(f"{sender_type.value}_url hasn't been defined")
         return Config(
@@ -76,7 +76,7 @@ class _EsOsLogSenderBase(LogSender):
 
     _SUCCESS_HTTP_STATUSES = {HTTPStatus.OK, HTTPStatus.CREATED}
 
-    def __init__(self, *, sender_config: Config, config: Dict[str, Any], **kwargs) -> None:
+    def __init__(self, *, sender_config: Config, config: dict[str, Any], **kwargs) -> None:
         super().__init__(
             config=config,
             max_send_interval=config.get("max_send_interval", self._DEFAULT_MAX_SENDER_INTERVAL),
@@ -87,9 +87,9 @@ class _EsOsLogSenderBase(LogSender):
         self._session = get_requests_session(timeout=self._config.request_timeout)
         # # If ca is set in config we use that, otherwise we verify using builtin CA cert list
         self._session.verify = self.config.get("ca", True)
-        self._indices: Set[str] = set()
-        self._last_es_error: Union[RequestsConnectionError, RequestsTimeout, None] = None
-        self._version: Union[Version, None] = None
+        self._indices: set[str] = set()
+        self._last_es_error: RequestsConnectionError | RequestsTimeout | None = None
+        self._version: Version | None = None
 
     @property
     def _indices_url(self) -> str:
@@ -232,14 +232,14 @@ class _EsOsLogSenderBase(LogSender):
 
         return True
 
-    def _message_header(self, index_name: str) -> Dict[str, Any]:
+    def _message_header(self, index_name: str) -> dict[str, Any]:
         return {
             "index": {
                 "_index": index_name,
             }
         }
 
-    def _create_index_and_mapping(self, *, index_name: str, message: Dict[str, Any]) -> None:
+    def _create_index_and_mapping(self, *, index_name: str, message: dict[str, Any]) -> None:
         try:
             self.log.info("Creating index: %r for %s", index_name, self.name)
             res = self._session.put(
@@ -267,7 +267,7 @@ class _EsOsLogSenderBase(LogSender):
             self.stats.unexpected_exception(ex, where="es_pump_create_index_and_mappings")
             self._backoff()
 
-    def _create_mapping(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def _create_mapping(self, message: dict[str, Any]) -> dict[str, Any]:
         return {
             "mappings": {
                 "properties": {
@@ -278,8 +278,8 @@ class _EsOsLogSenderBase(LogSender):
             },
         }
 
-    def _message_fields(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        addition_fields: Dict[str, Any] = {}
+    def _message_fields(self, message: dict[str, Any]) -> dict[str, Any]:
+        addition_fields: dict[str, Any] = {}
         unmapped_fields = {}
         for k, v in message.items():
             if k == "timestamp":  # skip timestamp
@@ -322,7 +322,7 @@ class ElasticsearchSender(_EsOsLogSenderBase):
             index_url = f"{index_url}?include_type_name=true"
         return index_url
 
-    def _message_header(self, index_name: str) -> Dict[str, Any]:
+    def _message_header(self, index_name: str) -> dict[str, Any]:
         header = super()._message_header(index_name)
         if not self._version:
             raise ValueError("Version has not been set")
@@ -330,7 +330,7 @@ class ElasticsearchSender(_EsOsLogSenderBase):
             header["index"].update({"_type": self._LEGACY_TYPE})
         return header
 
-    def _create_mapping(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def _create_mapping(self, message: dict[str, Any]) -> dict[str, Any]:
         mapping = super()._create_mapping(message)
         if not self._version:
             raise ValueError("Version has not been set")
@@ -345,7 +345,7 @@ class ElasticsearchSender(_EsOsLogSenderBase):
 
 
 class OpenSearchSender(_EsOsLogSenderBase):
-    def __init__(self, *, config: Dict[str, Any], **kwargs) -> None:
+    def __init__(self, *, config: dict[str, Any], **kwargs) -> None:
         super().__init__(
             sender_config=Config.create(sender_type=SenderType.opensearch, config=config),
             config=config,

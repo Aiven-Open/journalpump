@@ -5,8 +5,7 @@ pytest
 pytest-cov==3.0.0
 pytest-mock
 types-requests
-flake8
-isort==5.12
+ruff
 coverage
 pre-commit
 responses

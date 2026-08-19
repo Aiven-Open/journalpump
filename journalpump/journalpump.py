@@ -8,9 +8,10 @@ from .senders import get_sender_class
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
 from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
+from collections.abc import Mapping
 from functools import lru_cache, reduce
 from systemd import journal
-from typing import Any, cast, Dict, List, Mapping, NamedTuple, Optional, Tuple, Type, Union
+from typing import Any, cast, NamedTuple
 
 import copy
 import datetime
@@ -67,7 +68,7 @@ converters = {
 
 class SingleMessageReadResult(NamedTuple):
     has_more: bool
-    bytes_read: Optional[int]
+    bytes_read: int | None
 
 
 class MessagesReadResult(NamedTuple):
@@ -173,7 +174,7 @@ class JournalReader(Tagged):
         self._failed_senders: int = 0
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
-        self.persistent_gauges: Dict[str, Tuple[int, Dict[str, str]]] = {}
+        self.persistent_gauges: dict[str, tuple[int, dict[str, str]]] = {}
         self.searches = list(self._build_searches(searches))
         self.secret_filter_matches = 0
         self.secret_filters = self._validate_and_build_secret_filters(config)
@@ -191,7 +192,7 @@ class JournalReader(Tagged):
             self.journald_reader.close()
             self.journald_reader = None
 
-    def fileno(self) -> Optional[int]:
+    def fileno(self) -> int | None:
         return self.journald_reader and self.journald_reader.fileno()
 
     def create_journald_reader_if_missing(self) -> None:
@@ -278,7 +279,7 @@ class JournalReader(Tagged):
 
     def initialize_senders(self):
         configured_senders = self.config.get("senders", {})
-        tags: Dict[str, str] = {}
+        tags: dict[str, str] = {}
         for sender_name, sender_config in configured_senders.items():
             if sender_name in self._initialized_senders:
                 continue
@@ -329,7 +330,7 @@ class JournalReader(Tagged):
         # this occurs, or we exit.
         self.set_persistent_gauge(metric="sender.failed_to_start", value=self._failed_senders, tags=self.make_tags(tags))
 
-    def set_persistent_gauge(self, *, metric: str, value: int, tags: Dict[str, str]) -> None:
+    def set_persistent_gauge(self, *, metric: str, value: int, tags: dict[str, str]) -> None:
         """Set/update a metric level (and tags) for a given metric.
         These values will be periodically re-sent, ensuring the value
         is not discarded by the statsd server.
@@ -659,7 +660,7 @@ class JournalReader(Tagged):
         )
 
 
-def check_match(*, entry: Mapping[str, Any], match_key: Optional[str], match_value: Any) -> bool:
+def check_match(*, entry: Mapping[str, Any], match_key: str | None, match_value: Any) -> bool:
     if not match_key:
         return True
     if entry.get(match_key) == match_value:
@@ -678,7 +679,7 @@ class FieldFilter:
 
 
 class UnitLogLevel:
-    def __init__(self, name: str, config: List[Dict[str, str]]):
+    def __init__(self, name: str, config: list[dict[str, str]]):
         self.name = name
         self.levels = config
 
@@ -933,7 +934,7 @@ class JournalPump(ServiceDaemon, Tagged):
         geoip_db_path = self.config.get("geoip_database")
         if geoip_db_path:
             self.log.info("Loading GeoIP data from %r", geoip_db_path)
-            GeoIPReader: Union[Type[GeoIPProtocol], None]
+            GeoIPReader: type[GeoIPProtocol] | None
             try:
                 from geoip2.database import Reader as GeoIPReader  # pylint: disable=import-outside-toplevel
             except ImportError as ex:
@@ -979,7 +980,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
     def read_single_message(self, reader) -> SingleMessageReadResult:
         try:
-            jobject: Optional[JournalObject] = reader.read_next()
+            jobject: JournalObject | None = reader.read_next()
             if jobject is None or jobject.entry is None:
                 return SingleMessageReadResult(has_more=False, bytes_read=None)
 

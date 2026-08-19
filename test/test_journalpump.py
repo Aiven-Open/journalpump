@@ -200,8 +200,9 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
         assert rn == "foo"
         mock_session = mock.MagicMock(spec=botocore.session.Session)
         mock_session.create_client = mock.Mock()
-        with mock.patch("botocore.session.get_session", return_value=mock_session), mock.patch.object(
-            PumpReader, "has_persistent_files", return_value=True
+        with (
+            mock.patch("botocore.session.get_session", return_value=mock_session),
+            mock.patch.object(PumpReader, "has_persistent_files", return_value=True),
         ):
             r.create_journald_reader_if_missing()
             assert len(r.senders) == 1
@@ -1546,8 +1547,9 @@ def test_journalpump_init_journal_files(tmpdir, has_persistent_files, has_runtim
     for rn, r in a.readers.items():
         assert rn == "foo"
 
-        with mock.patch.object(PumpReader, "has_persistent_files", return_value=has_persistent_files), mock.patch.object(
-            PumpReader, "has_runtime_files", return_value=has_runtime_files
+        with (
+            mock.patch.object(PumpReader, "has_persistent_files", return_value=has_persistent_files),
+            mock.patch.object(PumpReader, "has_runtime_files", return_value=has_runtime_files),
         ):
             r.create_journald_reader_if_missing()
 

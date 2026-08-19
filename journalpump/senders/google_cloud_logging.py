@@ -77,7 +77,7 @@ class GoogleCloudLoggingSender(LogSender):
             if len(message) > self._LOG_ENTRY_QUOTA:
                 DEFAULT_MESSAGE = "Log entry can't be logged because its size is greater than GCP logging quota of 256K"
                 if "MESSAGE" in msg:
-                    msg["MESSAGE"] = f'{msg["MESSAGE"][:self._MAX_MESSAGE_SIZE]}[MESSAGE TRUNCATED]'
+                    msg["MESSAGE"] = f"{msg['MESSAGE'][: self._MAX_MESSAGE_SIZE]}[MESSAGE TRUNCATED]"
                     messsage_size = len(json.dumps(msg, ensure_ascii=False).encode("utf-8"))
                     if messsage_size > self._LOG_ENTRY_QUOTA:
                         msg = {"MESSAGE": DEFAULT_MESSAGE}
