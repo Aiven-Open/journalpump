@@ -96,7 +96,7 @@ class PumpReader(journal.Reader):
             if isinstance(value, bytes):
                 try:
                     value = bytes.decode(value)
-                except Exception:  # pylint: disable=broad-except
+                except UnicodeDecodeError:
                     pass
 
             output[key] = value

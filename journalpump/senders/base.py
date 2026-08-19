@@ -232,7 +232,8 @@ class LogSender(Thread, Tagged):
                 # Don't run maintenance operations again immediately if it just failed
                 if not self.last_maintenance_fail or time.monotonic() - self.last_maintenance_fail > 60:
                     self.maintenance_operations()
-            except Exception as ex:  # pylint: disable=broad-except
+            # Deliberately blind: a failing maintenance operation must not take the sender thread down.
+            except Exception as ex:  # noqa: BLE001  # pylint: disable=broad-except
                 self.log.error("Maintenance operation failed: %r", ex)
                 self.stats.unexpected_exception(ex=ex, where="maintenance_operation")
                 self.last_maintenance_fail = time.monotonic()

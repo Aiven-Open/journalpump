@@ -101,7 +101,8 @@ class WebsocketRunner(Thread):
 
             try:
                 await self.websocket.send(message)
-            except Exception as ex:  # pylint:disable=broad-except
+            # Deliberately blind: any send failure means reconnect and retry, never a dead runner.
+            except Exception as ex:  # noqa: BLE001  # pylint:disable=broad-except
                 self.log.warning("Exception while sending messages to websocket: %s", ex)
                 return False
 

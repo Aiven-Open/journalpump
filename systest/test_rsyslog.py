@@ -93,7 +93,7 @@ class _TestRsyslogd:
                     capture_output=True,
                     timeout=5,
                 )
-            except Exception:
+            except (OSError, subprocess.TimeoutExpired):
                 pass
 
         self.process = subprocess.Popen([RSYSLOGD, "-f", self.conffile, "-i", "NONE", "-n", "-C"])

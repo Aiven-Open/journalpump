@@ -130,7 +130,7 @@ class SyslogTcpClient:
                         self.socket = self.ssl_context.wrap_socket(self.socket, server_hostname=self.server)
                     self.socket.connect(sock_addr)
                     return
-                except Exception as ex:  # pylint: disable=broad-except
+                except OSError as ex:
                     if self.socket is not None:
                         self.socket.close()
                     last_connection_error = ex
@@ -144,7 +144,7 @@ class SyslogTcpClient:
             return
         try:
             self.socket.close()
-        except Exception:  # pylint: disable=broad-except
+        except OSError:
             pass
         finally:
             self.socket = None
