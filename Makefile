@@ -8,6 +8,7 @@ all: py-egg
 
 PYTHON ?= python3
 PYLINT_DIRS = journalpump/ test/ systest/
+MYPY_TARGETS = journalpump/ test/ systest/ scripts/ conftest.py setup.py
 
 .PHONY: unittest
 unittest:
@@ -16,6 +17,10 @@ unittest:
 .PHONY: pylint
 pylint:
 	$(PYTHON) -m pylint --rcfile .pylintrc $(PYLINT_DIRS) || exit $$(($$?&2))  # only fail on errors
+
+.PHONY: mypy
+mypy:
+	$(PYTHON) -m mypy $(MYPY_TARGETS)
 
 .PHONY: systest
 systest:
