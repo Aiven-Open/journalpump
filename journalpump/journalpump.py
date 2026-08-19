@@ -678,7 +678,7 @@ class FieldFilter:
 class UnitLogLevel:
     def __init__(self, name: str, config: list[dict[str, str]]):
         self.name = name
-        self.levels = config
+        self.levels = tuple((level["service_glob"], level["log_level"]) for level in config)
 
     def filter_by_level(self, data):
         entry = data
@@ -696,17 +696,18 @@ class UnitLogLevel:
             # if the config is empty we return as is
             return data
 
-        if self._unit_match_level_glob(unit=unit, priority=priority):
+        if _unit_match_level_glob(self.levels, unit=unit, priority=priority):
             return data
 
         return {}
 
-    @lru_cache(maxsize=100)
-    def _unit_match_level_glob(self, *, unit: str, priority: int) -> bool:
-        for level in self.levels:
-            if fnmatch.fnmatch(unit, level["service_glob"]) and priority > LOG_SEVERITY_MAPPING[level["log_level"]]:
-                return False
-        return True
+
+@lru_cache(maxsize=100)
+def _unit_match_level_glob(levels: tuple[tuple[str, str], ...], *, unit: str, priority: int) -> bool:
+    for service_glob, log_level in levels:
+        if fnmatch.fnmatch(unit, service_glob) and priority > LOG_SEVERITY_MAPPING[log_level]:
+            return False
+    return True
 
 
 class JournalObjectHandler:
