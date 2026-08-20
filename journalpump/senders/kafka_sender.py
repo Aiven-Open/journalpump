@@ -50,7 +50,7 @@ class KafkaSender(LogSender):
         self.kafka_producer: KafkaProducer | None = None
         kafka_msg_key = self.config.get("kafka_msg_key")
         self.kafka_msg_key: bytes | None = kafka_msg_key.encode("utf8") if kafka_msg_key else None
-        self.topic = self.config.get("kafka_topic")
+        self.topic: str = self.config["kafka_topic"]
 
     def _generate_client_config(self) -> dict[str, Any]:
         config = {
@@ -93,7 +93,7 @@ class KafkaSender(LogSender):
         producer_config["linger_ms"] = 500  # wait up 500 ms to see if we can send msgs in a group
 
         # make sure the python client supports it as well
-        if zstd and "zstd" in KafkaProducer._COMPRESSORS:  # pylint: disable=protected-access
+        if zstd and "zstd" in getattr(KafkaProducer, "_COMPRESSORS", ()):
             producer_config["compression_type"] = "zstd"
         elif snappy:
             producer_config["compression_type"] = "snappy"
@@ -167,7 +167,8 @@ class KafkaSender(LogSender):
             for result_future in result_futures:
                 # get() throws error from future, catch below
                 # flush() above should have sent, getting with 1 sec timeout
-                result_future.get(timeout=1)
+                # kafka-python stubs leave FutureRecordMetadata.get untyped.
+                result_future.get(timeout=1)  # type: ignore[no-untyped-call]
             self.mark_sent(messages=messages, cursor=cursor)
             return True
         except KAFKA_CONN_ERRORS as ex:
