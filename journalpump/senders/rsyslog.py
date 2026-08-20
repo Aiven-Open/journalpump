@@ -16,7 +16,7 @@ class RsyslogSender(LogSender):
             max_send_interval=config.get("max_send_interval", 0.3),
             **kwargs,
         )
-        self.rsyslog_client = None
+        self.rsyslog_client: SyslogTcpClient | None = None
         self.sd = None
         self.default_facility = 1
         self.default_severity = 6
@@ -69,8 +69,10 @@ class RsyslogSender(LogSender):
             time.sleep(5.0)
 
     def send_messages(self, *, messages, cursor):
-        if not self.rsyslog_client:
+        if self.rsyslog_client is None:
             self._init_rsyslog_client()
+        if self.rsyslog_client is None:
+            return False
 
         try:
             for msg in messages:

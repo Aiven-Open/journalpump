@@ -45,7 +45,7 @@ class _TestRsyslogd:
 
         self.port = port
         self.conffile = f"{workdir}/rsyslogd.conf"
-        self.process = None
+        self.process: subprocess.Popen[bytes] | None = None
 
         with open(self.conffile, "w", encoding="utf-8") as fp:
             print(RSYSLOGD_TCP_CONF.format(logfile=logfile, port=port), file=fp)
@@ -55,6 +55,8 @@ class _TestRsyslogd:
         # five seconds assume that it has failed to start
         attempt = 0
         s = socket.socket()
+        if self.process is None:
+            raise RuntimeError("rsyslogd was not started")
         while (self.process.poll() is None) and (attempt < 5):
             if s.connect_ex(("127.0.0.1", self.port)) == 0:
                 s.close()

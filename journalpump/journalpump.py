@@ -839,7 +839,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
     def __init__(self, config_path):
         Tagged.__init__(self)
-        self.stats = None
+        self.stats: statsd.StatsClient | None = None
         self.geoip = None
         self.poller = select.poll()
         self.readers_active_config = None
@@ -984,7 +984,8 @@ class JournalPump(ServiceDaemon, Tagged):
             return JournalObjectHandler(jobject, reader, self).process()
         except Exception as ex:  # pylint: disable=broad-except
             self.log.exception("Unexpected exception while handling entry for %s", reader.name)
-            self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
+            if self.stats is not None:
+                self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
             time.sleep(0.5)
             return SingleMessageReadResult(has_more=False, bytes_read=None)
 

@@ -44,7 +44,7 @@ logging.getLogger("kafka").setLevel(logging.CRITICAL)  # remove client-internal 
 class KafkaSender(LogSender):
     def __init__(self, *, config, **kwargs):
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
-        self.kafka_producer = None
+        self.kafka_producer: KafkaProducer | None = None
         self.kafka_msg_key = self.config.get("kafka_msg_key")
         if self.kafka_msg_key:
             self.kafka_msg_key = self.kafka_msg_key.encode("utf8")
@@ -151,8 +151,10 @@ class KafkaSender(LogSender):
                 self.log.info("Create Kafka topic, address: %r for %s", self.topic, self.name)
 
     def send_messages(self, *, messages, cursor):
-        if not self.kafka_producer:
+        if self.kafka_producer is None:
             self._init_kafka()
+        if self.kafka_producer is None:
+            return False
         try:
             # Collect return values of send():
             # FutureRecordMetadata which will trigger when message actually sent (during flush)

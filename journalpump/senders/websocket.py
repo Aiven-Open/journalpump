@@ -7,6 +7,7 @@ from journalpump.types import StrEnum
 from journalpump.util import ExponentialBackoff
 from threading import Thread
 from urllib.parse import urlparse
+from websockets.asyncio.client import ClientConnection
 
 import asyncio
 import contextlib
@@ -56,7 +57,7 @@ class WebsocketRunner(Thread):
         self.ssl_cert = ssl_cert
         self.websocket_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.websocket_loop)
-        self.websocket = None
+        self.websocket: ClientConnection | None = None
         self.connected_event = asyncio.Event()
         self.stop_event = asyncio.Event()
         self.stopped_event = asyncio.Event()
@@ -94,6 +95,9 @@ class WebsocketRunner(Thread):
             # LogSender has limited the batch size already
             batch = b"\x00".join(messages)
             messages = [batch]
+
+        if self.websocket is None:
+            return False
 
         for message in messages:
             if self.compression == JournalPumpMessageCompression.snappy:
@@ -276,9 +280,9 @@ class WebsocketRunner(Thread):
         finally:
             self.websocket = None
 
-        for task in [consumer_task, stop_event_task]:
-            if task:
-                task.cancel()
+        for pending_task in [consumer_task, stop_event_task]:
+            if pending_task:
+                pending_task.cancel()
 
     async def sleep_before_reconnect(self):
         if self.running:
@@ -303,7 +307,7 @@ class WebsocketSender(LogSender):
             max_send_interval=config.get("max_send_interval", 1.0),
             **kwargs,
         )
-        self.runner = None
+        self.runner: WebsocketRunner | None = None
         self.config = config
 
     def _init_websocket(self) -> None:
@@ -352,8 +356,10 @@ class WebsocketSender(LogSender):
         self.mark_disconnected()
 
     def send_messages(self, *, messages, cursor):
-        if not self.runner:
+        if self.runner is None:
             self._init_websocket()
+        if self.runner is None:
+            return False
         try:
             if self.runner.websocket is None and self._connected:
                 self.mark_disconnected()
