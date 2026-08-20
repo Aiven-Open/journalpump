@@ -27,7 +27,7 @@ class GeoIPProtocol(Protocol):
 
 
 class StrEnum(str, enum.Enum):
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.value)
 
 
