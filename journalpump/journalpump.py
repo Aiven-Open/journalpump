@@ -931,7 +931,7 @@ class JournalPump(ServiceDaemon, Tagged):
         geoip_db_path = self.config.get("geoip_database")
         if geoip_db_path:
             self.log.info("Loading GeoIP data from %r", geoip_db_path)
-            GeoIPReader: type[GeoIPProtocol] | None
+            GeoIPReader: type[GeoIPProtocol]
             try:
                 from geoip2.database import Reader as GeoIPReader  # pylint: disable=import-outside-toplevel
             except ImportError as ex:
