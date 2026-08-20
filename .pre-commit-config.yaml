@@ -17,6 +17,7 @@ repos:
         entry: make pylint
         language: system
         types: [python]
+        pass_filenames: false
     -   id: mypy
         name: mypy
         entry: make mypy
