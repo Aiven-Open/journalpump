@@ -5,8 +5,10 @@
 
 from .util import journalpump_initialized
 from journalpump.journalpump import JournalPump
+from pathlib import Path
 from systemd import journal
 from time import sleep
+from typing import Any
 
 import json
 import logging
@@ -39,7 +41,7 @@ log = logging.getLogger(__name__)
 
 
 class _TestRsyslogd:
-    def __init__(self, *, workdir, logfile, port):
+    def __init__(self, *, workdir: str, logfile: str, port: int) -> None:
         if not os.path.exists(RSYSLOGD):
             raise RuntimeError(f'"{RSYSLOGD}" not available')
 
@@ -50,7 +52,7 @@ class _TestRsyslogd:
         with open(self.conffile, "w", encoding="utf-8") as fp:
             print(RSYSLOGD_TCP_CONF.format(logfile=logfile, port=port), file=fp)
 
-    def _wait_until_running(self):
+    def _wait_until_running(self) -> None:
         # Wait until the rsyslogd port is available, but if it is not up in
         # five seconds assume that it has failed to start
         attempt = 0
@@ -65,7 +67,7 @@ class _TestRsyslogd:
             attempt += 1
         raise RuntimeError("rsyslogd failed to start correctly")
 
-    def start(self):
+    def start(self) -> None:
         # Start rsyslogd in the foreground
         # pylint: disable=consider-using-with
 
@@ -102,7 +104,7 @@ class _TestRsyslogd:
 
         self._wait_until_running()
 
-    def stop(self):
+    def stop(self) -> None:
         if self.process is not None:
             if self.process.poll() is not None:
                 raise RuntimeError("rsyslogd did not start properly")
@@ -113,13 +115,13 @@ class _TestRsyslogd:
 
 def _run_pump_test(
     *,
-    config_path,
-    logfile,
-    messages_to_send,
-    expected_message_count,
+    config_path: str,
+    logfile: str,
+    messages_to_send: list[dict[str, Any]],
+    expected_message_count: int,
     expected_info_line_ending: str | None = None,
-    expected_subsequent_message=None,
-):
+    expected_subsequent_message: str | None = None,
+) -> None:
     journalpump = None
     threads = []
     try:
@@ -267,16 +269,16 @@ def _run_pump_test(
     ],
 )
 def test_rsyslogd_tcp_sender(
-    tmpdir,
-    messages_to_send,
-    sender_config,
-    expected_message_count,
-    expected_info_line_ending,
-    expected_subsequent_message,
-):
-    workdir = tmpdir.dirname
-    logfile = f"{workdir}/test.log"
-    config_path = f"{workdir}/journalpump.json"
+    tmp_path: Path,
+    messages_to_send: list[dict[str, Any]],
+    sender_config: dict[str, Any],
+    expected_message_count: int,
+    expected_info_line_ending: str | None,
+    expected_subsequent_message: str | None,
+) -> None:
+    workdir = str(tmp_path)
+    logfile = str(tmp_path / "test.log")
+    config_path = str(tmp_path / "journalpump.json")
     with open(config_path, "w", encoding="utf-8") as fp:
         json.dump(
             {
