@@ -137,6 +137,8 @@ class SyslogTcpClient:
         except socket.gaierror as ex:
             raise ValueError(f"Invalid address {self.server}:{self.port}") from ex
 
+        if last_connection_error is None:
+            raise OSError(f"No addresses for {self.server}:{self.port}")
         raise last_connection_error
 
     def close(self):
