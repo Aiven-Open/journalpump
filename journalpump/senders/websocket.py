@@ -6,6 +6,7 @@ from journalpump import __version__
 from journalpump.types import StrEnum
 from journalpump.util import ExponentialBackoff
 from threading import Thread
+from typing import Any
 from urllib.parse import urlparse
 from websockets.asyncio.client import ClientConnection
 
@@ -184,20 +185,19 @@ class WebsocketRunner(Thread):
             )
 
         ws_compr = None if self.websocket_compression == WebsocketCompression.none else str(self.websocket_compression)
-        kwargs = {
-            "compression": ws_compr,
-            "additional_headers": headers,
-            "close_timeout": 20,
-            "max_size": MAX_KAFKA_MESSAGE_SIZE * 2,
-        }
+        extra: dict[str, Any] = {}
         if ssl_context is not None:
-            kwargs["ssl"] = ssl_context
-            kwargs["server_hostname"] = url_parsed.hostname
+            extra["ssl"] = ssl_context
+            extra["server_hostname"] = url_parsed.hostname
         if sock is not None:
-            kwargs["sock"] = sock
+            extra["sock"] = sock
         return await websockets.asyncio.client.connect(
             self.websocket_uri,
-            **kwargs,
+            compression=ws_compr,
+            additional_headers=headers,
+            close_timeout=20,
+            max_size=MAX_KAFKA_MESSAGE_SIZE * 2,
+            **extra,
         )
 
     async def websocket_connect(self, *, timeout=30):

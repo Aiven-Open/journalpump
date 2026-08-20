@@ -3,7 +3,7 @@ from google.auth import default as get_application_default
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import Error as GoogleApiClientError
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import contextlib
 import json
@@ -58,7 +58,7 @@ class GoogleCloudLoggingSender(LogSender):
         self.mark_connected()
 
     def send_messages(self, *, messages, cursor):
-        body = {
+        body: dict[str, Any] = {
             "logName": f"projects/{self.project_id}/logs/{self.log_id}",
             "resource": {
                 "type": "generic_node",

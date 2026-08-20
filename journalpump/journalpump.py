@@ -8,7 +8,7 @@ from .senders import get_sender_class
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
 from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from functools import lru_cache, reduce
 from systemd import journal
 from typing import Any, cast, NamedTuple
@@ -46,7 +46,7 @@ def convert_realtime(t):
     return int(t) / 1000000.0  # Stock systemd transforms these into datetimes
 
 
-converters = {
+converters: dict[str, Callable[[Any], Any]] = {
     "CODE_LINE": int,
     "COREDUMP_TIMESTAMP": convert_realtime,
     "MESSAGE_ID": _convert_uuid,
@@ -592,7 +592,7 @@ class JournalReader(Tagged):
     def perform_searches(self, jobject):
         entry = jobject.entry
         results = {}
-        byte_fields = {}
+        byte_fields: dict[str, str] = {}
         for search in self.searches:
             all_match = True
             tags = {}
@@ -1078,8 +1078,8 @@ class JournalPump(ServiceDaemon, Tagged):
     def run(self):  # pylint: disable=too-many-statements
         last_stats_time = 0.0
         poll_timeout_ms = 0.0
-        buffered_events = {}
-        hits = {}
+        buffered_events: dict[JournalReader, int] = {}
+        hits: dict[str, int] = {}
 
         while self.running:
             self._close_stale_readers()
