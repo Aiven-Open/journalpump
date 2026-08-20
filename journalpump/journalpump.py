@@ -83,9 +83,9 @@ class JournalObject:
 
 
 class PumpReader(journal.Reader):
-    def convert_entry(self, entry):
+    def convert_entry(self, entry: Mapping[str, Any]) -> dict[str, Any]:
         """Faster journal lib _convert_entry replacement"""
-        output = {}
+        output: dict[str, Any] = {}
         for key, value in entry.items():
             convert = converters.get(key)
             if convert is not None:
@@ -104,7 +104,7 @@ class PumpReader(journal.Reader):
         return output
 
     @staticmethod
-    def _parse_seqnum_from_cursor(cursor) -> int | None:
+    def _parse_seqnum_from_cursor(cursor: str) -> int | None:
         # cursor format: s=...;i=<hex_seqnum>;b=...;m=...;t=...;x=...
         for part in cursor.split(";"):
             if part.startswith("i="):
@@ -114,7 +114,7 @@ class PumpReader(journal.Reader):
                     return None
         return None
 
-    def get_next(self, skip=1):
+    def get_next(self, skip: int = 1) -> JournalObject | None:
         # pylint: disable=no-member, protected-access
         """Private get_next implementation that doesn't store the cursor since we don't want it"""
         if super()._next(skip):
