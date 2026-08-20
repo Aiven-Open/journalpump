@@ -33,7 +33,7 @@ class LogplexSender(LogSender):
         msg_count = len(messages)
         headers = {
             "Content-Type": "application/logplex-1",
-            "Logplex-Msg-Count": msg_count,
+            "Logplex-Msg-Count": str(msg_count),
         }
         self.session.post(
             self.logplex_input_url,

@@ -3,15 +3,23 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 
+from __future__ import annotations
+
+from collections.abc import Iterator
+from typing import Any, TextIO, TYPE_CHECKING
+
 import contextlib
 import datetime
 import os
 import random
 import tempfile
 
+if TYPE_CHECKING:
+    from requests import Session
+
 
 @contextlib.contextmanager
-def atomic_replace_file(file_path):
+def atomic_replace_file(file_path: str) -> Iterator[TextIO]:
     """Open a temporary file for writing, rename to final name when done"""
     fd, tmp_file_path = tempfile.mkstemp(
         prefix=os.path.basename(file_path),
@@ -63,16 +71,16 @@ class ExponentialBackoff:
         self._attempts = 0
 
 
-def get_requests_session(*, timeout=60):
+def get_requests_session(*, timeout: float = 60) -> Session:
     # Requests and its transitive dependencies are memory pig
     import requests  # pylint: disable=import-outside-toplevel
 
     class TimeoutAdapter(requests.adapters.HTTPAdapter):
-        def __init__(self, *args, timeout=None, **kwargs):
+        def __init__(self, *args: Any, timeout: float | None = None, **kwargs: Any) -> None:
             self.timeout = timeout
             super().__init__(*args, **kwargs)
 
-        def send(self, *args, **kwargs):  # pylint: disable=arguments-differ,signature-differs
+        def send(self, *args: Any, **kwargs: Any) -> Any:  # pylint: disable=arguments-differ,signature-differs
             if not kwargs.get("timeout"):
                 kwargs["timeout"] = self.timeout
             return super().send(*args, **kwargs)
@@ -85,8 +93,9 @@ def get_requests_session(*, timeout=60):
     return request_session
 
 
-def default_json_serialization(obj):  # pylint: disable=inconsistent-return-statements
+def default_json_serialization(obj: object) -> str | None:
     if isinstance(obj, bytes):
         return obj.decode("utf8")
     if isinstance(obj, datetime.datetime):
         return obj.isoformat()
+    return None
