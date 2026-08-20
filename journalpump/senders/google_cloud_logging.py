@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 from .base import LogSender
 from google.auth import default as get_application_default
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import Error as GoogleApiClientError
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from googleapiclient._apis.logging.v2.schemas import LogEntry, WriteLogEntriesRequest
 
 import contextlib
 import json
@@ -13,7 +18,9 @@ logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
 
 
 class GoogleCloudLoggingSender(LogSender):
-    _SEVERITY_MAPPING: ClassVar[dict[int, str]] = {  # mapping from journald priority to cloud logging severity
+    _SEVERITY_MAPPING: ClassVar[
+        dict[int, Literal["DEBUG", "INFO", "NOTICE", "WARNING", "ERROR", "CRITICAL", "ALERT", "EMERGENCY"]]
+    ] = {
         7: "DEBUG",
         6: "INFO",
         5: "NOTICE",
@@ -59,7 +66,7 @@ class GoogleCloudLoggingSender(LogSender):
         self.mark_connected()
 
     def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
-        body: dict[str, Any] = {
+        body: WriteLogEntriesRequest = {
             "logName": f"projects/{self.project_id}/logs/{self.log_id}",
             "resource": {
                 "type": "generic_node",
@@ -92,14 +99,17 @@ class GoogleCloudLoggingSender(LogSender):
                 with contextlib.suppress(json.JSONDecodeError):
                     msg["MESSAGE"] = json.loads(msg["MESSAGE"])
 
-            entry: dict[str, Any] = {
+            entry: LogEntry = {
                 "jsonPayload": msg,
             }
             if timestamp is not None:
                 entry["timestamp"] = timestamp[:26] + "Z"  # assume timestamp to be UTC
             if journald_priority is not None:
-                severity = self._SEVERITY_MAPPING.get(journald_priority, "DEFAULT")
-                entry["severity"] = severity
+                entry["severity"] = (
+                    self._SEVERITY_MAPPING.get(journald_priority, "DEFAULT")
+                    if isinstance(journald_priority, int)
+                    else "DEFAULT"
+                )
             body["entries"].append(entry)
 
         try:

@@ -9,6 +9,7 @@ types-setuptools
 types-httplib2
 botocore-stubs
 types-python-snappy
+google-api-python-client-stubs
 ruff==0.16.3
 coverage
 pre-commit
