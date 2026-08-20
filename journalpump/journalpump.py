@@ -34,15 +34,15 @@ CHUNK_SIZE = 5000
 TRUNCATED_MESSAGE_PREVIEW_SIZE = 1024
 
 
-def _convert_uuid(s):
+def _convert_uuid(s: bytes) -> str:
     return str(uuid.UUID(s.decode()))
 
 
-def convert_mon(s):  # pylint: disable=unused-argument
+def convert_mon(s: object) -> None:  # pylint: disable=unused-argument
     return None
 
 
-def convert_realtime(t):
+def convert_realtime(t: Any) -> float:
     return int(t) / 1000000.0  # Stock systemd transforms these into datetimes
 
 
@@ -77,9 +77,9 @@ class MessagesReadResult(NamedTuple):
 
 
 class JournalObject:
-    def __init__(self, cursor=None, entry=None):
+    def __init__(self, cursor: str | None = None, entry: dict[str, Any] | None = None) -> None:
         self.cursor = cursor
-        self.entry = entry or {}
+        self.entry: dict[str, Any] = entry or {}
 
 
 class PumpReader(journal.Reader):
@@ -666,24 +666,22 @@ def check_match(*, entry: Mapping[str, Any], match_key: str | None, match_value:
 
 
 class FieldFilter:
-    def __init__(self, name, config):
+    def __init__(self, name: str, config: dict[str, Any]) -> None:
         self.name = name
         self.whitelist = config.get("type", "whitelist") == "whitelist"
         self.fields = [f.lstrip("_").lower() for f in config["fields"]]
 
-    def filter_fields(self, data):
+    def filter_fields(self, data: Mapping[str, Any]) -> dict[str, Any]:
         return {name: val for name, val in data.items() if (name.lstrip("_").lower() in self.fields) is self.whitelist}
 
 
 class UnitLogLevel:
-    def __init__(self, name: str, config: list[dict[str, str]]):
+    def __init__(self, name: str, config: list[dict[str, str]]) -> None:
         self.name = name
         self.levels = tuple((level["service_glob"], level["log_level"]) for level in config)
 
-    def filter_by_level(self, data):
-        entry = data
-        if isinstance(data, bytes):
-            entry = json.loads(data.decode("utf-8"))
+    def filter_by_level(self, data: dict[str, Any] | bytes) -> dict[str, Any] | bytes:
+        entry: Any = json.loads(data.decode("utf-8")) if isinstance(data, bytes) else data
         if not entry:
             return {}
         unit = entry.get("SYSTEMD_UNIT")

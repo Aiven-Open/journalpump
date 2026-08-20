@@ -507,14 +507,14 @@ def test_journal_object_can_filter_by_match_key_on_the_reader(matching: bool) ->
     reader.senders = {"my_sender": sender}
     jobject = JournalObject(
         entry=OrderedDict(MESSAGE="Hello", REALTIME_TIMESTAMP=1, MY_KEY="my_value" if matching else "not_value"),
-        cursor=10,
+        cursor="10",
     )
     pump = mock.Mock()
     handler = JournalObjectHandler(jobject, reader, pump)
     assert handler.process()[0] is True
     sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in sender.msg_buffer.messages]
     if matching:
-        assert sender_a_msgs == [({"MESSAGE": "Hello"}, 10)]
+        assert sender_a_msgs == [({"MESSAGE": "Hello"}, "10")]
     else:
         assert sender_a_msgs == []
 
@@ -586,14 +586,14 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "This is a field with a trailing [REDACTED]"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     def test_secret_in_middle_simple(self):
@@ -604,14 +604,14 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "This is a field with a [REDACTED] data in the middle"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     def test_secret_at_start_simple(self):
@@ -622,25 +622,25 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "[REDACTED] message with sensitive data at the start"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     def test_no_secret_simple(self):
         jobject = JournalObject(
             entry=OrderedDict(MESSAGE="message with no sensitive data", b=2, c=3, REALTIME_TIMESTAMP=1),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "message with no sensitive data"}, 10) in sender_a_msgs
+        assert ({"MESSAGE": "message with no sensitive data"}, "10") in sender_a_msgs
 
     # Redact more than one secret in a string
     def test_multi_secret_simple(self):
@@ -651,14 +651,14 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader_c, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "[REDACTED] message with sensitive [REDACTED TOO] at the start"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     # Complex regex mode
@@ -670,14 +670,14 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "This is a field with a trailing [REDACTED]"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     def test_secret_in_middle(self):
@@ -688,14 +688,14 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "This is a field with a [REDACTED] data in the middle"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     def test_secret_at_start(self):
@@ -706,14 +706,14 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "[REDACTED] message with sensitive data at the start"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     def test_multi_secret(self):
@@ -724,14 +724,14 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "[REDACTED] message with sensitive [REDACTED TOO] at the start"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     def test_multi_secret_restructure(self):
@@ -742,25 +742,25 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "This message has a [REDACTED TOO] and has been rearranged to make sense"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     def test_no_secret(self):
         jobject = JournalObject(
             entry=OrderedDict(MESSAGE="message with no sensitive data", b=2, c=3, REALTIME_TIMESTAMP=1),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"MESSAGE": "message with no sensitive data"}, 10) in sender_a_msgs
+        assert ({"MESSAGE": "message with no sensitive data"}, "10") in sender_a_msgs
 
     def test_empty_secret_filters(self):
         jobject = JournalObject(
@@ -770,14 +770,14 @@ class TestSecretFilter(TestCase):
                 c=3,
                 REALTIME_TIMESTAMP=1,
             ),
-            cursor=10,
+            cursor="10",
         )
         handler = JournalObjectHandler(jobject, self.reader_b, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
         assert (
             {"MESSAGE": "testing config with no secret filters"},
-            10,
+            "10",
         ) in sender_a_msgs
 
     def test_ex_not_a_list(self):
@@ -965,13 +965,13 @@ class TestJournalObjectHandler(TestCase):
         }
 
     def test_filtered_processing(self):
-        jobject = JournalObject(entry=OrderedDict(a=1, b=2, c=3, REALTIME_TIMESTAMP=1), cursor=10)
+        jobject = JournalObject(entry=OrderedDict(a=1, b=2, c=3, REALTIME_TIMESTAMP=1), cursor="10")
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"a": 1}, 10) in sender_a_msgs
+        assert ({"a": 1}, "10") in sender_a_msgs
         sender_b_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_b.msg_buffer.messages]
-        assert ({"a": 1, "b": 2}, 10) in sender_b_msgs
+        assert ({"a": 1, "b": 2}, "10") in sender_b_msgs
 
         largest_data = json.dumps(
             OrderedDict(
@@ -989,11 +989,11 @@ class TestJournalObjectHandler(TestCase):
     def test_too_large_data(self):
         self.pump.make_tags.return_value = "tags"
         too_large = OrderedDict(a=1, b="x" * MAX_KAFKA_MESSAGE_SIZE)
-        jobject = JournalObject(entry=too_large, cursor=10)
+        jobject = JournalObject(entry=too_large, cursor="10")
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         assert handler.process()[0] is True
         sender_a_msgs = [(json.loads(msg.decode("utf-8")), cursor) for msg, cursor in self.sender_a.msg_buffer.messages]
-        assert ({"a": 1}, 10) in sender_a_msgs
+        assert ({"a": 1}, "10") in sender_a_msgs
         assert "too large message" in str(self.sender_b.msg_buffer.messages)
 
         self.pump.stats.increase.assert_called_once_with("journal.read_error", tags="tags")
@@ -1005,7 +1005,7 @@ class TestJournalObjectHandler(TestCase):
             MESSAGE="x" * MAX_KAFKA_MESSAGE_SIZE,
             REALTIME_TIMESTAMP=1_000_000,
         )
-        jobject = JournalObject(entry=too_large, cursor=10)
+        jobject = JournalObject(entry=too_large, cursor="10")
         handler = JournalObjectHandler(jobject, self.reader, self.pump)
         handler.process()
 
@@ -1025,7 +1025,7 @@ class TestJournalObjectHandler(TestCase):
                 expected_results += 1
             jobject = JournalObject(
                 entry=OrderedDict(SYSTEMD_UNIT="test-unit", PRIORITY=priority),
-                cursor=10,
+                cursor="10",
             )
             handler = JournalObjectHandler(jobject, self.reader, self.pump)
             assert handler.process()[0] is True
