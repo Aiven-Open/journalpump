@@ -12,6 +12,7 @@ from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
 from collections.abc import Callable, Iterator, Mapping
 from functools import lru_cache, reduce
+from pathlib import Path
 from systemd import journal
 from types import FrameType
 from typing import Any, cast, NamedTuple
@@ -860,7 +861,7 @@ class JournalObjectHandler:
 class JournalPump(ServiceDaemon, Tagged):
     _STALE_FD = object()
 
-    def __init__(self, config_path: str) -> None:
+    def __init__(self, config_path: Path) -> None:
         Tagged.__init__(self)
         self.stats: statsd.StatsClient | None = None
         self.geoip: GeoIPProtocol | None = None
@@ -986,7 +987,7 @@ class JournalPump(ServiceDaemon, Tagged):
             return {}
 
         try:
-            with open(file_path, "r", encoding="utf-8") as fp:
+            with file_path.open(encoding="utf-8") as fp:
                 return json.load(fp)
         except FileNotFoundError:
             return {}
@@ -1044,8 +1045,11 @@ class JournalPump(ServiceDaemon, Tagged):
 
         return MessagesReadResult(exhausted=exhausted, lines_read=lines)
 
-    def get_state_file_path(self) -> str | None:
-        return self.config.get("json_state_file_path")
+    def get_state_file_path(self) -> Path | None:
+        path = self.config.get("json_state_file_path")
+        if not path:
+            return None
+        return Path(path)
 
     def save_state(self) -> None:
         state_file_path = self.get_state_file_path()

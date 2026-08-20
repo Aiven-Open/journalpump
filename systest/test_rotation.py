@@ -198,7 +198,7 @@ def fixture_journalpump_factory(
                 fp,
             )
 
-        pump = JournalPump(str(config_path))
+        pump = JournalPump(config_path)
         pump.poll_interval_ms = 100
         pump_thread = threading.Thread(target=pump.run)
         pump_thread.start()

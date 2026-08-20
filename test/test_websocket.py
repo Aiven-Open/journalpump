@@ -126,7 +126,7 @@ def assert_msgs_found(ws_server: WebsocketMockServer, *, messages: list[bytes], 
 
 
 def setup_pump(tmp_path: Path, sender_config: dict[str, Any]) -> tuple[JournalPump, WebsocketSender]:
-    journalpump_path = str(tmp_path / "journalpump.json")
+    journalpump_path = tmp_path / "journalpump.json"
     config = {
         "readers": {
             "foo": {

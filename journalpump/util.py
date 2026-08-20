@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, TextIO, TYPE_CHECKING
 
 import contextlib
@@ -19,11 +20,11 @@ if TYPE_CHECKING:
 
 
 @contextlib.contextmanager
-def atomic_replace_file(file_path: str) -> Iterator[TextIO]:
+def atomic_replace_file(file_path: Path) -> Iterator[TextIO]:
     """Open a temporary file for writing, rename to final name when done"""
     fd, tmp_file_path = tempfile.mkstemp(
-        prefix=os.path.basename(file_path),
-        dir=os.path.dirname(file_path),
+        prefix=file_path.name,
+        dir=os.fspath(file_path.parent),
         suffix=".tmp",
     )
     try:

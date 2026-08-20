@@ -7,6 +7,7 @@ Common Daemon functionality
 
 """
 
+from pathlib import Path
 from systemd import daemon, journal
 from types import FrameType
 from typing import Any
@@ -29,12 +30,11 @@ class ServiceDaemonError(Exception):
 class ServiceDaemon:
     def __init__(
         self,
-        config_path: str,
+        config_path: Path,
         require_config: bool = True,
         multi_threaded: bool = False,
         log_level: int = logging.DEBUG,
     ) -> None:
-        assert isinstance(config_path, str)
         self.name = self.__class__.__name__.lower()
         self.log_level = log_level
         self.multi_threaded = multi_threaded
@@ -87,7 +87,7 @@ class ServiceDaemon:
     def reload_config(self) -> None:
         file_ctime = None
         try:
-            file_ctime = os.path.getctime(self.config_path)
+            file_ctime = self.config_path.stat().st_ctime
         except FileNotFoundError as ex:
             if self.require_config:
                 raise ServiceDaemonError(f"Cannot start without json config file at {self.config_path!r}") from ex
@@ -96,7 +96,7 @@ class ServiceDaemon:
             daemon.notify("RELOADING=1")
             self.log.info("%soading configuration", "Rel" if self.config_file_ctime else "L")
             self.config_file_ctime = file_ctime
-            with open(self.config_path, encoding="utf-8") as fp:
+            with self.config_path.open(encoding="utf-8") as fp:
                 self.config = json.load(fp)
             self.log_level = self.config.get("log_level", logging.INFO)
             self.configure_logging()
@@ -120,7 +120,7 @@ class ServiceDaemon:
 
         exe = None
         try:
-            exe = cls(config_path=args[0])
+            exe = cls(config_path=Path(args[0]))
             daemon.notify("READY=1")
             return exe.run()
         except ServiceDaemonError as ex:

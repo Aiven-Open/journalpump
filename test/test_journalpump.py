@@ -48,7 +48,7 @@ else:
 
 def test_journalpump_init(tmp_path: Path) -> None:  # pylint: disable=too-many-statements
     # Logplex sender
-    journalpump_path = str(tmp_path / "journalpump.json")
+    journalpump_path = tmp_path / "journalpump.json"
     config = {
         "field_filters": {"filter_a": {"fields": ["message"]}},
         "readers": {
@@ -340,7 +340,7 @@ def test_journal_reader_tagging(tmp_path: Path) -> None:
             },
         },
     }
-    journalpump_path = str(tmp_path / "journalpump.json")
+    journalpump_path = tmp_path / "journalpump.json"
     with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     pump = JournalPump(journalpump_path)
@@ -407,7 +407,7 @@ def test_journal_reader_message_lazy_check(tmp_path: Path) -> None:
             },
         },
     }
-    journalpump_path = str(tmp_path / "journalpump.json")
+    journalpump_path = tmp_path / "journalpump.json"
     with open(journalpump_path, "w", encoding="utf-8") as fp:
         fp.write(json.dumps(config))
     pump = JournalPump(journalpump_path)
@@ -1037,11 +1037,11 @@ class TestJournalObjectHandler(TestCase):
 
 
 def test_journalpump_resume_cursor(tmp_path: Path) -> None:
-    journalpump_path = str(tmp_path / "journalpump.json")
-    statefile_path = str(tmp_path / "journalpump_state.json")
+    journalpump_path = tmp_path / "journalpump.json"
+    statefile_path = tmp_path / "journalpump_state.json"
 
     config = {
-        "json_state_file_path": statefile_path,
+        "json_state_file_path": str(statefile_path),
         "readers": {
             "without_senders": {"senders": {}},
             "with_sender": {
@@ -1083,7 +1083,7 @@ def test_journalpump_resume_cursor(tmp_path: Path) -> None:
 
 
 def test_journalpump_sighup_applies_new_readers(tmp_path: Path) -> None:
-    journalpump_path = str(tmp_path / "journalpump.json")
+    journalpump_path = tmp_path / "journalpump.json"
 
     with open(journalpump_path, "w", encoding="utf-8") as fp:
         json.dump({"readers": {"before_reload": {"senders": {}}}}, fp)
@@ -1100,10 +1100,10 @@ def test_journalpump_sighup_applies_new_readers(tmp_path: Path) -> None:
 
 
 def test_journalpump_state_file(tmp_path: Path) -> None:
-    journalpump_path = str(tmp_path / "journalpump.json")
-    statefile_path = str(tmp_path / "journalpump_state.json")
+    journalpump_path = tmp_path / "journalpump.json"
+    statefile_path = tmp_path / "journalpump_state.json"
     config = {
-        "json_state_file_path": statefile_path,
+        "json_state_file_path": str(statefile_path),
         "readers": {
             "state_test": {
                 "senders": {
@@ -1544,7 +1544,7 @@ def test_single_sender_init_fail() -> None:
     ([True, True], [True, False], [False, False], [False, True]),
 )
 def test_journalpump_init_journal_files(tmp_path: Path, has_persistent_files: bool, has_runtime_files: bool) -> None:
-    journalpump_path = str(tmp_path / "journalpump.json")
+    journalpump_path = tmp_path / "journalpump.json"
     config = {
         "field_filters": {"filter_a": {"fields": ["message"]}},
         "readers": {

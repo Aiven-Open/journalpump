@@ -41,16 +41,16 @@ log = logging.getLogger(__name__)
 
 
 class _TestRsyslogd:
-    def __init__(self, *, workdir: str, logfile: str, port: int) -> None:
+    def __init__(self, *, workdir: Path, logfile: Path, port: int) -> None:
         if not os.path.exists(RSYSLOGD):
             raise RuntimeError(f'"{RSYSLOGD}" not available')
 
         self.port = port
-        self.conffile = f"{workdir}/rsyslogd.conf"
+        self.conffile = workdir / "rsyslogd.conf"
         self.process: subprocess.Popen[bytes] | None = None
 
         with open(self.conffile, "w", encoding="utf-8") as fp:
-            print(RSYSLOGD_TCP_CONF.format(logfile=logfile, port=port), file=fp)
+            print(RSYSLOGD_TCP_CONF.format(logfile=os.fspath(logfile), port=port), file=fp)
 
     def _wait_until_running(self) -> None:
         # Wait until the rsyslogd port is available, but if it is not up in
@@ -115,8 +115,8 @@ class _TestRsyslogd:
 
 def _run_pump_test(
     *,
-    config_path: str,
-    logfile: str,
+    config_path: Path,
+    logfile: Path,
     messages_to_send: list[dict[str, Any]],
     expected_message_count: int,
     expected_info_line_ending: str | None = None,
@@ -276,9 +276,9 @@ def test_rsyslogd_tcp_sender(
     expected_info_line_ending: str | None,
     expected_subsequent_message: str | None,
 ) -> None:
-    workdir = str(tmp_path)
-    logfile = str(tmp_path / "test.log")
-    config_path = str(tmp_path / "journalpump.json")
+    workdir = tmp_path
+    logfile = tmp_path / "test.log"
+    config_path = tmp_path / "journalpump.json"
     with open(config_path, "w", encoding="utf-8") as fp:
         json.dump(
             {
