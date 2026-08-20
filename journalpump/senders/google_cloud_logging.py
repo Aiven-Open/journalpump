@@ -41,10 +41,11 @@ class GoogleCloudLoggingSender(LogSender):
         self.log_id = config["google_cloud_logging_log_id"]
         self.resource_labels = config.get("google_cloud_logging_resource_labels", None)
         if google_service_account:
-            credentials = Credentials.from_service_account_info(google_service_account)
+            # google-auth ships py.typed but this factory has no annotations.
+            credentials = Credentials.from_service_account_info(google_service_account)  # type: ignore[no-untyped-call]
             self.project_id = credentials.project_id
         else:
-            credentials = get_application_default()
+            credentials, _ = get_application_default()
 
         if googleapiclient_request_builder is not None:
             self._logs = build(
