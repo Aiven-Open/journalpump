@@ -24,7 +24,7 @@ import threading
 if os.environ.get("USE_RE2"):
     import re2 as re
 else:
-    import re  # type: ignore[no-redef]
+    import re
 
 
 RSYSLOGD = "/usr/sbin/rsyslogd"

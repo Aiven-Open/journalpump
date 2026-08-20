@@ -43,7 +43,7 @@ import signal
 if os.environ.get("USE_RE2"):
     import re2 as re
 else:
-    import re  # type: ignore[no-redef]
+    import re
 
 
 def test_journalpump_init(tmp_path: Path) -> None:  # pylint: disable=too-many-statements

@@ -30,7 +30,7 @@ import uuid
 if os.environ.get("USE_RE2"):
     import re2 as re
 else:
-    import re  # type: ignore[no-redef]
+    import re
 
 _5_MB = 5 * 1024 * 1024
 CHUNK_SIZE = 5000

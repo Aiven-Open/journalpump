@@ -14,7 +14,7 @@ import time
 if os.environ.get("USE_RE2"):
     import re2 as re
 else:
-    import re  # type: ignore[no-redef]
+    import re
 
 if TYPE_CHECKING:
     from journalpump.journalpump import FieldFilter, JournalReader, UnitLogLevel
