@@ -7,10 +7,10 @@ from __future__ import annotations
 from . import geohash, statsd
 from .daemon import ServiceDaemon
 from .senders import get_sender_class
-from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
+from .senders.base import LogSender, MAX_KAFKA_MESSAGE_SIZE, Tagged
 from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from functools import lru_cache, reduce
 from systemd import journal
 from typing import Any, cast, NamedTuple
@@ -136,19 +136,19 @@ class JournalReader(Tagged):
     def __init__(
         self,
         *,
-        name,
-        config,
-        field_filters,
-        geoip,
-        stats,
-        unit_log_levels=None,
-        tags=None,
-        seek_to=None,
-        msg_buffer_max_length=50000,
-        msg_buffer_max_bytes=_5_MB,
-        searches=None,
-        initial_position=None,
-    ):
+        name: str,
+        config: dict[str, Any],
+        field_filters: dict[str, FieldFilter],
+        geoip: GeoIPProtocol | None,
+        stats: statsd.StatsClient | None,
+        unit_log_levels: dict[str, UnitLogLevel] | None = None,
+        tags: dict[str, str] | None = None,
+        seek_to: str | None = None,
+        msg_buffer_max_length: int = 50000,
+        msg_buffer_max_bytes: int = _5_MB,
+        searches: Any = None,
+        initial_position: str | int | None = None,
+    ) -> None:
         Tagged.__init__(self, tags, reader=name)
         self.log = logging.getLogger(f"JournalReader:{name}")
         self.name = name
@@ -168,16 +168,16 @@ class JournalReader(Tagged):
         self.unit_log_levels = unit_log_levels
         self.stats = stats
         self.cursor = seek_to
-        self.journald_reader = None
+        self.journald_reader: PumpReader | None = None
         self.last_journald_create_attempt = 0.0
         self.running = True
-        self.senders = {}
-        self._initialized_senders = set()
+        self.senders: dict[str, LogSender] = {}
+        self._initialized_senders: set[str] = set()
         self._failed_senders: int = 0
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
         self.persistent_gauges: dict[str, tuple[int, dict[str, str]]] = {}
-        self.searches = list(self._build_searches(searches))
+        self.searches = list(self._build_searches(searches or []))
         self.secret_filter_matches = 0
         self.secret_filters = self._validate_and_build_secret_filters(config)
         self.secret_filter_metrics = self._configure_secret_filter_metrics(config)
@@ -228,7 +228,7 @@ class JournalReader(Tagged):
 
         return self.msg_buffer_max_length - max(len(s.msg_buffer) for s in self.senders.values())
 
-    def update_status(self):
+    def update_status(self) -> None:
         self.create_journald_reader_if_missing()
 
         sender_over_limit = self.get_write_limit_message_count() <= 0
@@ -248,7 +248,7 @@ class JournalReader(Tagged):
             )
             self._is_ready = False
 
-    def get_resume_cursor(self):
+    def get_resume_cursor(self) -> str | None:
         """Find the sender cursor location where a new JournalReader instance should resume reading from"""
         if not self.senders:
             self.log.info("Reader has no senders, using reader's resume location")
@@ -270,16 +270,16 @@ class JournalReader(Tagged):
 
         return None
 
-    def request_stop(self):
+    def request_stop(self) -> None:
         self.running = False
         for sender in self.senders.values():
             sender.request_stop()
 
-    def close(self):
+    def close(self) -> None:
         if self.journald_reader:
             self.journald_reader.close()
 
-    def initialize_senders(self):
+    def initialize_senders(self) -> None:
         configured_senders = self.config.get("senders", {})
         tags: dict[str, str] = {}
         for sender_name, sender_config in configured_senders.items():
@@ -292,7 +292,7 @@ class JournalReader(Tagged):
                 field_filter = self.field_filters[sender_config["field_filter"]]
 
             unit_log_levels = None
-            if sender_config.get("unit_log_level", None):
+            if sender_config.get("unit_log_level", None) and self.unit_log_levels is not None:
                 unit_log_levels = self.unit_log_levels[sender_config["unit_log_level"]]
 
             extra_field_values = sender_config.get("extra_field_values", {})
@@ -339,12 +339,12 @@ class JournalReader(Tagged):
         """
         old_value, _ = self.persistent_gauges.get(metric, (None, None))
         self.persistent_gauges[metric] = (value, tags)
-        if value == 0 and old_value:
+        if value == 0 and old_value and self.stats is not None:
             # Zeros won't be resent by the loop so we send them only once.
             # However, only should send 0 when the previous value exists and is non-zero.
             self.stats.gauge(metric, value=value, tags=tags)
 
-    def get_state(self):
+    def get_state(self) -> dict[str, Any]:
         sender_state = {name: sender.get_state() for name, sender in self.senders.items()}
         search_state = {search["name"]: search.get("hits", 0) for search in self.searches}
         return {
@@ -355,18 +355,20 @@ class JournalReader(Tagged):
             "total_bytes": self.read_bytes,
         }
 
-    def report_secret_filter_metrics(self):
+    def report_secret_filter_metrics(self) -> None:
         now = time.monotonic()
         if (now - self.last_stats_send_time) < 10.0:
             return
         if not self.secret_filter_matches:
+            return
+        if self.stats is None:
             return
         tags = self.make_tags()
         self.stats.increase("journal.secret_filter_match", self.secret_filter_matches, tags=tags)
         self.secret_filter_matches = 0
         self.secret_filter_metric_last_send = now
 
-    def inc_line_stats(self, *, journal_lines, journal_bytes):
+    def inc_line_stats(self, *, journal_lines: int, journal_bytes: int) -> None:
         self.read_bytes += journal_bytes
         self.read_lines += journal_lines
 
@@ -376,9 +378,10 @@ class JournalReader(Tagged):
             return
 
         tags = self.make_tags()
-        self.stats.gauge("journal.last_read_ago", value=now - self.last_journal_msg_time, tags=tags)
-        self.stats.gauge("journal.read_lines", value=self.read_lines, tags=tags)
-        self.stats.gauge("journal.read_bytes", value=self.read_bytes, tags=tags)
+        if self.stats is not None:
+            self.stats.gauge("journal.last_read_ago", value=now - self.last_journal_msg_time, tags=tags)
+            self.stats.gauge("journal.read_lines", value=self.read_lines, tags=tags)
+            self.stats.gauge("journal.read_bytes", value=self.read_bytes, tags=tags)
 
         self.last_stats_send_time = now
         self._sent_lines_diff += self.read_lines - self._last_sent_read_lines
@@ -399,7 +402,7 @@ class JournalReader(Tagged):
         for sender in self.senders.values():
             sender.refresh_stats()
 
-    def read_next(self):
+    def read_next(self) -> JournalObject | None:
         """Read next message from journal reader."""
         if not self.journald_reader:
             return None
@@ -409,7 +412,8 @@ class JournalReader(Tagged):
         except OSError as ex:
             if "Bad message" in str(ex):
                 tags = self.make_tags()
-                self.stats.increase("journal.corrupted_log_entry", tags=tags)
+                if self.stats is not None:
+                    self.stats.increase("journal.corrupted_log_entry", tags=tags)
                 self.log.warning("Corrupted log entry in %s", self.name)
                 return None
             raise
@@ -423,7 +427,7 @@ class JournalReader(Tagged):
 
         return jobject
 
-    def get_reader(self, seek_to=None, reinit=False):
+    def get_reader(self, seek_to: str | None = None, reinit: bool = False) -> PumpReader | None:
         """Return an initialized reader or None"""
         if not reinit and self.journald_reader:
             return self.journald_reader
@@ -442,7 +446,7 @@ class JournalReader(Tagged):
             )
 
         try:
-            reader_kwargs = {
+            reader_kwargs: dict[str, Any] = {
                 "files": self.config.get("journal_files"),
                 "flags": journal_flags,
                 "path": self.config.get("journal_path"),
@@ -485,7 +489,8 @@ class JournalReader(Tagged):
                 # read_next() and carry on instead of failing reader init.
                 if "Bad message" not in str(ex):
                     raise
-                self.stats.increase("journal.corrupted_log_entry", tags=self.make_tags())
+                if self.stats is not None:
+                    self.stats.increase("journal.corrupted_log_entry", tags=self.make_tags())
                 self.log.warning("Corrupted log entry in %s", self.name)
             self.read_next()
         elif self.initial_position == "head":
@@ -505,8 +510,10 @@ class JournalReader(Tagged):
 
         return self.journald_reader
 
-    def ip_to_geohash(self, tags, args):
+    def ip_to_geohash(self, tags: dict[str, str], args: list[str]) -> str:
         """ip_to_geohash(ip_tag_name,precision) -> Convert IP address to geohash"""
+        if self.geoip is None:
+            return ""
         if len(args) > 1:
             precision = int(args[1])
         else:
@@ -517,9 +524,11 @@ class JournalReader(Tagged):
             return ""
 
         loc = res.location
+        if loc.latitude is None or loc.longitude is None:
+            return ""
         return geohash.encode(loc.latitude, loc.longitude, precision)  # pylint: disable=no-member
 
-    def _build_searches(self, searches):
+    def _build_searches(self, searches: Any) -> Iterator[dict[str, Any]]:
         """
         Pre-generate regex objects and tag value conversion methods for searches
         """
@@ -552,17 +561,17 @@ class JournalReader(Tagged):
                         raise ValueError(f"Unknown tag function {func_name!r} in {value!r}") from ex
                     args = match.groupdict()["args"].split(",")  # pylint: disable=unused-variable
 
-                    def value_func(tags, f=f, args=args):  # pylint: disable=undefined-variable
+                    def value_func(tags: dict[str, str], f: Any = f, args: list[str] = args) -> str:  # pylint: disable=undefined-variable
                         return f(tags, args)
 
                     output["tags"][tag] = value_func
 
             yield output
 
-    def _configure_secret_filter_metrics(self, config):
+    def _configure_secret_filter_metrics(self, config: dict[str, Any]) -> bool:
         return config.get("secret_filter_metrics") is True
 
-    def _validate_and_build_secret_filters(self, config):
+    def _validate_and_build_secret_filters(self, config: dict[str, Any]) -> list[dict[str, Any]]:
         secret_filters = config.get("secret_filters")
         if secret_filters is None:
             return []
@@ -588,16 +597,16 @@ class JournalReader(Tagged):
 
         return secret_filters
 
-    def _configure_threshold_for_metric_emit(self, config):
+    def _configure_threshold_for_metric_emit(self, config: dict[str, Any]) -> int:
         return int(config.get("threshold_for_metric_emit", 10))
 
-    def perform_searches(self, jobject):
+    def perform_searches(self, jobject: JournalObject) -> dict[str, Any]:
         entry = jobject.entry
-        results = {}
+        results: dict[str, Any] = {}
         byte_fields: dict[str, str] = {}
         for search in self.searches:
             all_match = True
-            tags = {}
+            tags: dict[str, str] = {}
             for field, regex in search["fields"].items():
                 line = entry.get(field, "")
 
@@ -624,11 +633,12 @@ class JournalReader(Tagged):
                 match = regex.search(line)
                 regex_search_duration = time.perf_counter() - start_time
                 if regex_search_duration > self.threshold_for_metric_emit:
-                    self.stats.gauge(
-                        metric="journal.perform_search_regex_duration",
-                        value=regex_search_duration,
-                        tags=self.make_tags({"regex": regex.pattern}),
-                    )
+                    if self.stats is not None:
+                        self.stats.gauge(
+                            metric="journal.perform_search_regex_duration",
+                            value=regex_search_duration,
+                            tags=self.make_tags({"regex": regex.pattern}),
+                        )
                     self.log.info("Slow regex search: %s for duration %s seconds", regex, regex_search_duration)
                 if not match:
                     all_match = False
@@ -751,7 +761,7 @@ class JournalObjectHandler:
                 sender.extra_field_values,
                 new_entry,
             )
-            if json_entry:
+            if isinstance(json_entry, bytes) and json_entry:
                 sender.msg_buffer.add_item(item=json_entry, cursor=self.jobject.cursor)
 
         max_bytes = 0

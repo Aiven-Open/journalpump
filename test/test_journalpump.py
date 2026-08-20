@@ -785,9 +785,9 @@ class TestSecretFilter(TestCase):
             _ = JournalReader(
                 name="test",
                 config={"secret_filters": {}},
-                field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
-                geoip="10.10.10.10",
-                stats="",
+                field_filters={},
+                geoip=None,
+                stats=None,
                 searches=[],
             )
             self.assertTrue("must be a list" in str(ctx.exception))
@@ -799,9 +799,9 @@ class TestSecretFilter(TestCase):
             _ = JournalReader(
                 name="test",
                 config={"secret_filters": secret_filters},
-                field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
-                geoip="10.10.10.10",
-                stats="",
+                field_filters={},
+                geoip=None,
+                stats=None,
                 searches=[],
             )
             self.assertTrue("missing field 'pattern'" in str(ctx.exception))
@@ -813,9 +813,9 @@ class TestSecretFilter(TestCase):
             _ = JournalReader(
                 name="test",
                 config={"secret_filters": secret_filters},
-                field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
-                geoip="10.10.10.10",
-                stats="",
+                field_filters={},
+                geoip=None,
+                stats=None,
                 searches=[],
             )
             self.assertTrue("missing field 'replacement'" in str(ctx.exception))
@@ -827,9 +827,9 @@ class TestSecretFilter(TestCase):
             _ = JournalReader(
                 name="test",
                 config={"secret_filters": secret_filters},
-                field_filters=[FieldFilter("filter_a", {"fields": ["MESSAGE"]})],
-                geoip="10.10.10.10",
-                stats="",
+                field_filters={},
+                geoip=None,
+                stats=None,
                 searches=[],
             )
             self.assertTrue("invalid regex" in str(ctx.exception))
