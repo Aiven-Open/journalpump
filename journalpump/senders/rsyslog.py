@@ -33,7 +33,7 @@ class RsyslogSender(LogSender):
                 self.default_severity = self.config.get("default_severity", 6)
                 self.sd = self.config.get("structured_data")
 
-                server = self.config.get("rsyslog_server")
+                server = self.config["rsyslog_server"]
                 port = self.config.get("rsyslog_port", 514)
 
                 self.rsyslog_client = SyslogTcpClient(

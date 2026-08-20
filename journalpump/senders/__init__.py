@@ -16,10 +16,10 @@ output_type_to_sender_class_path: dict[str, str] = {
 }
 
 # mapping to actual classes; primarily used by tests but used as cache here too
-output_type_to_sender_class: dict[str, Any] = {}
+output_type_to_sender_class: dict[str, type[Any]] = {}
 
 
-def get_sender_class(output_type):
+def get_sender_class(output_type: str) -> type[Any]:
     sender_class = output_type_to_sender_class.get(output_type, None)
     if sender_class is None:
         try:

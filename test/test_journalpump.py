@@ -79,6 +79,7 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
             s.running = False
             s.join()
             assert isinstance(s, LogplexSender)
+            assert s.field_filter is not None
             assert s.field_filter.name == "filter_a"
             assert s.field_filter.fields == ["message"]
 
