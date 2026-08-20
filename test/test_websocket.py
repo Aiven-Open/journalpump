@@ -2,7 +2,10 @@
 from collections import deque
 from journalpump.journalpump import JournalPump
 from journalpump.senders.websocket import WebsocketSender
+from pathlib import Path
+from pytest import LogCaptureFixture
 from typing import Any
+from websockets.asyncio.server import Server, ServerConnection
 
 import asyncio
 import json
@@ -17,8 +20,8 @@ class WebsocketMockServer(threading.Thread):
     def __init__(
         self,
         *,
-        port,
-    ):
+        port: int,
+    ) -> None:
         super().__init__()
         self.daemon = True
         self.log = logging.getLogger(self.__class__.__name__)
@@ -28,15 +31,15 @@ class WebsocketMockServer(threading.Thread):
         asyncio.set_event_loop(self.loop)
         self.stop_event = asyncio.Event()
         self.running = False
-        self.websocket_server = None
+        self.websocket_server: Server | None = None
 
-    async def handle_incoming_websocket_message(self, *, connection):
+    async def handle_incoming_websocket_message(self, *, connection: ServerConnection) -> None:
         self.log.info("WS: Start handling incoming websocket messages")
         async for message in connection:
             self.log.info("WS: Received message: %r", message)
             self.in_queue.append(message)
 
-    async def process_connection(self, websocket):
+    async def process_connection(self, websocket: ServerConnection) -> None:
         self.log.info("WS: Client connection accepted")
         pending: set[asyncio.Task[Any]] = set()
 
@@ -60,7 +63,7 @@ class WebsocketMockServer(threading.Thread):
                     self.log.debug("WS: Cancelling pending task of client: %r", task)
                     task.cancel()
 
-    async def run_websocket_server(self):
+    async def run_websocket_server(self) -> None:
         ctx = None
         # ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         # ctx.load_cert_chain(self.websocket_tls_chain, keyfile=self.websocket_tls_chain)
@@ -81,14 +84,14 @@ class WebsocketMockServer(threading.Thread):
 
         self.log.info("WS: Stopped serving websocket connections")
 
-    async def stop_websocket_server(self):
+    async def stop_websocket_server(self) -> None:
         if self.websocket_server:
             self.log.info("WS: Stopping websocket server")
             self.stop_event.set()
             self.websocket_server.close()
             await self.websocket_server.wait_closed()
 
-    def run(self):
+    def run(self) -> None:
         self.running = True
         try:
             self.loop.run_until_complete(self.run_websocket_server())
@@ -98,7 +101,7 @@ class WebsocketMockServer(threading.Thread):
             self.log.info("WS client task cancelled; ignoring and exiting")
         self.running = False
 
-    def stop(self):
+    def stop(self) -> None:
         asyncio.run_coroutine_threadsafe(self.stop_websocket_server(), self.loop).result()
         all_tasks = asyncio.all_tasks(loop=self.loop)
         # after a clean shutdown, there should be no tasks to cancel
@@ -107,7 +110,7 @@ class WebsocketMockServer(threading.Thread):
         self.log.info("WS: stopped")
 
 
-def assert_msgs_found(ws_server, *, messages, timeout):
+def assert_msgs_found(ws_server: WebsocketMockServer, *, messages: list[bytes], timeout: float) -> None:
     # Check that all of these messages were sent to the websocket server.
     give_up_at = time.monotonic() + timeout
 
@@ -122,8 +125,8 @@ def assert_msgs_found(ws_server, *, messages, timeout):
     assert all(msg in msgs for msg in messages)
 
 
-def setup_pump(tmpdir, sender_config):
-    journalpump_path = str(tmpdir.join("journalpump.json"))
+def setup_pump(tmp_path: Path, sender_config: dict[str, Any]) -> tuple[JournalPump, WebsocketSender]:
+    journalpump_path = str(tmp_path / "journalpump.json")
     config = {
         "readers": {
             "foo": {
@@ -138,7 +141,7 @@ def setup_pump(tmpdir, sender_config):
     pump = JournalPump(journalpump_path)
 
     # confirm there's a correct sender set up
-    sender = None
+    sender: WebsocketSender | None = None
     assert len(pump.readers) == 1
     for rn, r in pump.readers.items():
         assert rn == "foo"
@@ -155,7 +158,7 @@ def setup_pump(tmpdir, sender_config):
     return pump, sender
 
 
-def test_producer_nobatch(caplog, tmpdir):
+def test_producer_nobatch(caplog: LogCaptureFixture, tmp_path: Path) -> None:
     caplog.set_level(logging.INFO)
     ws_server = WebsocketMockServer(
         port=10111,
@@ -163,7 +166,7 @@ def test_producer_nobatch(caplog, tmpdir):
     ws_server.start()
 
     pump, sender = setup_pump(
-        tmpdir,
+        tmp_path,
         {
             "output_type": "websocket",
             "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
@@ -184,7 +187,7 @@ def test_producer_nobatch(caplog, tmpdir):
     pump.shutdown()
 
 
-def test_producer_batch(caplog, tmpdir):
+def test_producer_batch(caplog: LogCaptureFixture, tmp_path: Path) -> None:
     caplog.set_level(logging.INFO)
     ws_server = WebsocketMockServer(
         port=10111,
@@ -192,7 +195,7 @@ def test_producer_batch(caplog, tmpdir):
     ws_server.start()
 
     pump, sender = setup_pump(
-        tmpdir,
+        tmp_path,
         {
             "output_type": "websocket",
             "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
