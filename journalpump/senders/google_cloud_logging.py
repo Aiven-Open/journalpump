@@ -33,7 +33,7 @@ class GoogleCloudLoggingSender(LogSender):
     # headroom for the other fields in the LogEntry
     _MAX_MESSAGE_SIZE = 200 * 1024
 
-    def __init__(self, *, config, googleapiclient_request_builder=None, **kwargs):
+    def __init__(self, *, config: dict[str, Any], googleapiclient_request_builder: Any = None, **kwargs: Any) -> None:
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         credentials = None
         google_service_account = config.get("google_service_account_credentials")
@@ -57,7 +57,7 @@ class GoogleCloudLoggingSender(LogSender):
             self._logs = build("logging", "v2", credentials=credentials)
         self.mark_connected()
 
-    def send_messages(self, *, messages, cursor):
+    def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
         body: dict[str, Any] = {
             "logName": f"projects/{self.project_id}/logs/{self.log_id}",
             "resource": {
@@ -91,7 +91,7 @@ class GoogleCloudLoggingSender(LogSender):
                 with contextlib.suppress(json.JSONDecodeError):
                     msg["MESSAGE"] = json.loads(msg["MESSAGE"])
 
-            entry = {
+            entry: dict[str, Any] = {
                 "jsonPayload": msg,
             }
             if timestamp is not None:

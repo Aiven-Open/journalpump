@@ -1,12 +1,13 @@
 from .base import LogSender
 from journalpump.util import get_requests_session
+from typing import Any
 
 import datetime
 import json
 
 
 class LogplexSender(LogSender):
-    def __init__(self, *, config, **kwargs):
+    def __init__(self, *, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 5.0), **kwargs)
         self.logplex_input_url = config["logplex_log_input_url"]
         self.request_timeout = config.get("logplex_request_timeout", 2)
@@ -16,7 +17,7 @@ class LogplexSender(LogSender):
         self.structured_data = "-"
         self.mark_connected()
 
-    def format_msg(self, msg):
+    def format_msg(self, msg: bytes) -> str:
         # TODO: figure out a way to optionally get the entry without JSON
         entry = json.loads(msg.decode("utf8"))
         hostname = entry.get("_HOSTNAME", "localhost")
@@ -27,7 +28,7 @@ class LogplexSender(LogSender):
         pkt = pkt.encode("utf8")
         return f"{len(pkt)} {pkt}"
 
-    def send_messages(self, *, messages, cursor):
+    def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
         auth = ("token", self.logplex_token)
         msg_data = "".join([self.format_msg(msg) for msg in messages])
         msg_count = len(messages)
@@ -44,3 +45,4 @@ class LogplexSender(LogSender):
             verify=False,
         )
         self.mark_sent(messages=messages, cursor=cursor)
+        return True

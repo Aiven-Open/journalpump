@@ -1,5 +1,6 @@
 from .base import LogSender, SenderInitializationError
 from botocore import exceptions, session
+from typing import Any
 
 import json
 import time
@@ -8,7 +9,7 @@ MAX_INIT_TRIES = 3
 
 
 class AWSCloudWatchSender(LogSender):
-    def __init__(self, *, config, aws_cloudwatch_logs=None, **kwargs):
+    def __init__(self, *, config: dict[str, Any], aws_cloudwatch_logs: Any = None, **kwargs: Any) -> None:
         super().__init__(
             config=config,
             max_send_interval=config.get("max_send_interval", 0.3),
@@ -17,7 +18,7 @@ class AWSCloudWatchSender(LogSender):
         self._logs = aws_cloudwatch_logs
         self.log_group = self.config.get("aws_cloudwatch_log_group")
         self.log_stream = self.config.get("aws_cloudwatch_log_stream")
-        self._next_sequence_token = None
+        self._next_sequence_token: str | None = None
 
         if self._logs is None:
             if self.log_group is None or self.log_stream is None:
@@ -32,7 +33,7 @@ class AWSCloudWatchSender(LogSender):
             botocore_session = session.get_session()
             self._logs = botocore_session.create_client("logs", **kwargs)
 
-    def _init_log_group(self):  # pylint: disable=too-many-statements
+    def _init_log_group(self) -> None:  # pylint: disable=too-many-statements
         self.log.info("Initializing AWS CloudWatch")
 
         # Catch access denied exception(e.g. due to erroneous credentials)
@@ -99,17 +100,17 @@ class AWSCloudWatchSender(LogSender):
         self.mark_disconnected()
         self.log.error("Failed to init sender. AWS CloudWatch logs could not update sequence token.")
 
-    def send_messages(self, *, messages, cursor):
+    def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
         if not self._connected:
             self._init_log_group()
 
-        log_events = []
+        log_events: list[dict[str, Any]] = []
         for msg in messages:
             raw_message = msg.decode("utf8")
             message = json.loads(raw_message)
             timestamp = message.get("REALTIME_TIMESTAMP") or time.time()
             log_events.append({"timestamp": int(timestamp * 1000.0), "message": raw_message})
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "logGroupName": self.log_group,
             "logStreamName": self.log_stream,
             "logEvents": log_events,
