@@ -2,6 +2,8 @@
 #
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
+from __future__ import annotations
+
 from . import geohash, statsd
 from .daemon import ServiceDaemon
 from .senders import get_sender_class
@@ -709,16 +711,16 @@ def _unit_match_level_glob(levels: tuple[tuple[str, str], ...], *, unit: str, pr
 
 
 class JournalObjectHandler:
-    def __init__(self, jobject, reader, pump):
+    def __init__(self, jobject: JournalObject, reader: JournalReader, pump: JournalPump) -> None:
         self.error_reported = False
         self.jobject = jobject
-        self.json_objects = {}
+        self.json_objects: dict[str, bytes] = {}
         self.log = logging.getLogger(self.__class__.__name__)
         self.pump = pump
         self.reader = reader
 
     def process(self) -> SingleMessageReadResult:
-        new_entry = {}
+        new_entry: dict[str, Any] = {}
         for key, value in self.jobject.entry.items():
             if isinstance(value, bytes):
                 new_entry[key.lstrip("_")] = repr(value)  # value may be bytes in any encoding
@@ -759,7 +761,13 @@ class JournalObjectHandler:
 
         return SingleMessageReadResult(has_more=True, bytes_read=max_bytes)
 
-    def _get_or_generate_json(self, field_filter, unit_log_levels, extra_field_values, data):
+    def _get_or_generate_json(
+        self,
+        field_filter: FieldFilter | None,
+        unit_log_levels: UnitLogLevel | None,
+        extra_field_values: dict[str, Any] | None,
+        data: dict[str, Any],
+    ) -> bytes | dict[str, Any] | None:
         ff_name = "" if field_filter is None else field_filter.name
         if ff_name in self.json_objects:
             return self._filter_by_log_level(self.json_objects[ff_name], unit_log_levels)
@@ -777,7 +785,10 @@ class JournalObjectHandler:
             data.update(extra_field_values)
 
         if unit_log_levels:
-            data = self._filter_by_log_level(data, unit_log_levels)
+            filtered = self._filter_by_log_level(data, unit_log_levels)
+            # filter_by_level on a dict returns a dict or {}. The assertion is never false; it exists only for mypy.
+            assert isinstance(filtered, dict)
+            data = filtered
 
         if not data:
             # This means the data has been dropped because it did not have an acceptable log level. No reason to proceed.
@@ -793,25 +804,28 @@ class JournalObjectHandler:
         self.json_objects[ff_name] = json_entry
         return json_entry
 
-    def _filter_by_log_level(self, data, unit_log_levels):
+    def _filter_by_log_level(
+        self, data: dict[str, Any] | bytes, unit_log_levels: UnitLogLevel | None
+    ) -> dict[str, Any] | bytes:
         return unit_log_levels.filter_by_level(data) if unit_log_levels else data
 
-    def _truncate_long_message(self, json_entry, timestamp=None):
+    def _truncate_long_message(self, json_entry: bytes, timestamp: object = None) -> bytes:
         error = f"too large message {len(json_entry)} bytes vs maximum {MAX_KAFKA_MESSAGE_SIZE} bytes"
         truncated_json_entry = json_entry[:TRUNCATED_MESSAGE_PREVIEW_SIZE]
         if not self.error_reported:
-            self.pump.stats.increase(
-                "journal.read_error",
-                tags=self.pump.make_tags(
-                    {
-                        "error": "too_long",
-                        "reader": self.reader.name,
-                    }
-                ),
-            )
+            if self.pump.stats is not None:
+                self.pump.stats.increase(
+                    "journal.read_error",
+                    tags=self.pump.make_tags(
+                        {
+                            "error": "too_long",
+                            "reader": self.reader.name,
+                        }
+                    ),
+                )
             self.log.warning("%s: %s ...", error, truncated_json_entry)
             self.error_reported = True
-        entry = {
+        entry: dict[str, Any] = {
             "error": error,
             "partial_data": truncated_json_entry,
         }
@@ -819,7 +833,7 @@ class JournalObjectHandler:
             entry["timestamp"] = timestamp
         return json.dumps(entry, default=default_json_serialization).encode("utf8")
 
-    def _apply_secret_filters(self, data):
+    def _apply_secret_filters(self, data: dict[str, Any]) -> dict[str, Any]:
         msg = data.get("MESSAGE")
         original_msg = msg
         if msg:
