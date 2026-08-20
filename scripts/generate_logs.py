@@ -187,21 +187,20 @@ def main():
             entry = input()
             if not entry:
                 break
-            action, *args = entry.strip().split(" ", 1)
+            action, *action_args = entry.strip().split(" ", 1)
 
             if action == "rotate":
                 journald_process.rotate()
 
             elif action == "msg":
-                if len(args) != 1:
-                    raise ValueError(f"Not enough args for msg {args}")
+                if len(action_args) != 1:
+                    raise ValueError(f"Not enough args for msg {action_args}")
 
-                msg = args[0].strip()
-
-                if msg.startswith("{"):
-                    msg = json.loads(msg)
+                raw = action_args[0].strip()
+                if raw.startswith("{"):
+                    msg = json.loads(raw)
                 else:
-                    msg = {"MESSAGE": msg}
+                    msg = {"MESSAGE": raw}
 
                 journald_process.send_message(msg)
 
