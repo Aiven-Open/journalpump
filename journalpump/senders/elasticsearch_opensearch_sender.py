@@ -76,7 +76,7 @@ class _EsOsLogSenderBase(LogSender):
 
     _SUCCESS_HTTP_STATUSES: ClassVar[set[HTTPStatus]] = {HTTPStatus.OK, HTTPStatus.CREATED}
 
-    def __init__(self, *, sender_config: Config, config: dict[str, Any], **kwargs) -> None:
+    def __init__(self, *, sender_config: Config, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(
             config=config,
             max_send_interval=config.get("max_send_interval", self._DEFAULT_MAX_SENDER_INTERVAL),
@@ -132,7 +132,7 @@ class _EsOsLogSenderBase(LogSender):
         return True
 
     @staticmethod
-    def format_message_for_es(*, buf: BytesIO, header, message) -> None:
+    def format_message_for_es(*, buf: BytesIO, header: dict[str, Any], message: bytes) -> None:
         buf.write(json.dumps(header, default=default_json_serialization).encode("utf8") + b"\n")
         # Message already in utf8 encoded bytestring form
         buf.write(message + b"\n")
@@ -165,7 +165,7 @@ class _EsOsLogSenderBase(LogSender):
             self._last_index_check_time = time.monotonic()
             self._check_indices()
 
-    def send_messages(self, *, messages, cursor) -> bool:
+    def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
         buf = BytesIO()
         start_time = time.monotonic()
         try:
@@ -307,7 +307,7 @@ class ElasticsearchSender(_EsOsLogSenderBase):
 
     _LEGACY_TYPE = "journal_msg"
 
-    def __init__(self, *, config, **kwargs) -> None:
+    def __init__(self, *, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(
             sender_config=Config.create(sender_type=SenderType.elasticsearch, config=config),
             config=config,
@@ -345,7 +345,7 @@ class ElasticsearchSender(_EsOsLogSenderBase):
 
 
 class OpenSearchSender(_EsOsLogSenderBase):
-    def __init__(self, *, config: dict[str, Any], **kwargs) -> None:
+    def __init__(self, *, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(
             sender_config=Config.create(sender_type=SenderType.opensearch, config=config),
             config=config,
