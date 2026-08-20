@@ -5,6 +5,7 @@ pytest
 pytest-cov==3.0.0
 pytest-mock
 types-requests
+types-setuptools
 ruff==0.16.3
 coverage
 pre-commit
