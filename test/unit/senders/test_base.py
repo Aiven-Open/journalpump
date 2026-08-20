@@ -1,4 +1,5 @@
 from journalpump.senders.base import Tagged
+from typing import Any
 
 import pytest
 
@@ -14,6 +15,6 @@ import pytest
         ({"source_address": "127.0.0.1"}, {"source_address": "127.0.0.1"}),
     ],
 )
-def test_tagged(input_tags: dict, expected_output_tags: dict):
+def test_tagged(input_tags: dict[Any, Any], expected_output_tags: dict[str, str]) -> None:
     tagged = Tagged(None)
     assert tagged.make_tags(input_tags) == expected_output_tags

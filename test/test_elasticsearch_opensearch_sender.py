@@ -276,7 +276,7 @@ def test_elasticsearch_index_mapping_with_type() -> None:
     } == mapping
 
 
-def _make_es_sender(sender_type: SenderType):
+def _make_es_sender(sender_type: SenderType) -> ElasticsearchSender | OpenSearchSender:
     clazz = OpenSearchSender if sender_type == SenderType.opensearch else ElasticsearchSender
     sender = clazz(
         config={f"{sender_type.value}_url": "http://localhost:9200"},
