@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 from .util import journalpump_initialized
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from journalpump import senders
 from journalpump.journalpump import JournalPump, JournalReader, PumpReader, statsd
 from journalpump.senders.base import MsgBuffer
 from pathlib import Path
+from pytest_mock import MockerFixture
+from typing import Any, cast
 
 import json
 import logging
@@ -37,10 +41,10 @@ class LogFiles:
         self._current_log_files: list[Path] = []
 
     @property
-    def log_files(self):
+    def log_files(self) -> list[Path]:
         return self._current_log_files.copy()
 
-    def rotate(self):
+    def rotate(self) -> None:
         log_file = self._orig_log_files.pop()
         tail_file = self._destination / "user-1000.journal"
 
@@ -57,7 +61,7 @@ class LogFiles:
         shutil.copyfile(log_file, dst_path)
         self._rotate_to = self._destination / log_file.name
 
-    def remove(self, *, last: int):
+    def remove(self, *, last: int) -> None:
         for _ in range(last):
             log_file = self._current_log_files.pop()
             log_file.unlink()
@@ -66,7 +70,7 @@ class LogFiles:
                 self._rotate_to = None
 
 
-def test_log_rotator(tmp_path):
+def test_log_rotator(tmp_path: Path) -> None:
     log_path = tmp_path / "logs"
     log_path.mkdir()
     log_file_handler = LogFiles(log_path, source=LogFiles.ROTATED_LOGS)
@@ -100,12 +104,12 @@ class _MsgBuffer(MsgBuffer):
         self.has_messages = threading.Event()
         self.wait_threshold: int | None = None
 
-    def add_item(self, *, item, cursor):
+    def add_item(self, *, item: bytes, cursor: str | None) -> None:
         super().add_item(item=item, cursor=cursor)
         if self.wait_threshold and len(self.messages) >= self.wait_threshold:
             self.has_messages.set()
 
-    def get_items(self):
+    def get_items(self) -> list[tuple[bytes, str | None]]:
         res = super().get_items()
         self.wait_threshold = None
         self.has_messages.clear()
@@ -118,26 +122,26 @@ class _MsgBuffer(MsgBuffer):
 
 
 class StubSender:
-    field_filter: dict | None = None
-    unit_log_levels: dict | None = None
-    extra_field_values: dict | None = None
+    field_filter: dict[str, Any] | None = None
+    unit_log_levels: dict[str, Any] | None = None
+    extra_field_values: dict[str, Any] | None = None
 
-    def __init__(self, *args, **kwargs):  # pylint: disable=unused-argument
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
         self.msg_buffer = _MsgBuffer()
 
-    def start(self):
+    def start(self) -> None:
         pass
 
-    def request_stop(self):
+    def request_stop(self) -> None:
         pass
 
-    def refresh_stats(self, *args, **kwargs):  # pylint: disable=unused-argument
+    def refresh_stats(self, *_args: object, **_kwargs: object) -> None:
         pass
 
-    def __call__(self, *args, **kwargs):  # pylint: disable=unused-argument
+    def __call__(self, *_args: object, **_kwargs: object) -> StubSender:
         return self
 
-    def get_messages(self, count: int, timeout: int):
+    def get_messages(self, count: int, timeout: int) -> list[Any]:
         self.msg_buffer.set_threshold(count)
         assert self.msg_buffer.has_messages.wait(timeout), f"Timeout. Total messages received: {len(self.msg_buffer)}"
 
@@ -146,25 +150,27 @@ class StubSender:
 
 
 @pytest.fixture(name="journal_log_dir")
-def fixture_journal_log_dir(tmp_path):
+def fixture_journal_log_dir(tmp_path: Path) -> Path:
     log_path = tmp_path / "logs"
     log_path.mkdir()
     return log_path
 
 
 @pytest.fixture(name="journalpump_factory")
-def fixture_journalpump_factory(mocker, tmp_path, journal_log_dir):
-    pump_thread = None
-    pump = None
+def fixture_journalpump_factory(
+    mocker: MockerFixture, tmp_path: Path, journal_log_dir: Path
+) -> Iterator[Callable[..., JournalPump]]:
+    pump_thread: threading.Thread | None = None
+    pump: JournalPump | None = None
 
-    def _start_journalpump(sender, *, pump_conf=None):
+    def _start_journalpump(sender: StubSender, *, pump_conf: dict[str, Any] | None = None) -> JournalPump:
         nonlocal pump_thread
         nonlocal pump
         pump_conf = pump_conf or {}
 
         mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
         mocker.patch.object(PumpReader, "has_runtime_files", return_value=True)
-        senders.output_type_to_sender_class["stub_sender"] = sender
+        senders.output_type_to_sender_class["stub_sender"] = cast(type[Any], sender)
 
         config_path = tmp_path / "journalpump.json"
         with open(config_path, "w", encoding="utf-8") as fp:
@@ -206,7 +212,7 @@ def fixture_journalpump_factory(mocker, tmp_path, journal_log_dir):
         pump_thread.join(timeout=3)
 
 
-def test_journalpump_rotated_files(journalpump_factory, journal_log_dir):
+def test_journalpump_rotated_files(journalpump_factory: Callable[..., JournalPump], journal_log_dir: Path) -> None:
     stub_sender = StubSender()
     journalpump_factory(stub_sender)
     lf = LogFiles(journal_log_dir, source=LogFiles.ROTATED_LOGS)
@@ -222,7 +228,9 @@ def test_journalpump_rotated_files(journalpump_factory, journal_log_dir):
 
 
 @pytest.mark.parametrize("msg_buffer_max_length", [3, 5, 10])
-def test_journalpump_rotated_files_threshold(journalpump_factory, journal_log_dir, msg_buffer_max_length):
+def test_journalpump_rotated_files_threshold(
+    journalpump_factory: Callable[..., JournalPump], journal_log_dir: Path, msg_buffer_max_length: int
+) -> None:
     stub_sender = StubSender()
 
     pump = journalpump_factory(stub_sender, pump_conf={"msg_buffer_max_length": msg_buffer_max_length})
@@ -244,7 +252,9 @@ def test_journalpump_rotated_files_threshold(journalpump_factory, journal_log_di
 
 
 @pytest.mark.parametrize("size,num_messages", [(50, 1), (1000, 2)])
-def test_journalpump_rotated_files_threshold_bytes(journalpump_factory, journal_log_dir, size, num_messages):
+def test_journalpump_rotated_files_threshold_bytes(
+    journalpump_factory: Callable[..., JournalPump], journal_log_dir: Path, size: int, num_messages: int
+) -> None:
     stub_sender = StubSender()
 
     pump = journalpump_factory(stub_sender, pump_conf={"msg_buffer_max_bytes": size})
@@ -277,7 +287,7 @@ def _lsof_is_file_open(filenames: list[str]) -> dict[str, bool]:
     return result
 
 
-def _wait_for(predicate: Callable[[], bool], timeout: int):
+def _wait_for(predicate: Callable[[], bool], timeout: int) -> bool:
     cur = time.monotonic()
     deadline = cur + timeout
 
@@ -292,11 +302,11 @@ def _wait_for(predicate: Callable[[], bool], timeout: int):
 
 
 @pytest.mark.skipif(not shutil.which("lsof"), reason="lsof is not available")
-def test_journalpump_rotated_files_deletion(journalpump_factory, journal_log_dir):
+def test_journalpump_rotated_files_deletion(journalpump_factory: Callable[..., JournalPump], journal_log_dir: Path) -> None:
     stub_sender = StubSender()
     journalpump_factory(stub_sender, pump_conf={"msg_buffer_max_length": 1})
 
-    def _get_message():
+    def _get_message() -> str:
         messages = stub_sender.get_messages(1, timeout=3)
         assert len(messages) == 1
         return messages[0]["MESSAGE"]
@@ -323,25 +333,27 @@ def test_journalpump_rotated_files_deletion(journalpump_factory, journal_log_dir
     assert _get_message() in ["Message 2", "Message 10"]
     assert _get_message() in ["Message 10", "Message 11"]
 
-    def _only_head_open():
+    def _only_head_open() -> bool:
         open_files = _lsof_is_file_open(log_files)
         return open_files[log_files[0]] and not open_files[log_files[-1]]
 
     assert _wait_for(_only_head_open, timeout=3), f"Expected {log_files[-1]} to not be open"
 
 
-def test_journalpump_stats_sender(mocker, journalpump_factory, journal_log_dir):
+def test_journalpump_stats_sender(
+    mocker: MockerFixture, journalpump_factory: Callable[..., JournalPump], journal_log_dir: Path
+) -> None:
     stub_sender = StubSender()
     stats: dict[str, int] = {}
 
     class StatStub:
-        def increase(self, name: str, **kwargs):  # pylint: disable=unused-argument
+        def increase(self, name: str, **_kwargs: object) -> None:
             stats[name] = stats.get(name, 0) + 1
 
-        def gauge(self, *args, **kwargs):  # pylint: disable=unused-argument
+        def gauge(self, *_args: object, **_kwargs: object) -> None:
             pass
 
-        def unexpected_exception(self, *args, **kwargs):  # pylint: disable=unused-argument
+        def unexpected_exception(self, *_args: object, **_kwargs: object) -> None:
             pass
 
     mocker.patch.object(statsd, "StatsClient", return_value=StatStub())
@@ -392,7 +404,7 @@ def test_journalpump_stats_sender(mocker, journalpump_factory, journal_log_dir):
     )
 
 
-def test_journalpump_bad_message(journalpump_factory, journal_log_dir):
+def test_journalpump_bad_message(journalpump_factory: Callable[..., JournalPump], journal_log_dir: Path) -> None:
     stub_sender = StubSender()
     journalpump_factory(stub_sender)
     lf = LogFiles(journal_log_dir, source=LogFiles.BAD_MESSAGES)
