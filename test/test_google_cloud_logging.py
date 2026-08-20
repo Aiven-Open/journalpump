@@ -30,7 +30,7 @@ class TestGoogleCloudLoggingSender:
         },
     }
 
-    def _generate_request_builder(self, entries: list[dict[str, str]], error=None) -> GoogleApiClientRequestMockBuilder:
+    def _generate_request_builder(self, entries: list[dict[str, Any]], error=None) -> GoogleApiClientRequestMockBuilder:
         """Generate typical response body with patched `entries` key"""
 
         expected_body = {

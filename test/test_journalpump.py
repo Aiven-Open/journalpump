@@ -26,6 +26,7 @@ from journalpump.types import LOG_SEVERITY_MAPPING
 from journalpump.util import default_json_serialization
 from systemd import journal
 from time import sleep
+from typing import Any
 from unittest import mock, TestCase
 
 import botocore.session
@@ -1621,7 +1622,7 @@ def test_journal_reader_with_single_broken_sender_should_return_0_as_limit():
 
 
 def test_journal_reader_without_senders_should_return_0_as_limit():
-    config = {
+    config: dict[str, Any] = {
         "senders": {},
     }
 

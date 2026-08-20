@@ -2,6 +2,7 @@
 from collections import deque
 from journalpump.journalpump import JournalPump
 from journalpump.senders.websocket import WebsocketSender
+from typing import Any
 
 import asyncio
 import json
@@ -22,7 +23,7 @@ class WebsocketMockServer(threading.Thread):
         self.daemon = True
         self.log = logging.getLogger(self.__class__.__name__)
         self.port = port
-        self.in_queue = deque()
+        self.in_queue: deque[Any] = deque()
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         self.stop_event = asyncio.Event()
@@ -37,7 +38,7 @@ class WebsocketMockServer(threading.Thread):
 
     async def process_connection(self, websocket):
         self.log.info("WS: Client connection accepted")
-        pending = set()
+        pending: set[asyncio.Task[Any]] = set()
 
         try:
             incoming_websocket_task = asyncio.create_task(self.handle_incoming_websocket_message(connection=websocket))

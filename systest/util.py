@@ -1,9 +1,10 @@
+from journalpump.senders.base import LogSender
 from time import sleep
 
 
 def journalpump_initialized(journalpump):
     retry = 0
-    senders = []
+    senders: list[LogSender] = []
     while retry < 3 and not senders:
         sleep(1)
         readers = [reader for _, reader in journalpump.readers.items()]
