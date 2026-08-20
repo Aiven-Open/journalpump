@@ -102,7 +102,7 @@ class WebsocketRunner(Thread):
 
         for message in messages:
             if self.compression == JournalPumpMessageCompression.snappy:
-                message = snappy.snappy.compress(message)
+                message = snappy.compress(message)
 
             try:
                 await self.websocket.send(message)

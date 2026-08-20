@@ -1,12 +1,14 @@
 from .base import LogSender
 from kafka import errors, KafkaAdminClient, KafkaProducer
 from kafka.admin import NewTopic
+from types import ModuleType
 from typing import Any
 
 import inspect
 import logging
 import socket
 
+snappy: ModuleType | None
 try:
     import snappy
 except ImportError:

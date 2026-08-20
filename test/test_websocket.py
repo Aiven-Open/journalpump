@@ -209,7 +209,7 @@ def test_producer_batch(caplog: LogCaptureFixture, tmp_path: Path) -> None:
         b'{"timestamp": "2019-10-07 14:00:00"}',
         b'{"timestamp": "2019-10-07 15:00:00"}',
     ]
-    expected_output = [snappy.snappy.compress(b"\x00".join(messages))]
+    expected_output = [snappy.compress(b"\x00".join(messages))]
     assert sender.send_messages(messages=messages, cursor=None)
     assert_msgs_found(ws_server, messages=expected_output, timeout=5)
 

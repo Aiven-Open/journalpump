@@ -8,6 +8,7 @@ types-requests
 types-setuptools
 types-httplib2
 botocore-stubs
+types-python-snappy
 ruff==0.16.3
 coverage
 pre-commit
