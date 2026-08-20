@@ -35,7 +35,7 @@ def _encode_message(data: dict[str, str]) -> bytes:
     return b"\n".join(result) + b"\n"
 
 
-def _message_sender(uid: int, message_socket_path: str, queue: multiprocessing.JoinableQueue):
+def _message_sender(uid: int, message_socket_path: str, queue: multiprocessing.JoinableQueue) -> None:
     """Send messages to journald using native protocol.
 
     NB. Message send in a separate process to be able to write to the socket as non-root user.
@@ -142,7 +142,7 @@ class JournalControlProcess:
 
         return self
 
-    def __exit__(self, *args) -> None:
+    def __exit__(self, *_args: object) -> None:
         assert self._runtime_dir
         assert self._journald_process
         assert self._sender_process
@@ -172,7 +172,7 @@ rotate command invokes journald rotation
 _PARSER.add_argument("--uid", type=int, default=1000, help="user id of log sender")
 
 
-def main():
+def main() -> int:
     args = _PARSER.parse_args()
 
     if os.geteuid() != 0:
