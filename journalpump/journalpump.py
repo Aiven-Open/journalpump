@@ -13,6 +13,7 @@ from .util import atomic_replace_file, default_json_serialization
 from collections.abc import Callable, Iterator, Mapping
 from functools import lru_cache, reduce
 from systemd import journal
+from types import FrameType
 from typing import Any, cast, NamedTuple
 
 import copy
@@ -859,35 +860,35 @@ class JournalObjectHandler:
 class JournalPump(ServiceDaemon, Tagged):
     _STALE_FD = object()
 
-    def __init__(self, config_path):
+    def __init__(self, config_path: str) -> None:
         Tagged.__init__(self)
         self.stats: statsd.StatsClient | None = None
-        self.geoip = None
+        self.geoip: GeoIPProtocol | None = None
         self.poller = select.poll()
-        self.readers_active_config = None
-        self.readers = {}
-        self.field_filters = {}
-        self.unit_log_levels = {}
-        self.previous_state = None
+        self.readers_active_config: Any = None
+        self.readers: dict[str, JournalReader] = {}
+        self.field_filters: dict[str, FieldFilter] = {}
+        self.unit_log_levels: dict[str, UnitLogLevel] = {}
+        self.previous_state: dict[str, Any] | None = None
         self.last_state_save_time = time.monotonic()
         ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         self.start_time_str = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
         self.configure_field_filters()
         self.configure_unit_log_levels()
         self.configure_readers()
-        self.stale_readers = set()
-        self.reader_by_fd = {}
+        self.stale_readers: set[JournalReader] = set()
+        self.reader_by_fd: dict[int, JournalReader | object] = {}
         self.poll_interval_ms = 1000
 
-    def configure_field_filters(self):
+    def configure_field_filters(self) -> None:
         filters = self.config.get("field_filters", {})
         self.field_filters = {name: FieldFilter(name, config) for name, config in filters.items()}
 
-    def configure_unit_log_levels(self):
+    def configure_unit_log_levels(self) -> None:
         unit_log_levels = self.config.get("unit_log_levels", {})
         self.unit_log_levels = {name: UnitLogLevel(name, config) for name, config in unit_log_levels.items()}
 
-    def configure_readers(self):
+    def configure_readers(self) -> None:
         new_config = self.config.get("readers", {})
         if self.readers_active_config == new_config:
             # No changes in readers, no reconfig required
@@ -943,7 +944,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
         self.readers_active_config = new_config
 
-    def handle_new_config(self):
+    def handle_new_config(self) -> None:
         """Called by ServiceDaemon when config has changed"""
         stats = self.config.get("statsd") or {}
         self.stats = statsd.StatsClient(
@@ -964,7 +965,7 @@ class JournalPump(ServiceDaemon, Tagged):
         self.configure_unit_log_levels()
         self.configure_readers()
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         try:
             self.save_state()
         except Exception:  # pylint: disable=broad-except
@@ -975,11 +976,11 @@ class JournalPump(ServiceDaemon, Tagged):
             self.unregister_from_poll(reader)
             self.stale_readers.add(reader)
 
-    def sigterm(self, signum, frame):
+    def sigterm(self, signum: int, frame: FrameType | None) -> None:
         self.shutdown()
         super().sigterm(signum, frame)
 
-    def load_state(self):
+    def load_state(self) -> dict[str, Any]:
         file_path = self.get_state_file_path()
         if not file_path:
             return {}
@@ -997,7 +998,7 @@ class JournalPump(ServiceDaemon, Tagged):
             match_value=self.config.get("match_value"),
         )
 
-    def read_single_message(self, reader) -> SingleMessageReadResult:
+    def read_single_message(self, reader: JournalReader) -> SingleMessageReadResult:
         try:
             jobject: JournalObject | None = reader.read_next()
             if jobject is None or jobject.entry is None:
@@ -1011,7 +1012,7 @@ class JournalPump(ServiceDaemon, Tagged):
             time.sleep(0.5)
             return SingleMessageReadResult(has_more=False, bytes_read=None)
 
-    def read_messages(self, reader, hits, chunk_size) -> MessagesReadResult:
+    def read_messages(self, reader: JournalReader, hits: dict[str, int], chunk_size: int) -> MessagesReadResult:
         lines = 0
 
         exhausted = False
@@ -1039,14 +1040,14 @@ class JournalPump(ServiceDaemon, Tagged):
             lines += 1
 
         for search in reader.searches:
-            hits[search["name"]] = search.get("hits", 0)
+            hits[search["name"]] = int(search.get("hits", 0))
 
         return MessagesReadResult(exhausted=exhausted, lines_read=lines)
 
-    def get_state_file_path(self):
+    def get_state_file_path(self) -> str | None:
         return self.config.get("json_state_file_path")
 
-    def save_state(self):
+    def save_state(self) -> None:
         state_file_path = self.get_state_file_path()
         if not state_file_path:
             return
@@ -1063,7 +1064,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.previous_state = state_to_save
                 self.log.debug("Wrote state file: %r", state_to_save)
 
-    def _close_stale_readers(self):
+    def _close_stale_readers(self) -> None:
         while self.stale_readers:
             reader = self.stale_readers.pop()
             self.unregister_from_poll(reader)
@@ -1097,7 +1098,7 @@ class JournalPump(ServiceDaemon, Tagged):
                     if value:
                         self.stats.gauge(metric=metric, value=value, tags=tags)
 
-    def run(self):  # pylint: disable=too-many-statements
+    def run(self) -> int | None:  # pylint: disable=too-many-statements
         last_stats_time = 0.0
         poll_timeout_ms = 0.0
         buffered_events: dict[JournalReader, int] = {}
@@ -1119,8 +1120,11 @@ class JournalPump(ServiceDaemon, Tagged):
                 if reader is self._STALE_FD:
                     continue
 
-                if reader is None:
+                if not isinstance(reader, JournalReader):
                     self.log.error("Could not find reader with fd %r", fd)
+                    continue
+
+                if reader.journald_reader is None:
                     continue
 
                 # Call to process clears state, consecutive calls won't return same value
@@ -1192,6 +1196,7 @@ class JournalPump(ServiceDaemon, Tagged):
             )
 
         self._close_stale_readers()
+        return None
 
 
 if __name__ == "__main__":
