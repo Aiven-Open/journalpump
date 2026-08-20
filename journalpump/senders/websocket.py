@@ -38,16 +38,16 @@ class WebsocketRunner(Thread):
     def __init__(
         self,
         *,
-        websocket_uri,
-        socks5_proxy_url,
-        ssl_enabled,
-        ssl_ca,
-        ssl_key,
-        ssl_cert,
-        websocket_compression,
-        compression,
-        max_batch_size,
-    ):
+        websocket_uri: str,
+        socks5_proxy_url: str | None,
+        ssl_enabled: bool | None,
+        ssl_ca: str | None,
+        ssl_key: str | None,
+        ssl_cert: str | None,
+        websocket_compression: WebsocketCompression,
+        compression: JournalPumpMessageCompression,
+        max_batch_size: int,
+    ) -> None:
         super().__init__(daemon=True)
         self.log = logging.getLogger(self.__class__.__name__)
         self.websocket_uri = websocket_uri
@@ -77,16 +77,16 @@ class WebsocketRunner(Thread):
         # prevent websockets from logging message contents when we're otherwise in DEBUG mode
         logging.getLogger("websockets").setLevel(logging.INFO)
 
-        self.socks5_proxy = None
+        self.socks5_proxy: Proxy | None = None
         if self.socks5_proxy_url:
             self.socks5_proxy = Proxy.from_url(self.socks5_proxy_url)
 
-    async def consumer_handler(self, websocket):
+    async def consumer_handler(self, websocket: ClientConnection) -> None:
         # Dummy consumer to read and ignore messages from the websocket
         while self.running:
             _ = await websocket.recv()
 
-    async def async_send(self, messages):
+    async def async_send(self, messages: list[bytes]) -> bool:
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self.connected_event.wait(), 20)
         if not self.connected_event.is_set():
@@ -113,10 +113,10 @@ class WebsocketRunner(Thread):
 
         return True
 
-    def send(self, *, messages):
+    def send(self, *, messages: list[bytes]) -> bool:
         return asyncio.run_coroutine_threadsafe(self.async_send(messages), self.websocket_loop).result()
 
-    def run(self):
+    def run(self) -> None:
         self.log.info("WebsocketRunner starting")
         try:
             self.websocket_loop.create_task(self.comms_channel_loop())
@@ -127,7 +127,7 @@ class WebsocketRunner(Thread):
 
         self.log.info("WebsocketRunner finished")
 
-    def close(self):
+    def close(self) -> None:
         if self.running:
             self.log.info("Closing WebsocketRunner")
             self.running = False
@@ -154,14 +154,16 @@ class WebsocketRunner(Thread):
     async def wait_for_stop_event(self) -> None:
         await self.stop_event.wait()
 
-    async def websocket_connect_coro(self):
+    async def websocket_connect_coro(self) -> ClientConnection:
         ssl_context = None
         if self.ssl_enabled:
+            if self.ssl_cert is None or self.ssl_key is None or self.ssl_ca is None:
+                raise ValueError("ca, keyfile, and certfile are required when ssl is enabled")
             ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             ssl_context.load_cert_chain(self.ssl_cert, keyfile=self.ssl_key)
             ssl_context.load_verify_locations(self.ssl_ca)
 
-        headers = {"User-Agent": f"journalpump/{__version__}"}
+        headers: dict[str, str] = {"User-Agent": f"journalpump/{__version__}"}
 
         if self.batching_enabled:
             headers["Journalpump-Batch-Size"] = str(self.max_batch_size)
@@ -171,13 +173,19 @@ class WebsocketRunner(Thread):
         sock = None
         url_parsed = urlparse(self.websocket_uri)
         if self.socks5_proxy:
+            if self.socks5_proxy_url is None:
+                raise ValueError("socks5_proxy URL is missing")
             socks_url_parsed = urlparse(self.socks5_proxy_url)
+            dest_host = url_parsed.hostname
+            dest_port = url_parsed.port
+            if dest_host is None or dest_port is None:
+                raise ValueError(f"websocket_uri must include host and port: {self.websocket_uri}")
             self.log.info(
                 "Connecting via SOCKS5 proxy at %s:%d",
                 socks_url_parsed.hostname,
                 socks_url_parsed.port,
             )
-            sock = await self.socks5_proxy.connect(dest_host=url_parsed.hostname, dest_port=url_parsed.port)
+            sock = await self.socks5_proxy.connect(dest_host=dest_host, dest_port=dest_port)
             self.log.info(
                 "Connected via SOCKS5 proxy at %s:%d",
                 socks_url_parsed.hostname,
@@ -200,7 +208,7 @@ class WebsocketRunner(Thread):
             **extra,
         )
 
-    async def websocket_connect(self, *, timeout=30):
+    async def websocket_connect(self, *, timeout: float = 30) -> ClientConnection:
         connect_task = asyncio.create_task(self.websocket_connect_coro())
         wait_for_stop_task = asyncio.create_task(self.wait_for_stop_event())
 
@@ -223,7 +231,7 @@ class WebsocketRunner(Thread):
 
         raise ConnectionTimeoutError(f"Websocket connection timed out after {timeout} seconds")
 
-    async def comms_channel_round(self):
+    async def comms_channel_round(self) -> None:
         stop_event_task = asyncio.create_task(self.wait_for_stop_event())
         consumer_task = None
         try:
@@ -284,14 +292,14 @@ class WebsocketRunner(Thread):
             if pending_task:
                 pending_task.cancel()
 
-    async def sleep_before_reconnect(self):
+    async def sleep_before_reconnect(self) -> None:
         if self.running:
             sleep_interval = self.backoff.next_sleep()
             self.log.info("Retrying websocket connection in %.1f", sleep_interval)
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self.stop_event.wait(), sleep_interval)
 
-    async def comms_channel_loop(self):
+    async def comms_channel_loop(self) -> None:
         while self.running:
             await self.comms_channel_round()
             await self.sleep_before_reconnect()
@@ -301,7 +309,7 @@ class WebsocketRunner(Thread):
 
 
 class WebsocketSender(LogSender):
-    def __init__(self, *, config, **kwargs):
+    def __init__(self, *, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(
             config=config,
             max_send_interval=config.get("max_send_interval", 1.0),
@@ -346,7 +354,7 @@ class WebsocketSender(LogSender):
                 self.log.info("Initialized Websocket client, address: %r for %s", self.config["websocket_uri"], self.name)
                 self.runner = runner
 
-    def request_stop(self):
+    def request_stop(self) -> None:
         super().request_stop()
 
         if self.runner:
@@ -355,7 +363,7 @@ class WebsocketSender(LogSender):
 
         self.mark_disconnected()
 
-    def send_messages(self, *, messages, cursor):
+    def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
         if self.runner is None:
             self._init_websocket()
         if self.runner is None:
