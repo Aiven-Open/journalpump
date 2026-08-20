@@ -117,7 +117,7 @@ class LogSender(Thread, Tagged):
         self.field_filter = field_filter
         self.unit_log_levels = unit_log_levels
         self.msg_buffer_max_length = msg_buffer_max_length
-        self.last_maintenance_fail = 0
+        self.last_maintenance_fail = 0.0
         self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
         self.max_batch_size = MAX_KAFKA_MESSAGE_SIZE

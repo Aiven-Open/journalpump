@@ -167,7 +167,7 @@ class JournalReader(Tagged):
         self.stats = stats
         self.cursor = seek_to
         self.journald_reader = None
-        self.last_journald_create_attempt = 0
+        self.last_journald_create_attempt = 0.0
         self.running = True
         self.senders = {}
         self._initialized_senders = set()
@@ -1075,8 +1075,8 @@ class JournalPump(ServiceDaemon, Tagged):
                         self.stats.gauge(metric=metric, value=value, tags=tags)
 
     def run(self):  # pylint: disable=too-many-statements
-        last_stats_time = 0
-        poll_timeout_ms = 0
+        last_stats_time = 0.0
+        poll_timeout_ms = 0.0
         buffered_events = {}
         hits = {}
 
