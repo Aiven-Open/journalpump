@@ -35,7 +35,7 @@ def _encode_message(data: dict[str, str]) -> bytes:
     return b"\n".join(result) + b"\n"
 
 
-def _message_sender(uid: int, message_socket_path: str, queue: multiprocessing.JoinableQueue) -> None:
+def _message_sender(uid: int, message_socket_path: str, queue: multiprocessing.JoinableQueue[dict[str, str] | None]) -> None:
     """Send messages to journald using native protocol.
 
     NB. Message send in a separate process to be able to write to the socket as non-root user.
@@ -65,9 +65,9 @@ class JournalControlProcess:
     def __init__(self, *, logs_dir: pathlib.Path, uid: int) -> None:
         self._logs_dir: pathlib.Path = logs_dir
         self._runtime_dir: pathlib.Path | None = None
-        self._journald_process: subprocess.Popen | None = None
+        self._journald_process: subprocess.Popen[bytes] | None = None
         self._sender_process: multiprocessing.Process | None = None
-        self._sender_queue: multiprocessing.JoinableQueue = multiprocessing.JoinableQueue()
+        self._sender_queue: multiprocessing.JoinableQueue[dict[str, str] | None] = multiprocessing.JoinableQueue()
         self._uid = uid
 
     @property
@@ -80,12 +80,12 @@ class JournalControlProcess:
         assert self._runtime_dir
         return str(self._runtime_dir / self.MESSAGE_SOCKET_NAME)
 
-    def _start_journald(self) -> subprocess.Popen:
+    def _start_journald(self) -> subprocess.Popen[bytes]:
         assert self._runtime_dir
 
         environment = {
-            "LOGS_DIRECTORY": self._logs_dir,
-            "RUNTIME_DIRECTORY": self._runtime_dir,
+            "LOGS_DIRECTORY": str(self._logs_dir),
+            "RUNTIME_DIRECTORY": str(self._runtime_dir),
         }
         journald_process = subprocess.Popen(
             [self.JOURNALD_BIN, "test"],
