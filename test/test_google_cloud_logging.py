@@ -30,7 +30,9 @@ class TestGoogleCloudLoggingSender:
         },
     }
 
-    def _generate_request_builder(self, entries: list[dict[str, Any]], error=None) -> GoogleApiClientRequestMockBuilder:
+    def _generate_request_builder(
+        self, entries: list[dict[str, Any]], error: HttpLib2Response | None = None
+    ) -> GoogleApiClientRequestMockBuilder:
         """Generate typical response body with patched `entries` key"""
 
         expected_body = {
@@ -48,7 +50,7 @@ class TestGoogleCloudLoggingSender:
             check_unexpected=True,
         )
 
-    def test_message_string(self):
+    def test_message_string(self) -> None:
         """Check that MESSAGE as plain text was sent"""
 
         request_builder = self._generate_request_builder([{"jsonPayload": {"MESSAGE": "Hello"}}])
@@ -64,7 +66,7 @@ class TestGoogleCloudLoggingSender:
         sender.send_messages(messages=[b'{"MESSAGE": "Hello"}'], cursor=None)
         assert sender._sent_count == 1  # pylint: disable=protected-access
 
-    def test_missing_message(self):
+    def test_missing_message(self) -> None:
         """Check that missing `MESSAGE` key is fine"""
 
         request_builder = self._generate_request_builder([{"jsonPayload": {"not_message": "Hello"}}])
@@ -80,7 +82,7 @@ class TestGoogleCloudLoggingSender:
         sender.send_messages(messages=[b'{"not_message": "Hello"}'], cursor=None)
         assert sender._sent_count == 1  # pylint: disable=protected-access
 
-    def test_message_json(self):
+    def test_message_json(self) -> None:
         """Check that MESSAGE as object was decoded and sent"""
 
         expected_json_message = {"test_key": "test_value"}
@@ -99,7 +101,7 @@ class TestGoogleCloudLoggingSender:
         sender.send_messages(messages=[message.encode()], cursor=None)
         assert sender._sent_count == 1  # pylint: disable=protected-access
 
-    def test_bad_request_did_not_marked_sent(self):
+    def test_bad_request_did_not_marked_sent(self) -> None:
         """Check that message was not marked as sent if GoogleApi returns error"""
         request_builder = self._generate_request_builder(
             [{"jsonPayload": {"MESSAGE": "Hello"}}],
@@ -117,7 +119,7 @@ class TestGoogleCloudLoggingSender:
         sender.send_messages(messages=[b'{"MESSAGE": "Hello"}'], cursor=None)
         assert sender._sent_count == 0  # pylint: disable=protected-access
 
-    def test_correct_timestamp(self):
+    def test_correct_timestamp(self) -> None:
         """Check severity mapping is converted correctly and timestamp is being sent."""
 
         request_builder = self._generate_request_builder(
@@ -144,7 +146,7 @@ class TestGoogleCloudLoggingSender:
         )
         assert sender._sent_count == 1  # pylint: disable=protected-access
 
-    def test_big_logentry_is_truncated(self):  # pylint: disable=protected-access
+    def test_big_logentry_is_truncated(self) -> None:  # pylint: disable=protected-access
         """Check that message was not marked as sent if GoogleApi returns error"""
         message_content = "A" * 257_00
         request_builder = self._generate_request_builder(
@@ -163,7 +165,7 @@ class TestGoogleCloudLoggingSender:
         sender.send_messages(messages=[json.dumps(message).encode()], cursor=None)
         assert sender._sent_count == 1
 
-    def test_big_logentry_sends_default(self):
+    def test_big_logentry_sends_default(self) -> None:
         """Check that message was not marked as sent if GoogleApi returns error"""
         request_builder = self._generate_request_builder(
             [
