@@ -34,7 +34,7 @@ def _make_client(
             escape_newlines=escape_newlines,
         )
     sock = _StubSocket()
-    client.socket = sock
+    client.socket = sock  # type: ignore[assignment]
     return client, sock
 
 

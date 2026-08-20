@@ -3,6 +3,7 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 from functools import partial
+from typing import Any
 
 import datetime
 import errno
@@ -13,7 +14,18 @@ NILVALUE = "-"
 
 
 # pylint: disable=unused-argument
-def _rfc_5424_formatter(*, pri, rfc3339date, rfc3164date, hostname, app_id, proc_id, msg_id, msg, sd):
+def _rfc_5424_formatter(
+    *,
+    pri: int,
+    rfc3339date: str,
+    rfc3164date: str,
+    hostname: str,
+    app_id: str,
+    proc_id: str,
+    msg_id: str,
+    msg: str,
+    sd: str | None,
+) -> bytes:
     data = f"<{pri}>1 {rfc3339date} {hostname} {app_id} {proc_id} {msg_id}"
     if sd is not None:
         data += f" [{sd}]"
@@ -22,12 +34,23 @@ def _rfc_5424_formatter(*, pri, rfc3339date, rfc3164date, hostname, app_id, proc
 
 
 # pylint: disable=unused-argument
-def _rfc_3164_formatter(*, pri, rfc3339date, rfc3164date, hostname, app_id, proc_id, msg_id, msg, sd):
+def _rfc_3164_formatter(
+    *,
+    pri: int,
+    rfc3339date: str,
+    rfc3164date: str,
+    hostname: str,
+    app_id: str,
+    proc_id: str,
+    msg_id: str,
+    msg: str,
+    sd: str | None,
+) -> bytes:
     data = f"<{pri}>{rfc3164date} {hostname} {app_id}[{proc_id}]: {msg}\n"
     return data.encode("utf-8", "replace")
 
 
-def _custom_formatter(custom, **kwargs):
+def _custom_formatter(custom: str, **kwargs: Any) -> bytes:
     return custom.format(**kwargs).encode("utf-8", "replace")
 
 
@@ -46,7 +69,7 @@ _LOGLINE_VARS = {
 }
 
 
-def _generate_format(logline):
+def _generate_format(logline: str) -> str:
     """Simple tokenizer for converting rsyslog format string to python format string"""
     frmt = ""
     in_token = False
@@ -77,24 +100,24 @@ class SyslogTcpClient:
     def __init__(
         self,
         *,
-        server,
-        port,
-        rfc,
-        max_msg=None,
-        protocol=None,
-        cacerts=None,
-        keyfile=None,
-        certfile=None,
-        log_format=None,
-        octet_counted_framing=None,
-        escape_newlines=None,
-    ):
-        self.socket = None
+        server: str,
+        port: int,
+        rfc: str,
+        max_msg: int | None = None,
+        protocol: str | None = None,
+        cacerts: str | None = None,
+        keyfile: str | None = None,
+        certfile: str | None = None,
+        log_format: str | None = None,
+        octet_counted_framing: bool | None = None,
+        escape_newlines: bool | None = None,
+    ) -> None:
+        self.socket: socket.socket | None = None
         self.server = server
         self.port = port
         self.max_msg = max_msg or 2048
         self.socket_proto = socket.SOCK_STREAM
-        self.ssl_context = None
+        self.ssl_context: ssl.SSLContext | None = None
         self.octet_counted_framing = False if octet_counted_framing is None else octet_counted_framing
         self.escape_newlines = False if escape_newlines is None else escape_newlines
         if rfc == "RFC5424":
@@ -117,7 +140,7 @@ class SyslogTcpClient:
 
         self._connect()
 
-    def _connect(self):
+    def _connect(self) -> None:
         try:
             last_connection_error = None
             for addr_info in socket.getaddrinfo(self.server, self.port, socket.AF_UNSPEC, self.socket_proto):
@@ -141,7 +164,7 @@ class SyslogTcpClient:
             raise OSError(f"No addresses for {self.server}:{self.port}")
         raise last_connection_error
 
-    def close(self):
+    def close(self) -> None:
         if self.socket is None:
             return
         try:
@@ -185,7 +208,7 @@ class SyslogTcpClient:
                 if not (retry and self._should_retry(ex=ex)):
                     raise
 
-    def _should_retry(self, *, ex):
+    def _should_retry(self, *, ex: BaseException) -> bool:
         if isinstance(ex, OSError):
             return ex.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT)
         # retry to send when the SSL connection was closed unexpectedly
@@ -195,22 +218,23 @@ class SyslogTcpClient:
     def log(
         self,
         *,
-        facility,
-        severity,
-        timestamp,
-        hostname,
-        program,
-        pid=None,
-        msgid=None,
-        msg=None,
-        sd=None,
-    ):
+        facility: int,
+        severity: int,
+        timestamp: str,
+        hostname: str | None,
+        program: str | None,
+        pid: str | int | None = None,
+        msgid: str | None = None,
+        msg: str | None = None,
+        sd: str | None = None,
+    ) -> None:
         if 0 <= facility <= 23 and 0 <= severity <= 7:
             pri = facility * 8 + severity
         else:
             pri = 13
         app_id = program if program else NILVALUE
-        proc_id = pid if pid else NILVALUE
+        hostname = hostname if hostname else NILVALUE
+        proc_id = str(pid) if pid else NILVALUE
         msg_id = msgid if msgid else NILVALUE
         message = msg if msg else NILVALUE
         if self.escape_newlines:
