@@ -33,6 +33,7 @@ import json
 import os
 import pytest
 import responses
+import signal
 
 # NOTE: make sure to use google-re >= 1.1 if this is enabled.
 if os.environ.get("USE_RE2"):
@@ -1074,6 +1075,23 @@ def test_journalpump_resume_cursor(tmpdir) -> None:
     # Check that readers are initialized with the right cursors
     assert pump.readers["without_senders"].cursor == "reader_cursor"
     assert pump.readers["with_sender"].cursor == "sender_cursor"
+
+
+def test_journalpump_sighup_applies_new_readers(tmpdir) -> None:
+    journalpump_path = str(tmpdir.join("journalpump.json"))
+
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
+        json.dump({"readers": {"before_reload": {"senders": {}}}}, fp)
+
+    pump = JournalPump(journalpump_path)
+    assert set(pump.readers) == {"before_reload"}
+
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
+        json.dump({"readers": {"after_reload": {"senders": {}}}}, fp)
+
+    os.kill(os.getpid(), signal.SIGHUP)
+
+    assert set(pump.readers) == {"after_reload"}
 
 
 def test_journalpump_state_file(tmpdir):

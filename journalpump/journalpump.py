@@ -874,7 +874,7 @@ class JournalPump(ServiceDaemon, Tagged):
         # replace old readers with new ones
         for reader in self.readers.values():
             reader.request_stop()
-            reader.unregister_from_poll(self.poller)
+            self.unregister_from_poll(reader)
             self.stale_readers.add(reader)
 
         self.readers = {}
