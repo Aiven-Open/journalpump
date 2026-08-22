@@ -93,7 +93,7 @@ class _TestRsyslogd:
                     capture_output=True,
                     timeout=5,
                 )
-            except Exception:
+            except (OSError, subprocess.TimeoutExpired):
                 pass
 
         self.process = subprocess.Popen([RSYSLOGD, "-f", self.conffile, "-i", "NONE", "-n", "-C"])
@@ -141,8 +141,8 @@ def _run_pump_test(
         # Stop the journalpump and senders
         if journalpump is not None:
             journalpump.running = False
-            for _, reader in journalpump.readers.items():
-                for _, sender in reader.senders.items():
+            for reader in journalpump.readers.values():
+                for sender in reader.senders.values():
                     threads.append(sender)
                     sender.request_stop()
 
@@ -176,15 +176,15 @@ def _run_pump_test(
                 log.info("Found subsequent message: %s", line)
                 subsequent_message_found = True
                 break
-        assert (
-            subsequent_message_found
-        ), "Subsequent message not found — connection likely desynced after oversize octet-counted frame"
+        assert subsequent_message_found, (
+            "Subsequent message not found — connection likely desynced after oversize octet-counted frame"
+        )
     assert found == expected_message_count, "Expected messages not found in syslog"
     if expected_info_line_ending is not None:
         assert info_line is not None, "Info message not found in syslog"
-        assert info_line.endswith(
-            expected_info_line_ending
-        ), f"Info line ending mismatch: expected {expected_info_line_ending!r}, got {info_line!r}"
+        assert info_line.endswith(expected_info_line_ending), (
+            f"Info line ending mismatch: expected {expected_info_line_ending!r}, got {info_line!r}"
+        )
 
 
 @pytest.mark.parametrize(

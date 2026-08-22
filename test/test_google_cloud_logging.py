@@ -2,15 +2,14 @@ from .data import GCP_PRIVATE_KEY
 from googleapiclient.http import RequestMockBuilder as GoogleApiClientRequestMockBuilder
 from httplib2 import Response as HttpLib2Response
 from journalpump.senders.google_cloud_logging import GoogleCloudLoggingSender
-from typing import Dict, List
+from typing import Any, ClassVar
 from unittest import mock
 
 import json
 
 
 class TestGoogleCloudLoggingSender:
-
-    CONFIG = {
+    CONFIG: ClassVar[dict[str, Any]] = {
         "google_cloud_logging_project_id": "project-id",
         "google_cloud_logging_log_id": "log-id",
         "google_cloud_logging_resource_labels": {
@@ -31,7 +30,7 @@ class TestGoogleCloudLoggingSender:
         },
     }
 
-    def _generate_request_builder(self, entries: List[Dict[str, str]], error=None) -> GoogleApiClientRequestMockBuilder:
+    def _generate_request_builder(self, entries: list[dict[str, str]], error=None) -> GoogleApiClientRequestMockBuilder:
         """Generate typical response body with patched `entries` key"""
 
         expected_body = {

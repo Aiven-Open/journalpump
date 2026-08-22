@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from typing import Dict, Optional
-
 import argparse
 import json
 import multiprocessing
@@ -15,13 +13,13 @@ import sys
 import tempfile
 import time
 
-MESSAGE_DEFAULTS: Dict[str, str] = {
+MESSAGE_DEFAULTS: dict[str, str] = {
     "PRIORITY": "6",
     "SYSLOG_IDENTIFIER": "journald-gen-logs",
 }
 
 
-def _encode_message(data: Dict[str, str]) -> bytes:
+def _encode_message(data: dict[str, str]) -> bytes:
     """Encode to journald native protocol message.
 
     >>> _encode_message({"MEESAGE": "Something happened"})
@@ -66,9 +64,9 @@ class JournalControlProcess:
 
     def __init__(self, *, logs_dir: pathlib.Path, uid: int) -> None:
         self._logs_dir: pathlib.Path = logs_dir
-        self._runtime_dir: Optional[pathlib.Path] = None
-        self._journald_process: Optional[subprocess.Popen] = None
-        self._sender_process: Optional[multiprocessing.Process] = None
+        self._runtime_dir: pathlib.Path | None = None
+        self._journald_process: subprocess.Popen | None = None
+        self._sender_process: multiprocessing.Process | None = None
         self._sender_queue: multiprocessing.JoinableQueue = multiprocessing.JoinableQueue()
         self._uid = uid
 
@@ -119,7 +117,7 @@ class JournalControlProcess:
         s.sendall(b'{"method": "io.systemd.Journal.Rotate"}\0')
         s.recv(100)
 
-    def send_message(self, message: Dict[str, str]) -> None:
+    def send_message(self, message: dict[str, str]) -> None:
         """Send message to journald."""
         assert self._sender_process
 
@@ -134,7 +132,8 @@ class JournalControlProcess:
         sender_process.start()
         return sender_process
 
-    def __enter__(self) -> JournalControlProcess:
+    # typing.Self, which ruff wants here, needs 3.11; journalpump still supports 3.10.
+    def __enter__(self) -> JournalControlProcess:  # noqa: PYI034
         self._runtime_dir = pathlib.Path(tempfile.mkdtemp(prefix="journald_runtime_"))
         os.chown(self._runtime_dir, self._uid, -1)
 
@@ -157,7 +156,8 @@ class JournalControlProcess:
         shutil.rmtree(self._runtime_dir)
 
 
-_PARSER = argparse.ArgumentParser(usage="""Genrate journald log files.
+_PARSER = argparse.ArgumentParser(
+    usage="""Genrate journald log files.
 This program reads messages from stdin in following format
 
 msg Test 1
@@ -167,7 +167,8 @@ msg Test 2
 
 msg command argument be either plain message or json object
 rotate command invokes journald rotation
-""")
+"""
+)
 _PARSER.add_argument("--uid", type=int, default=1000, help="user id of log sender")
 
 
@@ -175,14 +176,13 @@ def main():
     args = _PARSER.parse_args()
 
     if os.geteuid() != 0:
-        raise Exception("Should be run as a root user to be able to rotate")
+        sys.exit("Should be run as a root user to be able to rotate")
 
     logs_dir = pathlib.Path(tempfile.mkdtemp(prefix="journald_logs_"))
     uid = args.uid
     os.chown(logs_dir, uid, -1)
 
     with JournalControlProcess(logs_dir=logs_dir, uid=uid) as journald_process:
-
         while True:
             entry = input()
             if not entry:

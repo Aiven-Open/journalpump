@@ -130,7 +130,7 @@ class SyslogTcpClient:
                         self.socket = self.ssl_context.wrap_socket(self.socket, server_hostname=self.server)
                     self.socket.connect(sock_addr)
                     return
-                except Exception as ex:  # pylint: disable=broad-except
+                except OSError as ex:
                     if self.socket is not None:
                         self.socket.close()
                     last_connection_error = ex
@@ -144,7 +144,7 @@ class SyslogTcpClient:
             return
         try:
             self.socket.close()
-        except Exception:  # pylint: disable=broad-except
+        except OSError:
             pass
         finally:
             self.socket = None
@@ -166,7 +166,7 @@ class SyslogTcpClient:
                     # No trailing newline — it would be parsed as the start of
                     # the next frame's length prefix and desync the stream.
                     body = message[: self.max_msg]
-                    frame = f"{len(body)} ".encode("utf-8") + body
+                    frame = f"{len(body)} ".encode() + body
                     self.socket.sendall(frame)
                 else:
                     # Non-transparent framing (RFC 6587 section 3.4.2): frames
@@ -188,9 +188,7 @@ class SyslogTcpClient:
             return ex.errno in (errno.EPIPE, errno.ECONNRESET, errno.ETIMEDOUT)
         # retry to send when the SSL connection was closed unexpectedly
         # with message 'EOF occurred in violation of protocol'
-        if isinstance(ex, ssl.SSLEOFError):
-            return True
-        return False
+        return isinstance(ex, ssl.SSLEOFError)
 
     def log(
         self,
@@ -215,7 +213,11 @@ class SyslogTcpClient:
         message = msg if msg else NILVALUE
         if self.escape_newlines:
             message = message.replace("\r", "\\r").replace("\n", "\\n")
-        rfc3164date = datetime.datetime.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S").strftime("%b %d %H:%M:%S")
+        # Callers pass UTC; RFC3164 has no offset field, so this only reformats the wall clock.
+        parsed_timestamp = datetime.datetime.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S").replace(
+            tzinfo=datetime.timezone.utc
+        )
+        rfc3164date = parsed_timestamp.strftime("%b %d %H:%M:%S")
 
         self.send(
             self.formatter(

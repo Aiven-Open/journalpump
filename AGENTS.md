@@ -63,14 +63,13 @@ make unittest systest
 
 ## Development Conventions
 
-*   **Coding Style**: The project uses `black` for code formatting and `isort` for import sorting. It also uses `.flake8`, `.pylintrc`, and `.style.yapf` to enforce coding style. Note that a number of `pylint` checks are disabled in the `.pylintrc` file.
+*   **Coding Style**: The project uses `ruff` for code formatting, linting, and import sorting, configured in `pyproject.toml`. It also uses `.pylintrc` to enforce coding style. Note that a number of `pylint` checks are disabled in the `.pylintrc` file.
 *   **Dependencies**: Project dependencies are managed in `requirements.txt` and `requirements.dev.txt`.
 *   **Pre-commit Hooks**: `.pre-commit-config.yaml` is present, indicating the use of pre-commit hooks to maintain code quality. The following hooks are configured:
     *   `check-yaml`: Checks YAML files for syntax errors.
     *   `end-of-file-fixer`: Ensures that files end with a newline.
     *   `trailing-whitespace`: Trims trailing whitespace.
-    *   `flake8`: Checks for Python style and quality issues.
-    *   `black`: Formats Python code.
+    *   `ruff-check`: Checks for Python style and quality issues, including import sorting.
+    *   `ruff-format`: Formats Python code.
     *   `pylint`: Analyzes Python code for errors and code smells.
     *   `mypy`: Performs static type checking.
-    *   `isort`: Sorts Python imports.

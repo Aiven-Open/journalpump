@@ -1,9 +1,9 @@
-from typing import Any, Dict
+from typing import Any
 
 import importlib
 
 # config name <--> class mapping
-output_type_to_sender_class_path: Dict[str, str] = {
+output_type_to_sender_class_path: dict[str, str] = {
     "aws_cloudwatch": "journalpump.senders.aws_cloudwatch.AWSCloudWatchSender",
     "elasticsearch": "journalpump.senders.elasticsearch_opensearch_sender.ElasticsearchSender",
     "opensearch": "journalpump.senders.elasticsearch_opensearch_sender.OpenSearchSender",
@@ -16,7 +16,7 @@ output_type_to_sender_class_path: Dict[str, str] = {
 }
 
 # mapping to actual classes; primarily used by tests but used as cache here too
-output_type_to_sender_class: Dict[str, Any] = {}
+output_type_to_sender_class: dict[str, Any] = {}
 
 
 def get_sender_class(output_type):

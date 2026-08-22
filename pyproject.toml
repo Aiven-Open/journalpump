@@ -1,10 +1,10 @@
-[tool.black]
+[tool.ruff]
 line-length = 125
+target-version = "py310"
 
-[tool.isort]
-no_sections = true
-force_alphabetical_sort = true
-combine_as_imports = true
-profile = "black"
-skip_gitignore = true
-line_length = 125
+[tool.ruff.lint.isort]
+no-sections = true
+from-first = true
+lines-between-types = 1
+order-by-type = false
+combine-as-imports = true

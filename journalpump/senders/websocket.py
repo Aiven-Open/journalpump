@@ -101,7 +101,8 @@ class WebsocketRunner(Thread):
 
             try:
                 await self.websocket.send(message)
-            except Exception as ex:  # pylint:disable=broad-except
+            # Deliberately blind: any send failure means reconnect and retry, never a dead runner.
+            except Exception as ex:  # noqa: BLE001  # pylint:disable=broad-except
                 self.log.warning("Exception while sending messages to websocket: %s", ex)
                 return False
 
@@ -270,8 +271,8 @@ class WebsocketRunner(Thread):
             self.log.error("Websocket certificate verification error: %r. Retrying.", ex)
         except OSError as ex:  # Network unreachable, etc, may happen sporadically
             self.log.warning("Websocket connection error: %r. Retrying.", ex)
-        except Exception as ex:  # pylint:disable=broad-except
-            self.log.exception("Unhandled exception occurred on websocket connection: %r", ex)
+        except Exception:  # pylint:disable=broad-except
+            self.log.exception("Unhandled exception occurred on websocket connection")
         finally:
             self.websocket = None
 
@@ -335,11 +336,7 @@ class WebsocketSender(LogSender):
                 runner.start()
             except Exception as ex:  # pylint:disable=broad-except
                 self.mark_disconnected(ex)
-                self.log.exception(
-                    "Retriable error during Websocket initialization: %s: %s",
-                    ex.__class__.__name__,
-                    ex,
-                )
+                self.log.exception("Retriable error during Websocket initialization")
                 self._backoff()
             else:
                 self.log.info("Initialized Websocket client, address: %r for %s", self.config["websocket_uri"], self.name)

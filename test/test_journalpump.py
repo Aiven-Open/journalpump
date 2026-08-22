@@ -200,8 +200,9 @@ def test_journalpump_init(tmpdir):  # pylint: disable=too-many-statements
         assert rn == "foo"
         mock_session = mock.MagicMock(spec=botocore.session.Session)
         mock_session.create_client = mock.Mock()
-        with mock.patch("botocore.session.get_session", return_value=mock_session), mock.patch.object(
-            PumpReader, "has_persistent_files", return_value=True
+        with (
+            mock.patch("botocore.session.get_session", return_value=mock_session),
+            mock.patch.object(PumpReader, "has_persistent_files", return_value=True),
         ):
             r.create_journald_reader_if_missing()
             assert len(r.senders) == 1
@@ -1059,7 +1060,7 @@ def test_journalpump_resume_cursor(tmpdir) -> None:
                 "senders": {"fake_syslog": {"sent": {"cursor": "sender_cursor"}}},
             },
         },
-        "start_time": datetime.now().isoformat(),
+        "start_time": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     }
 
     with open(journalpump_path, "w", encoding="utf-8") as fp:
@@ -1097,7 +1098,7 @@ def test_journalpump_state_file(tmpdir):
         fp.write(json.dumps(config))
 
     pump = JournalPump(journalpump_path)
-    for _, reader in pump.readers.items():
+    for reader in pump.readers.values():
         reader.initialize_senders()
         sleep(1.1)
         reader.request_stop()
@@ -1506,7 +1507,7 @@ def test_single_sender_init_fail():
     journal_reader.initialize_senders()
     # Now we should have both "bar" and "cafe"
     assert len(journal_reader.senders) == 2
-    assert sorted(list(journal_reader.senders.keys())) == ["bar", "cafe"]
+    assert sorted(journal_reader.senders.keys()) == ["bar", "cafe"]
     assert journal_reader._initialized_senders == {  # pylint: disable=protected-access
         "bar",
         "cafe",
@@ -1546,8 +1547,9 @@ def test_journalpump_init_journal_files(tmpdir, has_persistent_files, has_runtim
     for rn, r in a.readers.items():
         assert rn == "foo"
 
-        with mock.patch.object(PumpReader, "has_persistent_files", return_value=has_persistent_files), mock.patch.object(
-            PumpReader, "has_runtime_files", return_value=has_runtime_files
+        with (
+            mock.patch.object(PumpReader, "has_persistent_files", return_value=has_persistent_files),
+            mock.patch.object(PumpReader, "has_runtime_files", return_value=has_runtime_files),
         ):
             r.create_journald_reader_if_missing()
 

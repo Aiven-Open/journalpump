@@ -8,9 +8,10 @@ from .senders import get_sender_class
 from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
 from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
+from collections.abc import Mapping
 from functools import lru_cache, reduce
 from systemd import journal
-from typing import Any, cast, Dict, List, Mapping, NamedTuple, Optional, Tuple, Type, Union
+from typing import Any, cast, NamedTuple
 
 import copy
 import datetime
@@ -67,7 +68,7 @@ converters = {
 
 class SingleMessageReadResult(NamedTuple):
     has_more: bool
-    bytes_read: Optional[int]
+    bytes_read: int | None
 
 
 class MessagesReadResult(NamedTuple):
@@ -95,7 +96,7 @@ class PumpReader(journal.Reader):
             if isinstance(value, bytes):
                 try:
                     value = bytes.decode(value)
-                except Exception:  # pylint: disable=broad-except
+                except UnicodeDecodeError:
                     pass
 
             output[key] = value
@@ -108,7 +109,7 @@ class PumpReader(journal.Reader):
         for part in cursor.split(";"):
             if part.startswith("i="):
                 try:
-                    return int(part[2:], 16)
+                    return int(part.removeprefix("i="), 16)
                 except ValueError:
                     return None
         return None
@@ -173,7 +174,7 @@ class JournalReader(Tagged):
         self._failed_senders: int = 0
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
-        self.persistent_gauges: Dict[str, Tuple[int, Dict[str, str]]] = {}
+        self.persistent_gauges: dict[str, tuple[int, dict[str, str]]] = {}
         self.searches = list(self._build_searches(searches))
         self.secret_filter_matches = 0
         self.secret_filters = self._validate_and_build_secret_filters(config)
@@ -191,7 +192,7 @@ class JournalReader(Tagged):
             self.journald_reader.close()
             self.journald_reader = None
 
-    def fileno(self) -> Optional[int]:
+    def fileno(self) -> int | None:
         return self.journald_reader and self.journald_reader.fileno()
 
     def create_journald_reader_if_missing(self) -> None:
@@ -278,7 +279,7 @@ class JournalReader(Tagged):
 
     def initialize_senders(self):
         configured_senders = self.config.get("senders", {})
-        tags: Dict[str, str] = {}
+        tags: dict[str, str] = {}
         for sender_name, sender_config in configured_senders.items():
             if sender_name in self._initialized_senders:
                 continue
@@ -329,7 +330,7 @@ class JournalReader(Tagged):
         # this occurs, or we exit.
         self.set_persistent_gauge(metric="sender.failed_to_start", value=self._failed_senders, tags=self.make_tags(tags))
 
-    def set_persistent_gauge(self, *, metric: str, value: int, tags: Dict[str, str]) -> None:
+    def set_persistent_gauge(self, *, metric: str, value: int, tags: dict[str, str]) -> None:
         """Set/update a metric level (and tags) for a given metric.
         These values will be periodically re-sent, ensuring the value
         is not discarded by the statsd server.
@@ -409,7 +410,7 @@ class JournalReader(Tagged):
                 self.stats.increase("journal.corrupted_log_entry", tags=tags)
                 self.log.warning("Corrupted log entry in %s", self.name)
                 return None
-            raise ex
+            raise
         except StopIteration:
             self.log.debug("No more journal entries to read")
             return None
@@ -557,10 +558,7 @@ class JournalReader(Tagged):
             yield output
 
     def _configure_secret_filter_metrics(self, config):
-        secret_filter_metrics = config.get("secret_filter_metrics")
-        if secret_filter_metrics is True:
-            return True
-        return False
+        return config.get("secret_filter_metrics") is True
 
     def _validate_and_build_secret_filters(self, config):
         secret_filters = config.get("secret_filters")
@@ -568,7 +566,9 @@ class JournalReader(Tagged):
             return []
 
         if not isinstance(secret_filters, list):
-            raise ValueError("invalid secret_filters configuration - must be a list")
+            # ValueError, not the TypeError ruff suggests: every rejection of this config key
+            # raises ValueError, and callers distinguish bad config by that one type.
+            raise ValueError("invalid secret_filters configuration - must be a list")  # noqa: TRY004
 
         for secret_filter in secret_filters:
             if secret_filter.get("replacement") is None:
@@ -659,12 +659,10 @@ class JournalReader(Tagged):
         )
 
 
-def check_match(*, entry: Mapping[str, Any], match_key: Optional[str], match_value: Any) -> bool:
+def check_match(*, entry: Mapping[str, Any], match_key: str | None, match_value: Any) -> bool:
     if not match_key:
         return True
-    if entry.get(match_key) == match_value:
-        return True
-    return False
+    return entry.get(match_key) == match_value
 
 
 class FieldFilter:
@@ -678,9 +676,9 @@ class FieldFilter:
 
 
 class UnitLogLevel:
-    def __init__(self, name: str, config: List[Dict[str, str]]):
+    def __init__(self, name: str, config: list[dict[str, str]]):
         self.name = name
-        self.levels = config
+        self.levels = tuple((level["service_glob"], level["log_level"]) for level in config)
 
     def filter_by_level(self, data):
         entry = data
@@ -698,17 +696,18 @@ class UnitLogLevel:
             # if the config is empty we return as is
             return data
 
-        if self._unit_match_level_glob(unit=unit, priority=priority):
+        if _unit_match_level_glob(self.levels, unit=unit, priority=priority):
             return data
 
         return {}
 
-    @lru_cache(maxsize=100)
-    def _unit_match_level_glob(self, *, unit: str, priority: int) -> bool:
-        for level in self.levels:
-            if fnmatch.fnmatch(unit, level["service_glob"]) and priority > LOG_SEVERITY_MAPPING[level["log_level"]]:
-                return False
-        return True
+
+@lru_cache(maxsize=100)
+def _unit_match_level_glob(levels: tuple[tuple[str, str], ...], *, unit: str, priority: int) -> bool:
+    for service_glob, log_level in levels:
+        if fnmatch.fnmatch(unit, service_glob) and priority > LOG_SEVERITY_MAPPING[log_level]:
+            return False
+    return True
 
 
 class JournalObjectHandler:
@@ -732,9 +731,8 @@ class JournalObjectHandler:
             self.log.debug("No more journal entries to read")
             return SingleMessageReadResult(has_more=False, bytes_read=None)
 
-        if self.reader.searches:
-            if not self.reader.perform_searches(self.jobject):
-                return SingleMessageReadResult(has_more=True, bytes_read=None)
+        if self.reader.searches and not self.reader.perform_searches(self.jobject):
+            return SingleMessageReadResult(has_more=True, bytes_read=None)
 
         if not self.pump.check_match(new_entry):
             return SingleMessageReadResult(has_more=True, bytes_read=None)
@@ -933,7 +931,7 @@ class JournalPump(ServiceDaemon, Tagged):
         geoip_db_path = self.config.get("geoip_database")
         if geoip_db_path:
             self.log.info("Loading GeoIP data from %r", geoip_db_path)
-            GeoIPReader: Union[Type[GeoIPProtocol], None]
+            GeoIPReader: type[GeoIPProtocol] | None
             try:
                 from geoip2.database import Reader as GeoIPReader  # pylint: disable=import-outside-toplevel
             except ImportError as ex:
@@ -979,7 +977,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
     def read_single_message(self, reader) -> SingleMessageReadResult:
         try:
-            jobject: Optional[JournalObject] = reader.read_next()
+            jobject: JournalObject | None = reader.read_next()
             if jobject is None or jobject.entry is None:
                 return SingleMessageReadResult(has_more=False, bytes_read=None)
 

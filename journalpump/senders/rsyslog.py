@@ -78,7 +78,7 @@ class RsyslogSender(LogSender):
                 _facility = message.get("SYSLOG_FACILITY")
                 try:
                     facility = int(_facility[0] if isinstance(_facility, list) else _facility)
-                except Exception:  # pylint: disable=broad-except
+                except (IndexError, TypeError, ValueError):
                     facility = self.default_facility
 
                 severity = int(message.get("PRIORITY", self.default_severity))
