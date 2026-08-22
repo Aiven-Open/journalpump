@@ -1099,6 +1099,32 @@ def test_journalpump_sighup_applies_new_readers(tmp_path: Path) -> None:
     assert set(pump.readers) == {"after_reload"}
 
 
+def test_journalpump_sigterm_at_end_of_iteration(tmp_path: Path) -> None:
+    journalpump_path = tmp_path / "journalpump.json"
+
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
+        json.dump({"readers": {"reader": {"senders": {}}}}, fp)
+
+    pump = JournalPump(journalpump_path)
+
+    registered_fds: list[int] = []
+
+    def stop_at_end_of_iteration() -> None:
+        registered_fds.extend(pump.reader_by_fd)
+        signal.raise_signal(signal.SIGTERM)
+
+    # The last statement of the loop body, so the signal lands after the
+    # iteration purged its stale fds and after the reader was registered.
+    with (
+        mock.patch.object(pump, "ping_watchdog", side_effect=stop_at_end_of_iteration),
+        mock.patch.object(PumpReader, "has_persistent_files", return_value=True),
+    ):
+        pump.run()
+
+    assert registered_fds, "reader never made it into the poller, so teardown was not exercised"
+    assert not pump.stale_readers
+
+
 def test_journalpump_state_file(tmp_path: Path) -> None:
     journalpump_path = tmp_path / "journalpump.json"
     statefile_path = tmp_path / "journalpump_state.json"
