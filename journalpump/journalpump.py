@@ -1089,7 +1089,9 @@ class JournalPump(ServiceDaemon, Tagged):
 
     def unregister_from_poll(self, reader: JournalReader) -> None:
         fd = reader.fileno()
-        if fd is not None and fd in self.reader_by_fd:
+        # An unregistered fd keeps its key until the run loop drops the stale
+        # marker, so key presence would also match fds already out of the poller.
+        if fd is not None and self.reader_by_fd.get(fd) is reader:
             self.poller.unregister(fd)
             self.reader_by_fd[fd] = self._STALE_FD
             self.log.info("Unregistered reader %r with fd %r", reader.name, fd)
