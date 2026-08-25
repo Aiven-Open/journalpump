@@ -35,7 +35,7 @@ def _encode_message(data: dict[str, str]) -> bytes:
     return b"\n".join(result) + b"\n"
 
 
-def _message_sender(uid: int, message_socket_path: str, queue: multiprocessing.JoinableQueue):
+def _message_sender(uid: int, message_socket_path: str, queue: multiprocessing.JoinableQueue[dict[str, str] | None]) -> None:
     """Send messages to journald using native protocol.
 
     NB. Message send in a separate process to be able to write to the socket as non-root user.
@@ -65,9 +65,9 @@ class JournalControlProcess:
     def __init__(self, *, logs_dir: pathlib.Path, uid: int) -> None:
         self._logs_dir: pathlib.Path = logs_dir
         self._runtime_dir: pathlib.Path | None = None
-        self._journald_process: subprocess.Popen | None = None
+        self._journald_process: subprocess.Popen[bytes] | None = None
         self._sender_process: multiprocessing.Process | None = None
-        self._sender_queue: multiprocessing.JoinableQueue = multiprocessing.JoinableQueue()
+        self._sender_queue: multiprocessing.JoinableQueue[dict[str, str] | None] = multiprocessing.JoinableQueue()
         self._uid = uid
 
     @property
@@ -80,12 +80,12 @@ class JournalControlProcess:
         assert self._runtime_dir
         return str(self._runtime_dir / self.MESSAGE_SOCKET_NAME)
 
-    def _start_journald(self) -> subprocess.Popen:
+    def _start_journald(self) -> subprocess.Popen[bytes]:
         assert self._runtime_dir
 
         environment = {
-            "LOGS_DIRECTORY": self._logs_dir,
-            "RUNTIME_DIRECTORY": self._runtime_dir,
+            "LOGS_DIRECTORY": str(self._logs_dir),
+            "RUNTIME_DIRECTORY": str(self._runtime_dir),
         }
         journald_process = subprocess.Popen(
             [self.JOURNALD_BIN, "test"],
@@ -142,7 +142,7 @@ class JournalControlProcess:
 
         return self
 
-    def __exit__(self, *args) -> None:
+    def __exit__(self, *_args: object) -> None:
         assert self._runtime_dir
         assert self._journald_process
         assert self._sender_process
@@ -172,7 +172,7 @@ rotate command invokes journald rotation
 _PARSER.add_argument("--uid", type=int, default=1000, help="user id of log sender")
 
 
-def main():
+def main() -> int:
     args = _PARSER.parse_args()
 
     if os.geteuid() != 0:
@@ -187,21 +187,20 @@ def main():
             entry = input()
             if not entry:
                 break
-            action, *args = entry.strip().split(" ", 1)
+            action, *action_args = entry.strip().split(" ", 1)
 
             if action == "rotate":
                 journald_process.rotate()
 
             elif action == "msg":
-                if len(args) != 1:
-                    raise ValueError(f"Not enough args for msg {args}")
+                if len(action_args) != 1:
+                    raise ValueError(f"Not enough args for msg {action_args}")
 
-                msg = args[0].strip()
-
-                if msg.startswith("{"):
-                    msg = json.loads(msg)
+                raw = action_args[0].strip()
+                if raw.startswith("{"):
+                    msg = json.loads(raw)
                 else:
-                    msg = {"MESSAGE": msg}
+                    msg = {"MESSAGE": raw}
 
                 journald_process.send_message(msg)
 

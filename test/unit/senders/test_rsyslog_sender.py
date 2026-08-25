@@ -1,4 +1,5 @@
 from journalpump.senders.rsyslog import RsyslogSender
+from typing import Any
 from unittest import mock
 
 import datetime
@@ -6,7 +7,7 @@ import json
 import pytest
 
 
-def _make_sender():
+def _make_sender() -> RsyslogSender:
     return RsyslogSender(
         config={"rsyslog_server": "127.0.0.1", "rsyslog_port": 514},
         name="test-rsyslog",
@@ -16,12 +17,12 @@ def _make_sender():
     )
 
 
-def _encode(data: dict) -> bytes:
+def _encode(data: dict[str, Any]) -> bytes:
     return json.dumps(data).encode("utf-8")
 
 
 class TestRsyslogSenderMissingTimestamp:
-    def test_send_succeeds_with_timestamp(self):
+    def test_send_succeeds_with_timestamp(self) -> None:
         """Normal path: message with timestamp is forwarded without warnings."""
         sender = _make_sender()
         sender.rsyslog_client = mock.Mock()
@@ -43,7 +44,7 @@ class TestRsyslogSenderMissingTimestamp:
         assert call_kwargs["timestamp"] == "2025-06-26T14:52:33.581000Z"
         mock_warn.assert_not_called()
 
-    def test_send_succeeds_without_timestamp(self):
+    def test_send_succeeds_without_timestamp(self) -> None:
         """Missing timestamp does not crash; a fallback timestamp is used instead."""
         sender = _make_sender()
         sender.rsyslog_client = mock.Mock()
@@ -55,7 +56,7 @@ class TestRsyslogSenderMissingTimestamp:
         assert result is True
         sender.rsyslog_client.log.assert_called_once()
 
-    def test_fallback_timestamp_is_valid_iso(self):
+    def test_fallback_timestamp_is_valid_iso(self) -> None:
         """Fallback timestamp produced when field is absent is a valid ISO-8601 string."""
         sender = _make_sender()
         sender.rsyslog_client = mock.Mock()
@@ -71,7 +72,7 @@ class TestRsyslogSenderMissingTimestamp:
         parsed = datetime.datetime.fromisoformat(ts_str.rstrip("Z"))
         assert before <= parsed <= after
 
-    def test_warning_logged_when_timestamp_missing(self):
+    def test_warning_logged_when_timestamp_missing(self) -> None:
         """A warning is emitted for every message that lacks a timestamp field."""
         sender = _make_sender()
         sender.rsyslog_client = mock.Mock()
@@ -84,7 +85,7 @@ class TestRsyslogSenderMissingTimestamp:
         mock_warn.assert_called_once()
         assert "timestamp" in mock_warn.call_args.args[0].lower()
 
-    def test_truncated_message_without_timestamp_does_not_crash(self):
+    def test_truncated_message_without_timestamp_does_not_crash(self) -> None:
         """Messages produced by _truncate_long_message (no timestamp) are handled gracefully."""
         sender = _make_sender()
         sender.rsyslog_client = mock.Mock()
@@ -108,7 +109,7 @@ class TestRsyslogSenderMissingTimestamp:
             ("6", 6),
         ],
     )
-    def test_priority_used_as_severity(self, priority, expected_severity):
+    def test_priority_used_as_severity(self, priority: str, expected_severity: int) -> None:
         """PRIORITY field maps to the syslog severity in the outgoing message."""
         sender = _make_sender()
         sender.rsyslog_client = mock.Mock()

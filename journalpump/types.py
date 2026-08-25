@@ -5,17 +5,29 @@ from typing import Protocol
 import enum
 
 
-class GeoIPProtocol(Protocol):
-    """
-    Provides the subset of functionality we depend on from GeoIP.
+class GeoIPLocation(Protocol):
+    @property
+    def latitude(self) -> float | None: ...
 
-    GeoIP is not a required dependency, but to typecheck we want to ensure
-    that we don't escalate the methods without necessity.
-    """
+    @property
+    def longitude(self) -> float | None: ...
+
+
+class GeoIPCity(Protocol):
+    @property
+    def location(self) -> GeoIPLocation: ...
+
+
+class GeoIPProtocol(Protocol):
+    """City-level GeoIP lookup from a database file."""
+
+    def __init__(self, filename: str) -> None: ...
+
+    def city(self, ip_address: str) -> GeoIPCity | None: ...
 
 
 class StrEnum(str, enum.Enum):
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.value)
 
 

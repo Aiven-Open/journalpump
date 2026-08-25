@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 from .base import LogSender
 from google.auth import default as get_application_default
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import Error as GoogleApiClientError
-from typing import ClassVar
+from typing import Any, ClassVar, Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from googleapiclient._apis.logging.v2.schemas import LogEntry, WriteLogEntriesRequest
 
 import contextlib
 import json
@@ -13,7 +18,9 @@ logging.getLogger("googleapiclient.discovery").setLevel(logging.WARNING)
 
 
 class GoogleCloudLoggingSender(LogSender):
-    _SEVERITY_MAPPING: ClassVar[dict[int, str]] = {  # mapping from journald priority to cloud logging severity
+    _SEVERITY_MAPPING: ClassVar[
+        dict[int, Literal["DEBUG", "INFO", "NOTICE", "WARNING", "ERROR", "CRITICAL", "ALERT", "EMERGENCY"]]
+    ] = {
         7: "DEBUG",
         6: "INFO",
         5: "NOTICE",
@@ -33,7 +40,7 @@ class GoogleCloudLoggingSender(LogSender):
     # headroom for the other fields in the LogEntry
     _MAX_MESSAGE_SIZE = 200 * 1024
 
-    def __init__(self, *, config, googleapiclient_request_builder=None, **kwargs):
+    def __init__(self, *, config: dict[str, Any], googleapiclient_request_builder: Any = None, **kwargs: Any) -> None:
         super().__init__(config=config, max_send_interval=config.get("max_send_interval", 0.3), **kwargs)
         credentials = None
         google_service_account = config.get("google_service_account_credentials")
@@ -41,10 +48,11 @@ class GoogleCloudLoggingSender(LogSender):
         self.log_id = config["google_cloud_logging_log_id"]
         self.resource_labels = config.get("google_cloud_logging_resource_labels", None)
         if google_service_account:
-            credentials = Credentials.from_service_account_info(google_service_account)
+            # google-auth ships py.typed but this factory has no annotations.
+            credentials = Credentials.from_service_account_info(google_service_account)  # type: ignore[no-untyped-call]
             self.project_id = credentials.project_id
         else:
-            credentials = get_application_default()
+            credentials, _ = get_application_default()
 
         if googleapiclient_request_builder is not None:
             self._logs = build(
@@ -57,8 +65,8 @@ class GoogleCloudLoggingSender(LogSender):
             self._logs = build("logging", "v2", credentials=credentials)
         self.mark_connected()
 
-    def send_messages(self, *, messages, cursor):
-        body = {
+    def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
+        body: WriteLogEntriesRequest = {
             "logName": f"projects/{self.project_id}/logs/{self.log_id}",
             "resource": {
                 "type": "generic_node",
@@ -91,14 +99,17 @@ class GoogleCloudLoggingSender(LogSender):
                 with contextlib.suppress(json.JSONDecodeError):
                     msg["MESSAGE"] = json.loads(msg["MESSAGE"])
 
-            entry = {
+            entry: LogEntry = {
                 "jsonPayload": msg,
             }
             if timestamp is not None:
                 entry["timestamp"] = timestamp[:26] + "Z"  # assume timestamp to be UTC
             if journald_priority is not None:
-                severity = self._SEVERITY_MAPPING.get(journald_priority, "DEFAULT")
-                entry["severity"] = severity
+                entry["severity"] = (
+                    self._SEVERITY_MAPPING.get(journald_priority, "DEFAULT")
+                    if isinstance(journald_priority, int)
+                    else "DEFAULT"
+                )
             body["entries"].append(entry)
 
         try:

@@ -5,8 +5,10 @@
 
 from .util import journalpump_initialized
 from journalpump.journalpump import JournalPump
+from pathlib import Path
 from systemd import journal
 from time import sleep
+from typing import Any
 
 import json
 import logging
@@ -22,7 +24,7 @@ import threading
 if os.environ.get("USE_RE2"):
     import re2 as re
 else:
-    import re  # type: ignore[no-redef]
+    import re
 
 
 RSYSLOGD = "/usr/sbin/rsyslogd"
@@ -39,22 +41,24 @@ log = logging.getLogger(__name__)
 
 
 class _TestRsyslogd:
-    def __init__(self, *, workdir, logfile, port):
+    def __init__(self, *, workdir: Path, logfile: Path, port: int) -> None:
         if not os.path.exists(RSYSLOGD):
             raise RuntimeError(f'"{RSYSLOGD}" not available')
 
         self.port = port
-        self.conffile = f"{workdir}/rsyslogd.conf"
-        self.process = None
+        self.conffile = workdir / "rsyslogd.conf"
+        self.process: subprocess.Popen[bytes] | None = None
 
         with open(self.conffile, "w", encoding="utf-8") as fp:
-            print(RSYSLOGD_TCP_CONF.format(logfile=logfile, port=port), file=fp)
+            print(RSYSLOGD_TCP_CONF.format(logfile=os.fspath(logfile), port=port), file=fp)
 
-    def _wait_until_running(self):
+    def _wait_until_running(self) -> None:
         # Wait until the rsyslogd port is available, but if it is not up in
         # five seconds assume that it has failed to start
         attempt = 0
         s = socket.socket()
+        if self.process is None:
+            raise RuntimeError("rsyslogd was not started")
         while (self.process.poll() is None) and (attempt < 5):
             if s.connect_ex(("127.0.0.1", self.port)) == 0:
                 s.close()
@@ -63,7 +67,7 @@ class _TestRsyslogd:
             attempt += 1
         raise RuntimeError("rsyslogd failed to start correctly")
 
-    def start(self):
+    def start(self) -> None:
         # Start rsyslogd in the foreground
         # pylint: disable=consider-using-with
 
@@ -100,7 +104,7 @@ class _TestRsyslogd:
 
         self._wait_until_running()
 
-    def stop(self):
+    def stop(self) -> None:
         if self.process is not None:
             if self.process.poll() is not None:
                 raise RuntimeError("rsyslogd did not start properly")
@@ -111,13 +115,13 @@ class _TestRsyslogd:
 
 def _run_pump_test(
     *,
-    config_path,
-    logfile,
-    messages_to_send,
-    expected_message_count,
+    config_path: Path,
+    logfile: Path,
+    messages_to_send: list[dict[str, Any]],
+    expected_message_count: int,
     expected_info_line_ending: str | None = None,
-    expected_subsequent_message=None,
-):
+    expected_subsequent_message: str | None = None,
+) -> None:
     journalpump = None
     threads = []
     try:
@@ -265,16 +269,16 @@ def _run_pump_test(
     ],
 )
 def test_rsyslogd_tcp_sender(
-    tmpdir,
-    messages_to_send,
-    sender_config,
-    expected_message_count,
-    expected_info_line_ending,
-    expected_subsequent_message,
-):
-    workdir = tmpdir.dirname
-    logfile = f"{workdir}/test.log"
-    config_path = f"{workdir}/journalpump.json"
+    tmp_path: Path,
+    messages_to_send: list[dict[str, Any]],
+    sender_config: dict[str, Any],
+    expected_message_count: int,
+    expected_info_line_ending: str | None,
+    expected_subsequent_message: str | None,
+) -> None:
+    workdir = tmp_path
+    logfile = tmp_path / "test.log"
+    config_path = tmp_path / "journalpump.json"
     with open(config_path, "w", encoding="utf-8") as fp:
         json.dump(
             {

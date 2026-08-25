@@ -1,5 +1,6 @@
 from .base import LogSender
 from journalpump.rsyslog import SyslogTcpClient
+from typing import Any
 
 import datetime
 import json
@@ -10,18 +11,18 @@ RSYSLOG_CONN_ERRORS = (socket.timeout, ConnectionRefusedError, TimeoutError)
 
 
 class RsyslogSender(LogSender):
-    def __init__(self, *, config, **kwargs):
+    def __init__(self, *, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(
             config=config,
             max_send_interval=config.get("max_send_interval", 0.3),
             **kwargs,
         )
-        self.rsyslog_client = None
-        self.sd = None
+        self.rsyslog_client: SyslogTcpClient | None = None
+        self.sd: str | None = None
         self.default_facility = 1
         self.default_severity = 6
 
-    def _init_rsyslog_client(self):
+    def _init_rsyslog_client(self) -> None:
         self.log.info("Initializing Rsyslog Client %s", self.name)
         self.mark_disconnected()
         while self.running:
@@ -33,7 +34,7 @@ class RsyslogSender(LogSender):
                 self.default_severity = self.config.get("default_severity", 6)
                 self.sd = self.config.get("structured_data")
 
-                server = self.config.get("rsyslog_server")
+                server = self.config["rsyslog_server"]
                 port = self.config.get("rsyslog_port", 514)
 
                 self.rsyslog_client = SyslogTcpClient(
@@ -68,9 +69,11 @@ class RsyslogSender(LogSender):
             self.rsyslog_client = None
             time.sleep(5.0)
 
-    def send_messages(self, *, messages, cursor):
-        if not self.rsyslog_client:
+    def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
+        if self.rsyslog_client is None:
             self._init_rsyslog_client()
+        if self.rsyslog_client is None:
+            return False
 
         try:
             for msg in messages:

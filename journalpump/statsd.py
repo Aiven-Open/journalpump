@@ -12,23 +12,29 @@ import socket
 
 
 class StatsClient:
-    def __init__(self, host="127.0.0.1", port=8125, tags=None, prefix=""):
+    def __init__(
+        self,
+        host: str | None = "127.0.0.1",
+        port: int | None = 8125,
+        tags: dict[str, str] | None = None,
+        prefix: str = "",
+    ) -> None:
         self._dest_addr = (host, port)
         self.log = logging.getLogger("StatsClient")
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._tags = tags or {}
         self._prefix = prefix
 
-    def gauge(self, metric, value, tags=None):
+    def gauge(self, metric: str, value: float, tags: dict[str, str] | None = None) -> None:
         self._send(metric, b"g", value, tags)
 
-    def increase(self, metric, inc_value=1, tags=None):
+    def increase(self, metric: str, inc_value: int = 1, tags: dict[str, str] | None = None) -> None:
         self._send(metric, b"c", inc_value, tags)
 
-    def timing(self, metric, value, tags=None):
+    def timing(self, metric: str, value: float, tags: dict[str, str] | None = None) -> None:
         self._send(metric, b"ms", value, tags)
 
-    def unexpected_exception(self, ex, where, tags=None):
+    def unexpected_exception(self, ex: BaseException, where: str, tags: dict[str, str] | None = None) -> None:
         all_tags = {
             "exception": ex.__class__.__name__,
             "where": where,
@@ -36,7 +42,7 @@ class StatsClient:
         all_tags.update(tags or {})
         self.increase("exception", tags=all_tags)
 
-    def _send(self, metric: str, metric_type: bytes, value, tags):
+    def _send(self, metric: str, metric_type: bytes, value: object, tags: dict[str, str] | None) -> None:
         if None in self._dest_addr:
             # stats sending is disabled
             return

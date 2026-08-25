@@ -2,15 +2,19 @@
 #
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
+from __future__ import annotations
+
 from . import geohash, statsd
 from .daemon import ServiceDaemon
 from .senders import get_sender_class
-from .senders.base import MAX_KAFKA_MESSAGE_SIZE, Tagged
+from .senders.base import LogSender, MAX_KAFKA_MESSAGE_SIZE, Tagged
 from .types import GeoIPProtocol, LOG_SEVERITY_MAPPING
 from .util import atomic_replace_file, default_json_serialization
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 from functools import lru_cache, reduce
+from pathlib import Path
 from systemd import journal
+from types import FrameType
 from typing import Any, cast, NamedTuple
 
 import copy
@@ -27,26 +31,26 @@ import uuid
 if os.environ.get("USE_RE2"):
     import re2 as re
 else:
-    import re  # type: ignore[no-redef]
+    import re
 
 _5_MB = 5 * 1024 * 1024
 CHUNK_SIZE = 5000
 TRUNCATED_MESSAGE_PREVIEW_SIZE = 1024
 
 
-def _convert_uuid(s):
+def _convert_uuid(s: bytes) -> str:
     return str(uuid.UUID(s.decode()))
 
 
-def convert_mon(s):  # pylint: disable=unused-argument
+def convert_mon(s: object) -> None:  # pylint: disable=unused-argument
     return None
 
 
-def convert_realtime(t):
+def convert_realtime(t: Any) -> float:
     return int(t) / 1000000.0  # Stock systemd transforms these into datetimes
 
 
-converters = {
+converters: dict[str, Callable[[Any], Any]] = {
     "CODE_LINE": int,
     "COREDUMP_TIMESTAMP": convert_realtime,
     "MESSAGE_ID": _convert_uuid,
@@ -77,15 +81,15 @@ class MessagesReadResult(NamedTuple):
 
 
 class JournalObject:
-    def __init__(self, cursor=None, entry=None):
+    def __init__(self, cursor: str | None = None, entry: dict[str, Any] | None = None) -> None:
         self.cursor = cursor
-        self.entry = entry or {}
+        self.entry: dict[str, Any] = entry or {}
 
 
 class PumpReader(journal.Reader):
-    def convert_entry(self, entry):
+    def convert_entry(self, entry: Mapping[str, Any]) -> dict[str, Any]:
         """Faster journal lib _convert_entry replacement"""
-        output = {}
+        output: dict[str, Any] = {}
         for key, value in entry.items():
             convert = converters.get(key)
             if convert is not None:
@@ -104,7 +108,7 @@ class PumpReader(journal.Reader):
         return output
 
     @staticmethod
-    def _parse_seqnum_from_cursor(cursor) -> int | None:
+    def _parse_seqnum_from_cursor(cursor: str) -> int | None:
         # cursor format: s=...;i=<hex_seqnum>;b=...;m=...;t=...;x=...
         for part in cursor.split(";"):
             if part.startswith("i="):
@@ -114,7 +118,7 @@ class PumpReader(journal.Reader):
                     return None
         return None
 
-    def get_next(self, skip=1):
+    def get_next(self, skip: int = 1) -> JournalObject | None:
         # pylint: disable=no-member, protected-access
         """Private get_next implementation that doesn't store the cursor since we don't want it"""
         if super()._next(skip):
@@ -134,19 +138,19 @@ class JournalReader(Tagged):
     def __init__(
         self,
         *,
-        name,
-        config,
-        field_filters,
-        geoip,
-        stats,
-        unit_log_levels=None,
-        tags=None,
-        seek_to=None,
-        msg_buffer_max_length=50000,
-        msg_buffer_max_bytes=_5_MB,
-        searches=None,
-        initial_position=None,
-    ):
+        name: str,
+        config: dict[str, Any],
+        field_filters: dict[str, FieldFilter],
+        geoip: GeoIPProtocol | None,
+        stats: statsd.StatsClient | None,
+        unit_log_levels: dict[str, UnitLogLevel] | None = None,
+        tags: dict[str, str] | None = None,
+        seek_to: str | None = None,
+        msg_buffer_max_length: int = 50000,
+        msg_buffer_max_bytes: int = _5_MB,
+        searches: Any = None,
+        initial_position: str | int | None = None,
+    ) -> None:
         Tagged.__init__(self, tags, reader=name)
         self.log = logging.getLogger(f"JournalReader:{name}")
         self.name = name
@@ -166,16 +170,16 @@ class JournalReader(Tagged):
         self.unit_log_levels = unit_log_levels
         self.stats = stats
         self.cursor = seek_to
-        self.journald_reader = None
-        self.last_journald_create_attempt = 0
+        self.journald_reader: PumpReader | None = None
+        self.last_journald_create_attempt = 0.0
         self.running = True
-        self.senders = {}
-        self._initialized_senders = set()
+        self.senders: dict[str, LogSender] = {}
+        self._initialized_senders: set[str] = set()
         self._failed_senders: int = 0
         self.last_stats_send_time = time.monotonic()
         self.last_journal_msg_time = time.monotonic()
         self.persistent_gauges: dict[str, tuple[int, dict[str, str]]] = {}
-        self.searches = list(self._build_searches(searches))
+        self.searches = list(self._build_searches(searches or []))
         self.secret_filter_matches = 0
         self.secret_filters = self._validate_and_build_secret_filters(config)
         self.secret_filter_metrics = self._configure_secret_filter_metrics(config)
@@ -226,7 +230,7 @@ class JournalReader(Tagged):
 
         return self.msg_buffer_max_length - max(len(s.msg_buffer) for s in self.senders.values())
 
-    def update_status(self):
+    def update_status(self) -> None:
         self.create_journald_reader_if_missing()
 
         sender_over_limit = self.get_write_limit_message_count() <= 0
@@ -246,7 +250,7 @@ class JournalReader(Tagged):
             )
             self._is_ready = False
 
-    def get_resume_cursor(self):
+    def get_resume_cursor(self) -> str | None:
         """Find the sender cursor location where a new JournalReader instance should resume reading from"""
         if not self.senders:
             self.log.info("Reader has no senders, using reader's resume location")
@@ -268,16 +272,16 @@ class JournalReader(Tagged):
 
         return None
 
-    def request_stop(self):
+    def request_stop(self) -> None:
         self.running = False
         for sender in self.senders.values():
             sender.request_stop()
 
-    def close(self):
+    def close(self) -> None:
         if self.journald_reader:
             self.journald_reader.close()
 
-    def initialize_senders(self):
+    def initialize_senders(self) -> None:
         configured_senders = self.config.get("senders", {})
         tags: dict[str, str] = {}
         for sender_name, sender_config in configured_senders.items():
@@ -290,7 +294,7 @@ class JournalReader(Tagged):
                 field_filter = self.field_filters[sender_config["field_filter"]]
 
             unit_log_levels = None
-            if sender_config.get("unit_log_level", None):
+            if sender_config.get("unit_log_level", None) and self.unit_log_levels is not None:
                 unit_log_levels = self.unit_log_levels[sender_config["unit_log_level"]]
 
             extra_field_values = sender_config.get("extra_field_values", {})
@@ -337,12 +341,12 @@ class JournalReader(Tagged):
         """
         old_value, _ = self.persistent_gauges.get(metric, (None, None))
         self.persistent_gauges[metric] = (value, tags)
-        if value == 0 and old_value:
+        if value == 0 and old_value and self.stats is not None:
             # Zeros won't be resent by the loop so we send them only once.
             # However, only should send 0 when the previous value exists and is non-zero.
             self.stats.gauge(metric, value=value, tags=tags)
 
-    def get_state(self):
+    def get_state(self) -> dict[str, Any]:
         sender_state = {name: sender.get_state() for name, sender in self.senders.items()}
         search_state = {search["name"]: search.get("hits", 0) for search in self.searches}
         return {
@@ -353,18 +357,20 @@ class JournalReader(Tagged):
             "total_bytes": self.read_bytes,
         }
 
-    def report_secret_filter_metrics(self):
+    def report_secret_filter_metrics(self) -> None:
         now = time.monotonic()
         if (now - self.last_stats_send_time) < 10.0:
             return
         if not self.secret_filter_matches:
+            return
+        if self.stats is None:
             return
         tags = self.make_tags()
         self.stats.increase("journal.secret_filter_match", self.secret_filter_matches, tags=tags)
         self.secret_filter_matches = 0
         self.secret_filter_metric_last_send = now
 
-    def inc_line_stats(self, *, journal_lines, journal_bytes):
+    def inc_line_stats(self, *, journal_lines: int, journal_bytes: int) -> None:
         self.read_bytes += journal_bytes
         self.read_lines += journal_lines
 
@@ -374,9 +380,10 @@ class JournalReader(Tagged):
             return
 
         tags = self.make_tags()
-        self.stats.gauge("journal.last_read_ago", value=now - self.last_journal_msg_time, tags=tags)
-        self.stats.gauge("journal.read_lines", value=self.read_lines, tags=tags)
-        self.stats.gauge("journal.read_bytes", value=self.read_bytes, tags=tags)
+        if self.stats is not None:
+            self.stats.gauge("journal.last_read_ago", value=now - self.last_journal_msg_time, tags=tags)
+            self.stats.gauge("journal.read_lines", value=self.read_lines, tags=tags)
+            self.stats.gauge("journal.read_bytes", value=self.read_bytes, tags=tags)
 
         self.last_stats_send_time = now
         self._sent_lines_diff += self.read_lines - self._last_sent_read_lines
@@ -397,7 +404,7 @@ class JournalReader(Tagged):
         for sender in self.senders.values():
             sender.refresh_stats()
 
-    def read_next(self):
+    def read_next(self) -> JournalObject | None:
         """Read next message from journal reader."""
         if not self.journald_reader:
             return None
@@ -407,7 +414,8 @@ class JournalReader(Tagged):
         except OSError as ex:
             if "Bad message" in str(ex):
                 tags = self.make_tags()
-                self.stats.increase("journal.corrupted_log_entry", tags=tags)
+                if self.stats is not None:
+                    self.stats.increase("journal.corrupted_log_entry", tags=tags)
                 self.log.warning("Corrupted log entry in %s", self.name)
                 return None
             raise
@@ -421,7 +429,7 @@ class JournalReader(Tagged):
 
         return jobject
 
-    def get_reader(self, seek_to=None, reinit=False):
+    def get_reader(self, seek_to: str | None = None, reinit: bool = False) -> PumpReader | None:
         """Return an initialized reader or None"""
         if not reinit and self.journald_reader:
             return self.journald_reader
@@ -440,7 +448,7 @@ class JournalReader(Tagged):
             )
 
         try:
-            reader_kwargs = {
+            reader_kwargs: dict[str, Any] = {
                 "files": self.config.get("journal_files"),
                 "flags": journal_flags,
                 "path": self.config.get("journal_path"),
@@ -483,7 +491,8 @@ class JournalReader(Tagged):
                 # read_next() and carry on instead of failing reader init.
                 if "Bad message" not in str(ex):
                     raise
-                self.stats.increase("journal.corrupted_log_entry", tags=self.make_tags())
+                if self.stats is not None:
+                    self.stats.increase("journal.corrupted_log_entry", tags=self.make_tags())
                 self.log.warning("Corrupted log entry in %s", self.name)
             self.read_next()
         elif self.initial_position == "head":
@@ -503,8 +512,10 @@ class JournalReader(Tagged):
 
         return self.journald_reader
 
-    def ip_to_geohash(self, tags, args):
+    def ip_to_geohash(self, tags: dict[str, str], args: list[str]) -> str:
         """ip_to_geohash(ip_tag_name,precision) -> Convert IP address to geohash"""
+        if self.geoip is None:
+            return ""
         if len(args) > 1:
             precision = int(args[1])
         else:
@@ -515,9 +526,11 @@ class JournalReader(Tagged):
             return ""
 
         loc = res.location
+        if loc.latitude is None or loc.longitude is None:
+            return ""
         return geohash.encode(loc.latitude, loc.longitude, precision)  # pylint: disable=no-member
 
-    def _build_searches(self, searches):
+    def _build_searches(self, searches: Any) -> Iterator[dict[str, Any]]:
         """
         Pre-generate regex objects and tag value conversion methods for searches
         """
@@ -550,17 +563,17 @@ class JournalReader(Tagged):
                         raise ValueError(f"Unknown tag function {func_name!r} in {value!r}") from ex
                     args = match.groupdict()["args"].split(",")  # pylint: disable=unused-variable
 
-                    def value_func(tags, f=f, args=args):  # pylint: disable=undefined-variable
+                    def value_func(tags: dict[str, str], f: Any = f, args: list[str] = args) -> str:  # pylint: disable=undefined-variable
                         return f(tags, args)
 
                     output["tags"][tag] = value_func
 
             yield output
 
-    def _configure_secret_filter_metrics(self, config):
+    def _configure_secret_filter_metrics(self, config: dict[str, Any]) -> bool:
         return config.get("secret_filter_metrics") is True
 
-    def _validate_and_build_secret_filters(self, config):
+    def _validate_and_build_secret_filters(self, config: dict[str, Any]) -> list[dict[str, Any]]:
         secret_filters = config.get("secret_filters")
         if secret_filters is None:
             return []
@@ -586,16 +599,16 @@ class JournalReader(Tagged):
 
         return secret_filters
 
-    def _configure_threshold_for_metric_emit(self, config):
+    def _configure_threshold_for_metric_emit(self, config: dict[str, Any]) -> int:
         return int(config.get("threshold_for_metric_emit", 10))
 
-    def perform_searches(self, jobject):
+    def perform_searches(self, jobject: JournalObject) -> dict[str, Any]:
         entry = jobject.entry
-        results = {}
-        byte_fields = {}
+        results: dict[str, Any] = {}
+        byte_fields: dict[str, str] = {}
         for search in self.searches:
             all_match = True
-            tags = {}
+            tags: dict[str, str] = {}
             for field, regex in search["fields"].items():
                 line = entry.get(field, "")
 
@@ -622,11 +635,12 @@ class JournalReader(Tagged):
                 match = regex.search(line)
                 regex_search_duration = time.perf_counter() - start_time
                 if regex_search_duration > self.threshold_for_metric_emit:
-                    self.stats.gauge(
-                        metric="journal.perform_search_regex_duration",
-                        value=regex_search_duration,
-                        tags=self.make_tags({"regex": regex.pattern}),
-                    )
+                    if self.stats is not None:
+                        self.stats.gauge(
+                            metric="journal.perform_search_regex_duration",
+                            value=regex_search_duration,
+                            tags=self.make_tags({"regex": regex.pattern}),
+                        )
                     self.log.info("Slow regex search: %s for duration %s seconds", regex, regex_search_duration)
                 if not match:
                     all_match = False
@@ -666,24 +680,22 @@ def check_match(*, entry: Mapping[str, Any], match_key: str | None, match_value:
 
 
 class FieldFilter:
-    def __init__(self, name, config):
+    def __init__(self, name: str, config: dict[str, Any]) -> None:
         self.name = name
         self.whitelist = config.get("type", "whitelist") == "whitelist"
         self.fields = [f.lstrip("_").lower() for f in config["fields"]]
 
-    def filter_fields(self, data):
+    def filter_fields(self, data: Mapping[str, Any]) -> dict[str, Any]:
         return {name: val for name, val in data.items() if (name.lstrip("_").lower() in self.fields) is self.whitelist}
 
 
 class UnitLogLevel:
-    def __init__(self, name: str, config: list[dict[str, str]]):
+    def __init__(self, name: str, config: list[dict[str, str]]) -> None:
         self.name = name
         self.levels = tuple((level["service_glob"], level["log_level"]) for level in config)
 
-    def filter_by_level(self, data):
-        entry = data
-        if isinstance(data, bytes):
-            entry = json.loads(data.decode("utf-8"))
+    def filter_by_level(self, data: dict[str, Any] | bytes) -> dict[str, Any] | bytes:
+        entry: Any = json.loads(data.decode("utf-8")) if isinstance(data, bytes) else data
         if not entry:
             return {}
         unit = entry.get("SYSTEMD_UNIT")
@@ -711,16 +723,16 @@ def _unit_match_level_glob(levels: tuple[tuple[str, str], ...], *, unit: str, pr
 
 
 class JournalObjectHandler:
-    def __init__(self, jobject, reader, pump):
+    def __init__(self, jobject: JournalObject, reader: JournalReader, pump: JournalPump) -> None:
         self.error_reported = False
         self.jobject = jobject
-        self.json_objects = {}
+        self.json_objects: dict[str, bytes] = {}
         self.log = logging.getLogger(self.__class__.__name__)
         self.pump = pump
         self.reader = reader
 
     def process(self) -> SingleMessageReadResult:
-        new_entry = {}
+        new_entry: dict[str, Any] = {}
         for key, value in self.jobject.entry.items():
             if isinstance(value, bytes):
                 new_entry[key.lstrip("_")] = repr(value)  # value may be bytes in any encoding
@@ -751,7 +763,7 @@ class JournalObjectHandler:
                 sender.extra_field_values,
                 new_entry,
             )
-            if json_entry:
+            if isinstance(json_entry, bytes) and json_entry:
                 sender.msg_buffer.add_item(item=json_entry, cursor=self.jobject.cursor)
 
         max_bytes = 0
@@ -761,7 +773,13 @@ class JournalObjectHandler:
 
         return SingleMessageReadResult(has_more=True, bytes_read=max_bytes)
 
-    def _get_or_generate_json(self, field_filter, unit_log_levels, extra_field_values, data):
+    def _get_or_generate_json(
+        self,
+        field_filter: FieldFilter | None,
+        unit_log_levels: UnitLogLevel | None,
+        extra_field_values: dict[str, Any] | None,
+        data: dict[str, Any],
+    ) -> bytes | dict[str, Any] | None:
         ff_name = "" if field_filter is None else field_filter.name
         if ff_name in self.json_objects:
             return self._filter_by_log_level(self.json_objects[ff_name], unit_log_levels)
@@ -779,7 +797,10 @@ class JournalObjectHandler:
             data.update(extra_field_values)
 
         if unit_log_levels:
-            data = self._filter_by_log_level(data, unit_log_levels)
+            filtered = self._filter_by_log_level(data, unit_log_levels)
+            # filter_by_level on a dict returns a dict or {}. The assertion is never false; it exists only for mypy.
+            assert isinstance(filtered, dict)
+            data = filtered
 
         if not data:
             # This means the data has been dropped because it did not have an acceptable log level. No reason to proceed.
@@ -795,25 +816,28 @@ class JournalObjectHandler:
         self.json_objects[ff_name] = json_entry
         return json_entry
 
-    def _filter_by_log_level(self, data, unit_log_levels):
+    def _filter_by_log_level(
+        self, data: dict[str, Any] | bytes, unit_log_levels: UnitLogLevel | None
+    ) -> dict[str, Any] | bytes:
         return unit_log_levels.filter_by_level(data) if unit_log_levels else data
 
-    def _truncate_long_message(self, json_entry, timestamp=None):
+    def _truncate_long_message(self, json_entry: bytes, timestamp: object = None) -> bytes:
         error = f"too large message {len(json_entry)} bytes vs maximum {MAX_KAFKA_MESSAGE_SIZE} bytes"
         truncated_json_entry = json_entry[:TRUNCATED_MESSAGE_PREVIEW_SIZE]
         if not self.error_reported:
-            self.pump.stats.increase(
-                "journal.read_error",
-                tags=self.pump.make_tags(
-                    {
-                        "error": "too_long",
-                        "reader": self.reader.name,
-                    }
-                ),
-            )
+            if self.pump.stats is not None:
+                self.pump.stats.increase(
+                    "journal.read_error",
+                    tags=self.pump.make_tags(
+                        {
+                            "error": "too_long",
+                            "reader": self.reader.name,
+                        }
+                    ),
+                )
             self.log.warning("%s: %s ...", error, truncated_json_entry)
             self.error_reported = True
-        entry = {
+        entry: dict[str, Any] = {
             "error": error,
             "partial_data": truncated_json_entry,
         }
@@ -821,7 +845,7 @@ class JournalObjectHandler:
             entry["timestamp"] = timestamp
         return json.dumps(entry, default=default_json_serialization).encode("utf8")
 
-    def _apply_secret_filters(self, data):
+    def _apply_secret_filters(self, data: dict[str, Any]) -> dict[str, Any]:
         msg = data.get("MESSAGE")
         original_msg = msg
         if msg:
@@ -837,35 +861,35 @@ class JournalObjectHandler:
 class JournalPump(ServiceDaemon, Tagged):
     _STALE_FD = object()
 
-    def __init__(self, config_path):
+    def __init__(self, config_path: Path) -> None:
         Tagged.__init__(self)
-        self.stats = None
-        self.geoip = None
+        self.stats: statsd.StatsClient | None = None
+        self.geoip: GeoIPProtocol | None = None
         self.poller = select.poll()
-        self.readers_active_config = None
-        self.readers = {}
-        self.field_filters = {}
-        self.unit_log_levels = {}
-        self.previous_state = None
+        self.readers_active_config: Any = None
+        self.readers: dict[str, JournalReader] = {}
+        self.field_filters: dict[str, FieldFilter] = {}
+        self.unit_log_levels: dict[str, UnitLogLevel] = {}
+        self.previous_state: dict[str, Any] | None = None
         self.last_state_save_time = time.monotonic()
         ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
         self.start_time_str = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
         self.configure_field_filters()
         self.configure_unit_log_levels()
         self.configure_readers()
-        self.stale_readers = set()
-        self.reader_by_fd = {}
+        self.stale_readers: set[JournalReader] = set()
+        self.reader_by_fd: dict[int, JournalReader | object] = {}
         self.poll_interval_ms = 1000
 
-    def configure_field_filters(self):
+    def configure_field_filters(self) -> None:
         filters = self.config.get("field_filters", {})
         self.field_filters = {name: FieldFilter(name, config) for name, config in filters.items()}
 
-    def configure_unit_log_levels(self):
+    def configure_unit_log_levels(self) -> None:
         unit_log_levels = self.config.get("unit_log_levels", {})
         self.unit_log_levels = {name: UnitLogLevel(name, config) for name, config in unit_log_levels.items()}
 
-    def configure_readers(self):
+    def configure_readers(self) -> None:
         new_config = self.config.get("readers", {})
         if self.readers_active_config == new_config:
             # No changes in readers, no reconfig required
@@ -921,7 +945,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
         self.readers_active_config = new_config
 
-    def handle_new_config(self):
+    def handle_new_config(self) -> None:
         """Called by ServiceDaemon when config has changed"""
         stats = self.config.get("statsd") or {}
         self.stats = statsd.StatsClient(
@@ -931,7 +955,7 @@ class JournalPump(ServiceDaemon, Tagged):
         geoip_db_path = self.config.get("geoip_database")
         if geoip_db_path:
             self.log.info("Loading GeoIP data from %r", geoip_db_path)
-            GeoIPReader: type[GeoIPProtocol] | None
+            GeoIPReader: type[GeoIPProtocol]
             try:
                 from geoip2.database import Reader as GeoIPReader  # pylint: disable=import-outside-toplevel
             except ImportError as ex:
@@ -942,7 +966,7 @@ class JournalPump(ServiceDaemon, Tagged):
         self.configure_unit_log_levels()
         self.configure_readers()
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         try:
             self.save_state()
         except Exception:  # pylint: disable=broad-except
@@ -953,17 +977,17 @@ class JournalPump(ServiceDaemon, Tagged):
             self.unregister_from_poll(reader)
             self.stale_readers.add(reader)
 
-    def sigterm(self, signum, frame):
+    def sigterm(self, signum: int, frame: FrameType | None) -> None:
         self.shutdown()
         super().sigterm(signum, frame)
 
-    def load_state(self):
+    def load_state(self) -> dict[str, Any]:
         file_path = self.get_state_file_path()
         if not file_path:
             return {}
 
         try:
-            with open(file_path, "r", encoding="utf-8") as fp:
+            with file_path.open(encoding="utf-8") as fp:
                 return json.load(fp)
         except FileNotFoundError:
             return {}
@@ -975,7 +999,7 @@ class JournalPump(ServiceDaemon, Tagged):
             match_value=self.config.get("match_value"),
         )
 
-    def read_single_message(self, reader) -> SingleMessageReadResult:
+    def read_single_message(self, reader: JournalReader) -> SingleMessageReadResult:
         try:
             jobject: JournalObject | None = reader.read_next()
             if jobject is None or jobject.entry is None:
@@ -984,11 +1008,12 @@ class JournalPump(ServiceDaemon, Tagged):
             return JournalObjectHandler(jobject, reader, self).process()
         except Exception as ex:  # pylint: disable=broad-except
             self.log.exception("Unexpected exception while handling entry for %s", reader.name)
-            self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
+            if self.stats is not None:
+                self.stats.unexpected_exception(ex=ex, where="mainloop", tags=self.make_tags({"app": "journalpump"}))
             time.sleep(0.5)
             return SingleMessageReadResult(has_more=False, bytes_read=None)
 
-    def read_messages(self, reader, hits, chunk_size) -> MessagesReadResult:
+    def read_messages(self, reader: JournalReader, hits: dict[str, int], chunk_size: int) -> MessagesReadResult:
         lines = 0
 
         exhausted = False
@@ -1016,14 +1041,17 @@ class JournalPump(ServiceDaemon, Tagged):
             lines += 1
 
         for search in reader.searches:
-            hits[search["name"]] = search.get("hits", 0)
+            hits[search["name"]] = int(search.get("hits", 0))
 
         return MessagesReadResult(exhausted=exhausted, lines_read=lines)
 
-    def get_state_file_path(self):
-        return self.config.get("json_state_file_path")
+    def get_state_file_path(self) -> Path | None:
+        path = self.config.get("json_state_file_path")
+        if not path:
+            return None
+        return Path(path)
 
-    def save_state(self):
+    def save_state(self) -> None:
         state_file_path = self.get_state_file_path()
         if not state_file_path:
             return
@@ -1040,7 +1068,7 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.previous_state = state_to_save
                 self.log.debug("Wrote state file: %r", state_to_save)
 
-    def _close_stale_readers(self):
+    def _close_stale_readers(self) -> None:
         while self.stale_readers:
             reader = self.stale_readers.pop()
             self.unregister_from_poll(reader)
@@ -1074,11 +1102,11 @@ class JournalPump(ServiceDaemon, Tagged):
                     if value:
                         self.stats.gauge(metric=metric, value=value, tags=tags)
 
-    def run(self):  # pylint: disable=too-many-statements
-        last_stats_time = 0
-        poll_timeout_ms = 0
-        buffered_events = {}
-        hits = {}
+    def run(self) -> int | None:  # pylint: disable=too-many-statements
+        last_stats_time = 0.0
+        poll_timeout_ms = 0.0
+        buffered_events: dict[JournalReader, int] = {}
+        hits: dict[str, int] = {}
 
         while self.running:
             self._close_stale_readers()
@@ -1096,8 +1124,11 @@ class JournalPump(ServiceDaemon, Tagged):
                 if reader is self._STALE_FD:
                     continue
 
-                if reader is None:
+                if not isinstance(reader, JournalReader):
                     self.log.error("Could not find reader with fd %r", fd)
+                    continue
+
+                if reader.journald_reader is None:
                     continue
 
                 # Call to process clears state, consecutive calls won't return same value
@@ -1169,6 +1200,7 @@ class JournalPump(ServiceDaemon, Tagged):
             )
 
         self._close_stale_readers()
+        return None
 
 
 if __name__ == "__main__":

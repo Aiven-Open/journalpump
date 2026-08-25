@@ -1,4 +1,8 @@
+from __future__ import annotations
+
+from journalpump.statsd import StatsClient
 from threading import Lock, Thread
+from typing import Any, TYPE_CHECKING
 
 import logging
 import os
@@ -10,7 +14,10 @@ import time
 if os.environ.get("USE_RE2"):
     import re2 as re
 else:
-    import re  # type: ignore[no-redef]
+    import re
+
+if TYPE_CHECKING:
+    from journalpump.journalpump import FieldFilter, JournalReader, UnitLogLevel
 
 KAFKA_COMPRESSED_MESSAGE_OVERHEAD = 30
 
@@ -26,7 +33,7 @@ class SenderInitializationError(Exception):
 
 
 # Map running/_connected to health
-def _convert_to_health(*, running, connected):
+def _convert_to_health(*, running: bool, connected: bool) -> tuple[str, int]:
     if running:
         return ("connected", 3) if connected else ("disconnected", 2)
     return ("stale", 2) if connected else ("stopped", 0)
@@ -38,7 +45,7 @@ class Tagged:
     # See journalpump/statsd.py, these chars have semantic meaning in the statsd protocol
     unsafe_tag_value_chars = re.compile(r"[\s\|=:]+")
 
-    def __init__(self, tags=None, **kw):
+    def __init__(self, tags: dict[str, str] | None = None, **kw: str) -> None:
         self._tags = (tags or {}).copy()
         self._tags.update(kw)
 
@@ -52,25 +59,25 @@ class Tagged:
                     output[sanitized_name] = sanitized_value
         return output
 
-    def replace_tags(self, tags):
+    def replace_tags(self, tags: dict[str, str]) -> None:
         self._tags = tags
 
 
 class MsgBuffer:
-    def __init__(self):
+    def __init__(self) -> None:
         self.log = logging.getLogger("MsgBuffer")
-        self.messages = []
+        self.messages: list[tuple[bytes, str | None]] = []
         self.lock = Lock()
         self.entry_num = 0
         self.total_size = 0
         self.last_journal_msg_time = time.monotonic()
-        self.cursor = None
+        self.cursor: str | None = None
         self.buffer_size = 0
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.messages)
 
-    def get_items(self):
+    def get_items(self) -> list[tuple[bytes, str | None]]:
         messages = []
         with self.lock:  # pylint: disable=not-context-manager
             if self.messages:
@@ -79,7 +86,7 @@ class MsgBuffer:
                 self.buffer_size = 0
         return messages
 
-    def add_item(self, *, item, cursor):
+    def add_item(self, *, item: bytes, cursor: str | None) -> None:
         with self.lock:  # pylint: disable=not-context-manager
             self.messages.append((item, cursor))
             self.last_journal_msg_time = time.monotonic()
@@ -94,17 +101,17 @@ class LogSender(Thread, Tagged):
     def __init__(
         self,
         *,
-        name,
-        reader,
-        config,
-        field_filter,
-        stats,
-        max_send_interval,
-        unit_log_levels=None,
-        extra_field_values=None,
-        tags=None,
-        msg_buffer_max_length=50000,
-    ):
+        name: str,
+        reader: JournalReader,
+        config: dict[str, Any],
+        field_filter: FieldFilter | None,
+        stats: StatsClient,
+        max_send_interval: float,
+        unit_log_levels: UnitLogLevel | None = None,
+        extra_field_values: dict[str, Any] | None = None,
+        tags: dict[str, str] | None = None,
+        msg_buffer_max_length: int = 50000,
+    ) -> None:
         # Set as daemon, so that an exception in the main thread will not cause the
         # program to hang indefinitely. It's preferable to exit (and get restarted by systemd).
         Thread.__init__(self, daemon=True)
@@ -117,23 +124,23 @@ class LogSender(Thread, Tagged):
         self.field_filter = field_filter
         self.unit_log_levels = unit_log_levels
         self.msg_buffer_max_length = msg_buffer_max_length
-        self.last_maintenance_fail = 0
+        self.last_maintenance_fail = 0.0
         self.last_send_time = time.monotonic()
         self.max_send_interval = max_send_interval
         self.max_batch_size = MAX_KAFKA_MESSAGE_SIZE
         self.batch_message_overhead = KAFKA_COMPRESSED_MESSAGE_OVERHEAD
         self.running = True
-        self._sent_cursor = None
+        self._sent_cursor: str | None = None
         self._sent_count = 0
         self._sent_bytes = 0
         self._connected = False
         self._connected_changed = time.monotonic()  # last time _connected status changed
-        self._errors = []
+        self._errors: list[str] = []
         self.msg_buffer = MsgBuffer()
         self._backoff_attempt = 0
         self.log.info("Initialized %s", self.__class__.__name__)
 
-    def _backoff(self, *, base=0.5, cap=1800.0):
+    def _backoff(self, *, base: float = 0.5, cap: float = 1800.0) -> None:
         self._backoff_attempt += 1
         # multiplier of 2**1024 would overflow a float, so limit to 100
         t = min(cap, base * 2 ** min(100, self._backoff_attempt)) / 2
@@ -141,7 +148,7 @@ class LogSender(Thread, Tagged):
         self.log.info("Sleeping for %.0f seconds", t)
         time.sleep(t)
 
-    def refresh_stats(self):
+    def refresh_stats(self) -> None:
         tags = self.make_tags()
         self.stats.gauge(
             "journal.last_sent_ago",
@@ -156,7 +163,7 @@ class LogSender(Thread, Tagged):
             tags=tags,
         )
 
-    def get_state(self):
+    def get_state(self) -> dict[str, Any]:
         return {
             "type": self.__class__.__name__,
             "buffer": {
@@ -177,14 +184,14 @@ class LogSender(Thread, Tagged):
             },
         }
 
-    def mark_connected(self):
+    def mark_connected(self) -> None:
         if not self._connected:
             self._connected_changed = time.monotonic()
         self._connected = True
         self._errors = []
         self._backoff_attempt = 0
 
-    def mark_disconnected(self, error=None):
+    def mark_disconnected(self, error: object = None) -> None:
         if self._connected:
             self._connected_changed = time.monotonic()
         self._connected = False
@@ -210,23 +217,23 @@ class LogSender(Thread, Tagged):
         if len(self._errors) > MAX_ERROR_MESSAGES:
             self._errors.pop(1)  # always keep the first error message
 
-    def mark_sent(self, *, messages, cursor):
+    def mark_sent(self, *, messages: list[bytes], cursor: str | None) -> None:
         self._sent_count += len(messages)
         self._sent_bytes += sum(len(m) for m in messages)
         self._sent_cursor = cursor
         self.mark_connected()
 
-    def request_stop(self):
+    def request_stop(self) -> None:
         self.running = False
 
-    def send_messages(self, *, messages, cursor):
-        pass
+    def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
+        return False
 
-    def maintenance_operations(self):
+    def maintenance_operations(self) -> None:
         # This can be overridden in the classes that inherit this
         pass
 
-    def run(self):
+    def run(self) -> None:
         while self.running:
             try:
                 # Don't run maintenance operations again immediately if it just failed
@@ -243,7 +250,7 @@ class LogSender(Thread, Tagged):
                 time.sleep(0.1)
         self.log.info("Stopping")
 
-    def get_and_send_messages(self):
+    def get_and_send_messages(self) -> None:
         start_time = time.monotonic()
         msg_count = None
         try:

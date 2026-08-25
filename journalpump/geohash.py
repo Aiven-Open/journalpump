@@ -7,7 +7,7 @@ _base32_map = {_base32[i]: i for i in range(len(_base32))}
 LONG_ZERO = 0
 
 
-def _float_hex_to_int(f):
+def _float_hex_to_int(f: float) -> tuple[int, int] | None:
     if f < -1.0 or f >= 1.0:
         return None
 
@@ -29,7 +29,7 @@ def _float_hex_to_int(f):
     return r, half_len + 1
 
 
-def _encode_i2c(lat, lon, lat_length, lon_length):
+def _encode_i2c(lat: int, lon: int, lat_length: int, lon_length: int) -> str:
     precision = int((lat_length + lon_length) / 5)
     if lat_length < lon_length:
         a = lon
@@ -64,6 +64,10 @@ def encode(latitude: float, longitude: float, precision: int = 12) -> str:
 
     a = _float_hex_to_int(latitude / 90.0)
     o = _float_hex_to_int(longitude / 180.0)
+    # encode() already rejected |lat| >= 90 and wrapped lon into [-180, 180);
+    # those ranges cannot produce None. The assertions exist only for mypy.
+    assert a is not None
+    assert o is not None
     if a[1] > lat_length:
         ai = a[0] >> (a[1] - lat_length)
     else:
