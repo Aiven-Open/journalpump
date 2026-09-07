@@ -869,6 +869,8 @@ class JournalPump(ServiceDaemon, Tagged):
         self.poller = select.poll()
         self.readers_active_config: Any = None
         self.readers: dict[str, JournalReader] = {}
+        self.stale_readers: set[JournalReader] = set()
+        self.reader_by_fd: dict[int, JournalReader | object] = {}
         self.field_filters: dict[str, FieldFilter] = {}
         self.unit_log_levels: dict[str, UnitLogLevel] = {}
         self.previous_state: dict[str, Any] | None = None
@@ -878,8 +880,6 @@ class JournalPump(ServiceDaemon, Tagged):
         self.configure_field_filters()
         self.configure_unit_log_levels()
         self.configure_readers()
-        self.stale_readers: set[JournalReader] = set()
-        self.reader_by_fd: dict[int, JournalReader | object] = {}
         self.poll_interval_ms = 1000
 
     def configure_field_filters(self) -> None:
