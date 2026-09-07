@@ -406,15 +406,10 @@ class JournalReader(Tagged):
 
         return jobject
 
-    def get_reader(self, seek_to: str | None = None, reinit: bool = False) -> PumpReader | None:
+    def get_reader(self, seek_to: str | None = None) -> PumpReader | None:
         """Return an initialized reader or None"""
-        if not reinit and self.journald_reader:
-            return self.journald_reader
-
         if self.journald_reader:
-            # Close the existing reader
-            self.journald_reader.close()  # pylint: disable=no-member
-            self.journald_reader = None
+            return self.journald_reader
 
         # convert named flags e.g. "SYSTEM" to integer values
         journal_flags = self.config.get("journal_flags")
