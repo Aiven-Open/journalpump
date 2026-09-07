@@ -1,0 +1,68 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+container=journalpump-systest
+image=registry.fedoraproject.org/fedora:latest
+venv=/opt/jpvenv
+
+if ! command -v podman >/dev/null; then
+    echo "podman is required for systest-on-podman" >&2
+    exit 1
+fi
+
+if podman container exists "$container"; then
+    current=$(podman inspect "$container" --format '{{.Config.Image}}')
+    if [[ "$current" != "$image" ]]; then
+        podman rm --force "$container"
+    fi
+fi
+
+if ! podman container exists "$container"; then
+    # Privileged: systemd-journald needs it. sleep as PID 1; journald is started per run.
+    podman create \
+        --name "$container" \
+        --privileged \
+        --cgroupns=host \
+        --stop-signal SIGKILL \
+        --stop-timeout 1 \
+        --tmpfs /run \
+        --volume "$PWD:/src:Z" \
+        --workdir /src \
+        "$image" \
+        sleep infinity
+fi
+
+podman start "$container"
+trap 'podman stop --time 0 "$container"' EXIT
+
+if ! podman exec "$container" test -x "$venv/bin/python"; then
+    podman exec "$container" dnf --assumeyes install \
+        systemd systemd-udev \
+        rsyslog \
+        python3 python3-pip python3-devel python3-setuptools python3-wheel \
+        gcc gcc-c++ make git lsof \
+        systemd-devel \
+        snappy-devel
+    podman exec "$container" python3 -m venv "$venv"
+    podman exec "$container" "$venv/bin/pip" install --upgrade pip
+    podman exec --workdir /src "$container" "$venv/bin/pip" install --requirement requirements.txt --requirement requirements.dev.txt
+fi
+
+podman exec "$container" mkdir --parents /run/systemd/journal /var/log/journal
+podman exec --detach "$container" /usr/lib/systemd/systemd-journald >/dev/null
+
+journal_send_ok() {
+    podman exec "$container" "$venv/bin/python" -c 'from systemd import journal; journal.send("systest-on-podman")' >/dev/null 2>&1
+}
+
+for _ in $(seq 30); do
+    if journal_send_ok; then
+        break
+    fi
+    sleep 0.1
+done
+journal_send_ok
+
+podman exec --workdir /src --env PYTHON="$venv/bin/python" "$container" make systest

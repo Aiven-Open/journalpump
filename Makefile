@@ -26,6 +26,10 @@ mypy:
 systest:
 	$(PYTHON) -m pytest -vv systest/
 
+.PHONY: systest-on-podman
+systest-on-podman:
+	./scripts/systest-on-podman
+
 py-egg:
 	VERSION=$(shell git describe --tags) $(PYTHON) setup.py bdist_egg
 
