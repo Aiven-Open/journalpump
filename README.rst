@@ -103,6 +103,8 @@ Example::
 
   {
       "log_level": "INFO",
+      "msg_buffer_max_length": 50000,
+      "msg_buffer_max_bytes": 5242880,
       "field_filters": {
          ...
       },
@@ -145,6 +147,16 @@ Metrics sending follows the `Telegraf spec`_.
 ``log_level`` (default ``"INFO"``)
 
 Determines log level of journalpump. `Available log levels <https://docs.python.org/3/library/logging.html#logging-levels>`_.
+
+``msg_buffer_max_length`` (default ``50000``)
+
+How many journal entries to hold at most in each sender's memory
+buffer. Applies to every reader.
+
+``msg_buffer_max_bytes`` (default ``5242880``)
+
+How many bytes of serialized journal entries to hold at most in each
+sender's memory buffer (5 MiB). Applies to every reader.
 
 Field filter configuration
 ==========================
@@ -303,11 +315,6 @@ If you want to match against a single journald field, this configuration key
 defines the value to match against.  Currently only equality is allowed.
 Note this means if you specify ``match_key`` and not ``match_value``, then the reader
 will match all entries that do not contain the ``match_key``.
-
-``msg_buffer_max_length`` (default ``50000``)
-
-How many journal entries to read at most into a memory buffer from
-which the journalpump feeds the configured logsender.
 
 ``journal_path`` (default ``null``)
 
