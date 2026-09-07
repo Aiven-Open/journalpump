@@ -8,10 +8,12 @@ from typing import Self
 
 import os
 import queue
+import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -41,6 +43,7 @@ def _read_notifications(
 
 class JournalpumpProcess:
     def __enter__(self) -> Self:
+        self.runtime_directory = Path(tempfile.mkdtemp(prefix="jp-runtime-"))
         self._notify_socket_name = f"jp-systest-{os.getpid()}-{os.urandom(4).hex()}"
         self._notify_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self._notify_socket.bind("\0" + self._notify_socket_name)
@@ -59,6 +62,7 @@ class JournalpumpProcess:
         self.stop()
         self._notify_socket.close()
         self._notify_reader_thread.join(timeout=2)
+        shutil.rmtree(self.runtime_directory, ignore_errors=True)
 
     def _wait_notification(self, notification: str, *, timeout: float) -> None:
         start_time = time.monotonic()
@@ -73,10 +77,14 @@ class JournalpumpProcess:
         _raise_if_journalpump_exited(self._journalpump, waiting_for=notification)
         raise TimeoutError(f"journalpump did not send {notification}")
 
-    def start(self, config_path: Path, *, env: dict[str, str] | None = None) -> None:
+    def start(self, config_path: Path, *, env: dict[str, str] | None = None, export_runtime_directory: bool = True) -> None:
         journalpump_env = os.environ.copy()
         if env:
             journalpump_env.update(env)
+        if export_runtime_directory:
+            journalpump_env["RUNTIME_DIRECTORY"] = str(self.runtime_directory)
+        else:
+            journalpump_env.pop("RUNTIME_DIRECTORY", None)
         journalpump_env["NOTIFY_SOCKET"] = "@" + self._notify_socket_name
         journalpump_env["PYTHONUNBUFFERED"] = "1"
         self._journalpump = subprocess.Popen(

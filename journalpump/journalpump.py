@@ -556,6 +556,7 @@ class JournalReader(Tagged):
             # raises ValueError, and callers distinguish bad config by that one type.
             raise ValueError("invalid secret_filters configuration - must be a list")  # noqa: TRY004
 
+        compiled_filters: list[dict[str, Any]] = []
         for secret_filter in secret_filters:
             if secret_filter.get("replacement") is None:
                 raise ValueError("invalid secret_filters configuration - missing field 'replacement'")
@@ -563,14 +564,14 @@ class JournalReader(Tagged):
             if secret_filter.get("pattern") is None:
                 raise ValueError("invalid secret_filters configuration - missing field 'pattern'")
 
-        # Compile / validate regex
-        for idx, sfilter in enumerate(secret_filters):
             try:
-                secret_filters[idx]["compiled_pattern"] = re.compile(sfilter["pattern"])
+                compiled_pattern = re.compile(secret_filter["pattern"])
             except re.error as e:
                 raise ValueError("invalid secret_filters configuration - invalid regex") from e
 
-        return secret_filters
+            compiled_filters.append({**secret_filter, "compiled_pattern": compiled_pattern})
+
+        return compiled_filters
 
     def _configure_threshold_for_metric_emit(self, config: dict[str, Any]) -> int:
         return int(config.get("threshold_for_metric_emit", 10))
@@ -829,6 +830,15 @@ class JournalObjectHandler:
         return data
 
 
+def running_config_path(*, configured_path: str | None) -> Path | None:
+    if configured_path:
+        return Path(configured_path)
+    runtime_directory = os.environ.get("RUNTIME_DIRECTORY")
+    if runtime_directory:
+        return Path(runtime_directory) / "running_config.json"
+    return None
+
+
 class JournalPump(ServiceDaemon, Tagged):
     _STALE_FD = object()
 
@@ -916,6 +926,27 @@ class JournalPump(ServiceDaemon, Tagged):
 
         self.readers_active_config = new_config
 
+    def write_running_config(self) -> None:
+        if not self.config.get("write_running_config"):
+            if self.config.get("json_running_config_path"):
+                self.log.warning(
+                    "json_running_config_path is set but write_running_config is not true. Not writing running config."
+                )
+            return
+        running_config = running_config_path(configured_path=self.config.get("json_running_config_path"))
+        if running_config is None:
+            self.log.warning(
+                "write_running_config is set but json_running_config_path is unset and RUNTIME_DIRECTORY is unset. "
+                "Not writing running config."
+            )
+            return
+        try:
+            running_config.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            with atomic_replace_file(running_config, mode=0o600) as fp:
+                json.dump(self.config, fp, indent=4, sort_keys=True)
+        except Exception:  # pylint: disable=broad-except
+            self.log.exception("Writing running config to %r failed", running_config)
+
     def handle_new_config(self) -> None:
         """Called by ServiceDaemon when config has changed"""
         stats = self.config.get("statsd") or {}
@@ -936,6 +967,7 @@ class JournalPump(ServiceDaemon, Tagged):
         self.configure_field_filters()
         self.configure_unit_log_levels()
         self.configure_readers()
+        self.write_running_config()
 
     def shutdown(self) -> None:
         try:

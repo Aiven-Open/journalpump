@@ -112,6 +112,7 @@ Example::
          ...
       },
       "json_state_file_path": "/var/lib/journalpump/journalpump_state.json",
+      "write_running_config": true,
       "readers": {
          ...
       },
@@ -131,6 +132,17 @@ Example::
 Location of a JSON state file which describes the state of the
 journalpump process.  If omitted, journalpump does not persist
 reader and sender cursors.
+
+``write_running_config`` (default unset / false)
+
+If true, after each successful config load journalpump writes the
+configuration it is using.  If omitted or false, it writes nothing.
+
+``json_running_config_path`` (default ``$RUNTIME_DIRECTORY/running_config.json``)
+
+Path used when ``write_running_config`` is true.  If omitted,
+``RUNTIME_DIRECTORY`` must be set.  journalpump creates the directory
+with mode ``0700`` and the file with mode ``0600``.
 
 ``statsd`` (default ``null``)
 
