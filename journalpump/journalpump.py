@@ -14,7 +14,6 @@ from collections.abc import Callable, Iterator, Mapping
 from functools import lru_cache, reduce
 from pathlib import Path
 from systemd import journal
-from types import FrameType
 from typing import Any, cast, NamedTuple
 
 import copy
@@ -978,9 +977,9 @@ class JournalPump(ServiceDaemon, Tagged):
             self.unregister_from_poll(reader)
             self.stale_readers.add(reader)
 
-    def sigterm(self, signum: int, frame: FrameType | None) -> None:
+    def cleanup(self) -> None:
         self.shutdown()
-        super().sigterm(signum, frame)
+        self._close_stale_readers()
 
     def load_state(self) -> dict[str, Any]:
         file_path = self.get_state_file_path()
@@ -1203,5 +1202,4 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.poll_interval_ms - (time.monotonic() - iteration_start_time) * 1000,
             )
 
-        self._close_stale_readers()
         return None

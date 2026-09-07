@@ -9,14 +9,8 @@ from pathlib import Path
 import json
 import os
 
-# The SIGTERM handler unregisters each reader from self.poller.
-# It writes _STALE_FD into reader_by_fd and returns to the run loop.
-# Each iteration later deletes those _STALE_FD keys from reader_by_fd.
-# If SIGTERM arrives after the loop deletes those keys, and before the
-# while self.running loop ends, _close_stale_readers unregisters the
-# same fd from self.poller again.
-# ping_watchdog sits in that window.
-# Hold ping_watchdog for 2 seconds so stop() can send SIGTERM there.
+# Hold ping_watchdog so stop() can send SIGTERM during a loop iteration
+# rather than during poll().
 _HOLD_WATCHDOG = """\
 from systemd import daemon
 
