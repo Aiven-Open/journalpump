@@ -73,8 +73,10 @@ class JournalpumpProcess:
         _raise_if_journalpump_exited(self._journalpump, waiting_for=notification)
         raise TimeoutError(f"journalpump did not send {notification}")
 
-    def start(self, config_path: Path) -> None:
+    def start(self, config_path: Path, *, env: dict[str, str] | None = None) -> None:
         journalpump_env = os.environ.copy()
+        if env:
+            journalpump_env.update(env)
         journalpump_env["NOTIFY_SOCKET"] = "@" + self._notify_socket_name
         journalpump_env["PYTHONUNBUFFERED"] = "1"
         self._journalpump = subprocess.Popen(
@@ -93,12 +95,14 @@ class JournalpumpProcess:
         self._wait_notification("RELOADING=1", timeout=3)
         self._wait_notification("READY=1", timeout=3)
 
-    def stop(self) -> None:
-        if self._journalpump is None or self._journalpump.poll() is not None:
-            return
-        self._journalpump.send_signal(signal.SIGTERM)
-        try:
-            self._journalpump.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self._journalpump.kill()
-            self._journalpump.wait(timeout=5)
+    def stop(self) -> int | None:
+        if self._journalpump is None:
+            return None
+        if self._journalpump.poll() is None:
+            self._journalpump.send_signal(signal.SIGTERM)
+            try:
+                self._journalpump.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                self._journalpump.kill()
+                self._journalpump.wait(timeout=5)
+        return self._journalpump.returncode
