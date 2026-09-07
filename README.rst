@@ -91,9 +91,9 @@ configuration file.
 ``journalpump`` is the main process that should be run under systemd or
 supervisord.
 
-While journalpump is running it may be useful to read the JSON state file
-that will be created as ``journalpump_state.json`` to the current working
-directory.  The JSON state file is human readable and should give an
+While journalpump is running it may be useful to read the JSON state
+file named by ``json_state_file_path``, if that setting is present.
+The JSON state file is human readable and should give an
 understandable description of the current state of the journalpump.
 
 
@@ -126,10 +126,11 @@ Example::
   }
 
 
-``json_state_file_path`` (default ``"journalpump_state.json"``)
+``json_state_file_path`` (default unset)
 
 Location of a JSON state file which describes the state of the
-journalpump process.
+journalpump process.  If omitted, journalpump does not persist
+reader and sender cursors.
 
 ``statsd`` (default ``null``)
 
