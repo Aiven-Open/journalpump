@@ -3,8 +3,10 @@
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
 
-from .cli import main
+from .journalpump import JournalPump
 
 import sys
 
-sys.exit(main())
+
+def main() -> int | None:
+    return JournalPump.main(sys.argv[1:])

@@ -129,7 +129,3 @@ class ServiceDaemon:
         finally:
             if exe:
                 exe.cleanup()
-
-    @classmethod
-    def run_exit(cls) -> None:
-        sys.exit(cls.main(sys.argv[1:]))

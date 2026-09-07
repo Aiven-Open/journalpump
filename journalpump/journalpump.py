@@ -1204,7 +1204,3 @@ class JournalPump(ServiceDaemon, Tagged):
 
         self._close_stale_readers()
         return None
-
-
-if __name__ == "__main__":
-    JournalPump.run_exit()

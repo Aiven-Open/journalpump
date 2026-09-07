@@ -26,7 +26,7 @@ setup(
     data_files=[],
     entry_points={
         "console_scripts": [
-            "journalpump = journalpump.__main__:main",
+            "journalpump = journalpump.cli:main",
         ],
     },
     classifiers=[
