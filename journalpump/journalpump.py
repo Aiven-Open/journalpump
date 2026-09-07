@@ -249,28 +249,6 @@ class JournalReader(Tagged):
             )
             self._is_ready = False
 
-    def get_resume_cursor(self) -> str | None:
-        """Find the sender cursor location where a new JournalReader instance should resume reading from"""
-        if not self.senders:
-            self.log.info("Reader has no senders, using reader's resume location")
-            return self.cursor
-
-        for sender_name, sender in self.senders.items():
-            state = sender.get_state()
-            cursor = state["sent"]["cursor"]
-            if cursor is None:
-                self.log.warning(
-                    "Sender %r needs a full catchup from beginning, resuming from journal start",
-                    sender_name,
-                )
-                return None
-
-            # TODO: pick oldest sent cursor
-            self.log.info("Resuming reader from sender's ('%s') position", sender_name)
-            return cursor
-
-        return None
-
     def request_stop(self) -> None:
         self.running = False
         for sender in self.senders.values():
