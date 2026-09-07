@@ -1112,6 +1112,7 @@ class JournalPump(ServiceDaemon, Tagged):
         hits: dict[str, int] = {}
 
         while self.running:
+            self.reload_if_requested()
             self._close_stale_readers()
 
             self.log.debug("Waiting for %dms", poll_timeout_ms)
