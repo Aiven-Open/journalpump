@@ -1,6 +1,6 @@
 [tool.ruff]
 line-length = 125
-target-version = "py310"
+target-version = "py313"
 
 [tool.ruff.lint.isort]
 no-sections = true

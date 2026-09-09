@@ -40,7 +40,7 @@ For a source install the dependency `python-systemd <https://github.com/systemd/
 to be installed through your distribution's package manager (The PyPI `systemd` package is not the
 same!).
 
-journalpump requires Python 3.4 or newer.
+journalpump requires Python 3.13 or 3.14.
 
 
 Installation

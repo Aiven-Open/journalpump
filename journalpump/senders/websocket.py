@@ -272,7 +272,7 @@ class WebsocketRunner(Thread):
             )
         except (ProxyError, ProxyConnectionError, ProxyTimeoutError) as ex:
             self.log.warning("SOCKS5 proxy connection error: %r. Retrying.", ex)
-        except (ConnectionTimeoutError, asyncio.TimeoutError, CancelledError) as ex:
+        except (TimeoutError, ConnectionTimeoutError, CancelledError) as ex:
             self.log.warning("Websocket connection timed out: %r. Retrying.", ex)
         except socket.gaierror as ex:
             self.log.error(

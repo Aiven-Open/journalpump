@@ -62,9 +62,9 @@ class TestRsyslogSenderMissingTimestamp:
         sender.rsyslog_client = mock.Mock()
 
         msg = _encode({"MESSAGE": "no-ts"})
-        before = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        before = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
         sender.send_messages(messages=[msg], cursor="c1")
-        after = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        after = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
         call_kwargs = sender.rsyslog_client.log.call_args.kwargs
         ts_str = call_kwargs["timestamp"]

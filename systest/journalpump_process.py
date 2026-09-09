@@ -4,6 +4,7 @@
 # See the file `LICENSE` for details.
 
 from pathlib import Path
+from typing import Self
 
 import os
 import queue
@@ -39,8 +40,7 @@ def _read_notifications(
 
 
 class JournalpumpProcess:
-    # typing.Self, which ruff wants here, needs 3.11; journalpump still supports 3.10.
-    def __enter__(self) -> "JournalpumpProcess":  # noqa: PYI034
+    def __enter__(self) -> Self:
         self._notify_socket_name = f"jp-systest-{os.getpid()}-{os.urandom(4).hex()}"
         self._notify_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self._notify_socket.bind("\0" + self._notify_socket_name)

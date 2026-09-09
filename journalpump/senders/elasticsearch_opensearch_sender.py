@@ -182,7 +182,7 @@ class _EsOsLogSenderBase(LogSender):
                     idx_date = raw_timestamp[:10]
                 else:
                     self.log.warning("Message missing 'timestamp' field, using current date for index name")
-                    idx_date = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+                    idx_date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
                 idx_name = f"{self._config.index_name}-{idx_date}"
                 if idx_name not in self._indices:
                     self._create_index_and_mapping(index_name=idx_name, message=message)

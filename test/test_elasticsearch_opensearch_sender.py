@@ -310,7 +310,7 @@ def test_send_messages_uses_current_date_when_timestamp_missing(sender_type: Sen
     mock_response.status_code = 200
     mock_response.json.return_value = {}
 
-    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
 
     with (
         mock.patch.object(sender, "_load_indices", return_value=True),
