@@ -47,6 +47,7 @@ class ServiceDaemon:
         self.require_config = require_config
         self.reload_config()
         self.running = True
+        self.reload_requested = False
 
         signal.signal(signal.SIGHUP, self.sighup)
         signal.signal(signal.SIGINT, self.sigterm)
@@ -69,8 +70,17 @@ class ServiceDaemon:
             logging.root.setLevel(self.log_level)
 
     def sighup(self, signum: int, frame: FrameType | None) -> None:  # pylint: disable=unused-argument
-        self.log.info("Received SIGHUP, reloading config")
-        self.reload_config()
+        self.log.info("Received SIGHUP")
+        self.reload_requested = True
+
+    def reload_if_requested(self) -> None:
+        if not self.reload_requested:
+            return
+        self.reload_requested = False
+        try:
+            self.reload_config()
+        except Exception:  # pylint: disable=broad-except
+            self.log.exception("Reloading configuration failed")
 
     def sigterm(self, signum: int, frame: FrameType | None) -> None:  # pylint: disable=unused-argument
         self.log.info(
@@ -129,7 +139,3 @@ class ServiceDaemon:
         finally:
             if exe:
                 exe.cleanup()
-
-    @classmethod
-    def run_exit(cls) -> None:
-        sys.exit(cls.main(sys.argv[1:]))

@@ -14,7 +14,6 @@ from collections.abc import Callable, Iterator, Mapping
 from functools import lru_cache, reduce
 from pathlib import Path
 from systemd import journal
-from types import FrameType
 from typing import Any, cast, NamedTuple
 
 import copy
@@ -250,28 +249,6 @@ class JournalReader(Tagged):
             )
             self._is_ready = False
 
-    def get_resume_cursor(self) -> str | None:
-        """Find the sender cursor location where a new JournalReader instance should resume reading from"""
-        if not self.senders:
-            self.log.info("Reader has no senders, using reader's resume location")
-            return self.cursor
-
-        for sender_name, sender in self.senders.items():
-            state = sender.get_state()
-            cursor = state["sent"]["cursor"]
-            if cursor is None:
-                self.log.warning(
-                    "Sender %r needs a full catchup from beginning, resuming from journal start",
-                    sender_name,
-                )
-                return None
-
-            # TODO: pick oldest sent cursor
-            self.log.info("Resuming reader from sender's ('%s') position", sender_name)
-            return cursor
-
-        return None
-
     def request_stop(self) -> None:
         self.running = False
         for sender in self.senders.values():
@@ -429,15 +406,10 @@ class JournalReader(Tagged):
 
         return jobject
 
-    def get_reader(self, seek_to: str | None = None, reinit: bool = False) -> PumpReader | None:
+    def get_reader(self, seek_to: str | None = None) -> PumpReader | None:
         """Return an initialized reader or None"""
-        if not reinit and self.journald_reader:
-            return self.journald_reader
-
         if self.journald_reader:
-            # Close the existing reader
-            self.journald_reader.close()  # pylint: disable=no-member
-            self.journald_reader = None
+            return self.journald_reader
 
         # convert named flags e.g. "SYSTEM" to integer values
         journal_flags = self.config.get("journal_flags")
@@ -584,6 +556,7 @@ class JournalReader(Tagged):
             # raises ValueError, and callers distinguish bad config by that one type.
             raise ValueError("invalid secret_filters configuration - must be a list")  # noqa: TRY004
 
+        compiled_filters: list[dict[str, Any]] = []
         for secret_filter in secret_filters:
             if secret_filter.get("replacement") is None:
                 raise ValueError("invalid secret_filters configuration - missing field 'replacement'")
@@ -591,14 +564,14 @@ class JournalReader(Tagged):
             if secret_filter.get("pattern") is None:
                 raise ValueError("invalid secret_filters configuration - missing field 'pattern'")
 
-        # Compile / validate regex
-        for idx, sfilter in enumerate(secret_filters):
             try:
-                secret_filters[idx]["compiled_pattern"] = re.compile(sfilter["pattern"])
+                compiled_pattern = re.compile(secret_filter["pattern"])
             except re.error as e:
                 raise ValueError("invalid secret_filters configuration - invalid regex") from e
 
-        return secret_filters
+            compiled_filters.append({**secret_filter, "compiled_pattern": compiled_pattern})
+
+        return compiled_filters
 
     def _configure_threshold_for_metric_emit(self, config: dict[str, Any]) -> int:
         return int(config.get("threshold_for_metric_emit", 10))
@@ -787,11 +760,9 @@ class JournalObjectHandler:
 
         # Always set a timestamp field that gets turned into an ISO timestamp based on REALTIME_TIMESTAMP if available
         if "REALTIME_TIMESTAMP" in data:
-            timestamp = datetime.datetime.fromtimestamp(data["REALTIME_TIMESTAMP"], datetime.timezone.utc).replace(
-                tzinfo=None
-            )
+            timestamp = datetime.datetime.fromtimestamp(data["REALTIME_TIMESTAMP"], datetime.UTC).replace(tzinfo=None)
         else:
-            timestamp = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+            timestamp = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
         data["timestamp"] = timestamp
 
         if extra_field_values:
@@ -859,6 +830,15 @@ class JournalObjectHandler:
         return data
 
 
+def running_config_path(*, configured_path: str | None) -> Path | None:
+    if configured_path:
+        return Path(configured_path)
+    runtime_directory = os.environ.get("RUNTIME_DIRECTORY")
+    if runtime_directory:
+        return Path(runtime_directory) / "running_config.json"
+    return None
+
+
 class JournalPump(ServiceDaemon, Tagged):
     _STALE_FD = object()
 
@@ -869,17 +849,17 @@ class JournalPump(ServiceDaemon, Tagged):
         self.poller = select.poll()
         self.readers_active_config: Any = None
         self.readers: dict[str, JournalReader] = {}
+        self.stale_readers: set[JournalReader] = set()
+        self.reader_by_fd: dict[int, JournalReader | object] = {}
         self.field_filters: dict[str, FieldFilter] = {}
         self.unit_log_levels: dict[str, UnitLogLevel] = {}
         self.previous_state: dict[str, Any] | None = None
         self.last_state_save_time = time.monotonic()
         ServiceDaemon.__init__(self, config_path=config_path, multi_threaded=True, log_level=logging.INFO)
-        self.start_time_str = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat()
+        self.start_time_str = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat()
         self.configure_field_filters()
         self.configure_unit_log_levels()
         self.configure_readers()
-        self.stale_readers: set[JournalReader] = set()
-        self.reader_by_fd: dict[int, JournalReader | object] = {}
         self.poll_interval_ms = 1000
 
     def configure_field_filters(self) -> None:
@@ -946,6 +926,27 @@ class JournalPump(ServiceDaemon, Tagged):
 
         self.readers_active_config = new_config
 
+    def write_running_config(self) -> None:
+        if not self.config.get("write_running_config"):
+            if self.config.get("json_running_config_path"):
+                self.log.warning(
+                    "json_running_config_path is set but write_running_config is not true. Not writing running config."
+                )
+            return
+        running_config = running_config_path(configured_path=self.config.get("json_running_config_path"))
+        if running_config is None:
+            self.log.warning(
+                "write_running_config is set but json_running_config_path is unset and RUNTIME_DIRECTORY is unset. "
+                "Not writing running config."
+            )
+            return
+        try:
+            running_config.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            with atomic_replace_file(running_config, mode=0o600) as fp:
+                json.dump(self.config, fp, indent=4, sort_keys=True)
+        except Exception:  # pylint: disable=broad-except
+            self.log.exception("Writing running config to %r failed", running_config)
+
     def handle_new_config(self) -> None:
         """Called by ServiceDaemon when config has changed"""
         stats = self.config.get("statsd") or {}
@@ -966,6 +967,7 @@ class JournalPump(ServiceDaemon, Tagged):
         self.configure_field_filters()
         self.configure_unit_log_levels()
         self.configure_readers()
+        self.write_running_config()
 
     def shutdown(self) -> None:
         try:
@@ -978,9 +980,9 @@ class JournalPump(ServiceDaemon, Tagged):
             self.unregister_from_poll(reader)
             self.stale_readers.add(reader)
 
-    def sigterm(self, signum: int, frame: FrameType | None) -> None:
+    def cleanup(self) -> None:
         self.shutdown()
-        super().sigterm(signum, frame)
+        self._close_stale_readers()
 
     def load_state(self) -> dict[str, Any]:
         file_path = self.get_state_file_path()
@@ -1112,6 +1114,7 @@ class JournalPump(ServiceDaemon, Tagged):
         hits: dict[str, int] = {}
 
         while self.running:
+            self.reload_if_requested()
             self._close_stale_readers()
 
             self.log.debug("Waiting for %dms", poll_timeout_ms)
@@ -1202,9 +1205,4 @@ class JournalPump(ServiceDaemon, Tagged):
                 self.poll_interval_ms - (time.monotonic() - iteration_start_time) * 1000,
             )
 
-        self._close_stale_readers()
         return None
-
-
-if __name__ == "__main__":
-    JournalPump.run_exit()

@@ -22,7 +22,7 @@ class LogplexSender(LogSender):
         entry = json.loads(msg.decode("utf8"))
         hostname = entry.get("_HOSTNAME", "localhost")
         pid = entry.get("_PID", "localhost")
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00 ")
+        timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00 ")
         pkt = f"<190>1 {timestamp}{hostname} {self.logplex_token} {pid} {self.msg_id} {self.structured_data}"
         pkt += entry["MESSAGE"]
         pkt = pkt.encode("utf8")

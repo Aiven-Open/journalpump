@@ -9,6 +9,8 @@ Restart=always
 ExecReload=/bin/kill -HUP $MAINPID
 ExecStart=/usr/bin/journalpump /var/lib/journalpump/journalpump.json
 WorkingDirectory=/var/lib/journalpump
+RuntimeDirectory=journalpump
+RuntimeDirectoryMode=0700
 
 [Install]
 WantedBy=multi-user.target

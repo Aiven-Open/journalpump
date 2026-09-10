@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 @contextlib.contextmanager
-def atomic_replace_file(file_path: Path) -> Iterator[TextIO]:
+def atomic_replace_file(file_path: Path, *, mode: int | None = None) -> Iterator[TextIO]:
     """Open a temporary file for writing, rename to final name when done"""
     fd, tmp_file_path = tempfile.mkstemp(
         prefix=file_path.name,
@@ -28,6 +28,8 @@ def atomic_replace_file(file_path: Path) -> Iterator[TextIO]:
         suffix=".tmp",
     )
     try:
+        if mode is not None:
+            os.fchmod(fd, mode)
         with os.fdopen(fd, "w") as out_file:
             yield out_file
         os.replace(tmp_file_path, file_path)

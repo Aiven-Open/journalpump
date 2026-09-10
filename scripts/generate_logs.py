@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from typing import Self
+
 import argparse
 import json
 import multiprocessing
@@ -132,8 +134,7 @@ class JournalControlProcess:
         sender_process.start()
         return sender_process
 
-    # typing.Self, which ruff wants here, needs 3.11; journalpump still supports 3.10.
-    def __enter__(self) -> JournalControlProcess:  # noqa: PYI034
+    def __enter__(self) -> Self:
         self._runtime_dir = pathlib.Path(tempfile.mkdtemp(prefix="journald_runtime_"))
         os.chown(self._runtime_dir, self._uid, -1)
 

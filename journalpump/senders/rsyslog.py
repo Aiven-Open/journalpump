@@ -90,7 +90,7 @@ class RsyslogSender(LogSender):
                     timestamp = raw_timestamp[:26] + "Z"  # Assume UTC for now
                 else:
                     self.log.warning("Message missing 'timestamp' field, using current time as fallback")
-                    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+                    timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
                 hostname = message.get("HOSTNAME")
                 appname = message.get(
                     "SYSLOG_IDENTIFIER",

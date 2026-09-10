@@ -1,7 +1,7 @@
 from .data import GCP_PRIVATE_KEY
 from botocore.stub import Stubber
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from journalpump import senders
 from journalpump.journalpump import (
     _5_MB,
@@ -982,7 +982,7 @@ class TestJournalObjectHandler(TestCase):
                 b=2,
                 c=3,
                 REALTIME_TIMESTAMP=1,
-                timestamp=datetime.fromtimestamp(1, timezone.utc).replace(tzinfo=None),
+                timestamp=datetime.fromtimestamp(1, UTC).replace(tzinfo=None),
             ),
             default=default_json_serialization,
         ).encode("utf-8")
@@ -1066,7 +1066,7 @@ def test_journalpump_resume_cursor(tmp_path: Path) -> None:
                 "senders": {"fake_syslog": {"sent": {"cursor": "sender_cursor"}}},
             },
         },
-        "start_time": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        "start_time": datetime.now(UTC).replace(tzinfo=None).isoformat(),
     }
 
     with open(journalpump_path, "w", encoding="utf-8") as fp:
@@ -1096,7 +1096,21 @@ def test_journalpump_sighup_applies_new_readers(tmp_path: Path) -> None:
 
     os.kill(os.getpid(), signal.SIGHUP)
 
+    assert set(pump.readers) == {"before_reload"}
+    pump.reload_if_requested()
     assert set(pump.readers) == {"after_reload"}
+
+
+def test_reload_if_requested_survives_broken_config(tmp_path: Path) -> None:
+    journalpump_path = tmp_path / "journalpump.json"
+    with open(journalpump_path, "w", encoding="utf-8") as fp:
+        json.dump({"readers": {"r": {"senders": {}}}}, fp)
+
+    pump = JournalPump(journalpump_path)
+    journalpump_path.write_text("{", encoding="utf-8")
+    os.kill(os.getpid(), signal.SIGHUP)
+    pump.reload_if_requested()
+    assert set(pump.readers) == {"r"}
 
 
 def test_journalpump_sigterm_at_end_of_iteration(tmp_path: Path) -> None:

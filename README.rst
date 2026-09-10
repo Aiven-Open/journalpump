@@ -40,7 +40,7 @@ For a source install the dependency `python-systemd <https://github.com/systemd/
 to be installed through your distribution's package manager (The PyPI `systemd` package is not the
 same!).
 
-journalpump requires Python 3.4 or newer.
+journalpump requires Python 3.13 or 3.14.
 
 
 Installation
@@ -91,9 +91,9 @@ configuration file.
 ``journalpump`` is the main process that should be run under systemd or
 supervisord.
 
-While journalpump is running it may be useful to read the JSON state file
-that will be created as ``journalpump_state.json`` to the current working
-directory.  The JSON state file is human readable and should give an
+While journalpump is running it may be useful to read the JSON state
+file named by ``json_state_file_path``, if that setting is present.
+The JSON state file is human readable and should give an
 understandable description of the current state of the journalpump.
 
 
@@ -103,6 +103,8 @@ Example::
 
   {
       "log_level": "INFO",
+      "msg_buffer_max_length": 50000,
+      "msg_buffer_max_bytes": 5242880,
       "field_filters": {
          ...
       },
@@ -110,6 +112,7 @@ Example::
          ...
       },
       "json_state_file_path": "/var/lib/journalpump/journalpump_state.json",
+      "write_running_config": true,
       "readers": {
          ...
       },
@@ -124,10 +127,22 @@ Example::
   }
 
 
-``json_state_file_path`` (default ``"journalpump_state.json"``)
+``json_state_file_path`` (default unset)
 
 Location of a JSON state file which describes the state of the
-journalpump process.
+journalpump process.  If omitted, journalpump does not persist
+reader and sender cursors.
+
+``write_running_config`` (default unset / false)
+
+If true, after each successful config load journalpump writes the
+configuration it is using.  If omitted or false, it writes nothing.
+
+``json_running_config_path`` (default ``$RUNTIME_DIRECTORY/running_config.json``)
+
+Path used when ``write_running_config`` is true.  If omitted,
+``RUNTIME_DIRECTORY`` must be set.  journalpump creates the directory
+with mode ``0700`` and the file with mode ``0600``.
 
 ``statsd`` (default ``null``)
 
@@ -145,6 +160,16 @@ Metrics sending follows the `Telegraf spec`_.
 ``log_level`` (default ``"INFO"``)
 
 Determines log level of journalpump. `Available log levels <https://docs.python.org/3/library/logging.html#logging-levels>`_.
+
+``msg_buffer_max_length`` (default ``50000``)
+
+How many journal entries to hold at most in each sender's memory
+buffer. Applies to every reader.
+
+``msg_buffer_max_bytes`` (default ``5242880``)
+
+How many bytes of serialized journal entries to hold at most in each
+sender's memory buffer (5 MiB). Applies to every reader.
 
 Field filter configuration
 ==========================
@@ -303,11 +328,6 @@ If you want to match against a single journald field, this configuration key
 defines the value to match against.  Currently only equality is allowed.
 Note this means if you specify ``match_key`` and not ``match_value``, then the reader
 will match all entries that do not contain the ``match_key``.
-
-``msg_buffer_max_length`` (default ``50000``)
-
-How many journal entries to read at most into a memory buffer from
-which the journalpump feeds the configured logsender.
 
 ``journal_path`` (default ``null``)
 
