@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .util import journalpump_initialized
+from .util import journalpump_initialized, wait_for
 from collections.abc import Callable, Iterator
 from journalpump import senders
 from journalpump.journalpump import JournalPump, JournalReader, PumpReader, statsd
@@ -16,7 +16,6 @@ import pytest
 import shutil
 import subprocess
 import threading
-import time
 
 _LOG = logging.getLogger(__name__)
 
@@ -287,20 +286,6 @@ def _lsof_is_file_open(filenames: list[str]) -> dict[str, bool]:
     return result
 
 
-def _wait_for(predicate: Callable[[], bool], timeout: int) -> bool:
-    cur = time.monotonic()
-    deadline = cur + timeout
-
-    while cur < deadline:
-        if predicate():
-            return True
-
-        cur = time.monotonic()
-        time.sleep(0.2)
-
-    return False
-
-
 @pytest.mark.skipif(not shutil.which("lsof"), reason="lsof is not available")
 def test_journalpump_rotated_files_deletion(journalpump_factory: Callable[..., JournalPump], journal_log_dir: Path) -> None:
     stub_sender = StubSender()
@@ -324,7 +309,7 @@ def test_journalpump_rotated_files_deletion(journalpump_factory: Callable[..., J
     log_files = [str(f) for f in lf.log_files]
     assert len(log_files) == 2
 
-    assert _wait_for(lambda: all(_lsof_is_file_open(log_files).values()), timeout=3)
+    assert wait_for(lambda: all(_lsof_is_file_open(log_files).values()), timeout=3)
 
     lf.remove(last=1)
 
@@ -337,7 +322,7 @@ def test_journalpump_rotated_files_deletion(journalpump_factory: Callable[..., J
         open_files = _lsof_is_file_open(log_files)
         return open_files[log_files[0]] and not open_files[log_files[-1]]
 
-    assert _wait_for(_only_head_open, timeout=3), f"Expected {log_files[-1]} to not be open"
+    assert wait_for(_only_head_open, timeout=3), f"Expected {log_files[-1]} to not be open"
 
 
 def test_journalpump_stats_sender(
@@ -399,7 +384,7 @@ def test_journalpump_stats_sender(
     lf.rotate()
     lf.rotate()
 
-    assert _wait_for(lambda: stats.get("stats-messages") == 13, timeout=3), (
+    assert wait_for(lambda: stats.get("stats-messages") == 13, timeout=3), (
         f"Not enough messages mathing search criteria got {stats.get('stats-messages')}"
     )
 

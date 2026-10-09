@@ -35,6 +35,7 @@ else:
 _5_MB = 5 * 1024 * 1024
 CHUNK_SIZE = 5000
 TRUNCATED_MESSAGE_PREVIEW_SIZE = 1024
+SENDER_STOP_TIMEOUT = 30.0  # seconds to wait for in-flight sender batches when stopping readers
 
 
 def _convert_uuid(s: bytes) -> str:
@@ -254,6 +255,11 @@ class JournalReader(Tagged):
         for sender in self.senders.values():
             sender.request_stop()
 
+    def join_senders(self, deadline: float) -> None:
+        for sender in self.senders.values():
+            if sender.is_alive():
+                sender.join(timeout=max(0.0, deadline - time.monotonic()))
+
     def close(self) -> None:
         if self.journald_reader:
             self.journald_reader.close()
@@ -293,6 +299,7 @@ class JournalReader(Tagged):
                     reader=self,
                     stats=self.stats,
                     tags=self.make_tags(),
+                    sent_cursor=self.cursor,
                 )
             except Exception:  # pylint: disable=broad-except
                 # If sender init fails, log exception, don't start() the sender
@@ -870,6 +877,20 @@ class JournalPump(ServiceDaemon, Tagged):
         unit_log_levels = self.config.get("unit_log_levels", {})
         self.unit_log_levels = {name: UnitLogLevel(name, config) for name, config in unit_log_levels.items()}
 
+    def stop_readers(self, timeout: float) -> None:
+        readers = list(self.readers.values())
+
+        # all senders are signalled before any is joined, so their shutdowns overlap
+        for reader in readers:
+            reader.request_stop()
+            self.unregister_from_poll(reader)
+            self.stale_readers.add(reader)
+
+        # let in-flight sender batches finish before snapshotting
+        deadline = time.monotonic() + timeout
+        for reader in readers:
+            reader.join_senders(deadline=deadline)
+
     def configure_readers(self) -> None:
         new_config = self.config.get("readers", {})
         if self.readers_active_config == new_config:
@@ -877,36 +898,50 @@ class JournalPump(ServiceDaemon, Tagged):
             return
 
         # replace old readers with new ones
-        for reader in self.readers.values():
-            reader.request_stop()
-            self.unregister_from_poll(reader)
-            self.stale_readers.add(reader)
+        self.stop_readers(timeout=SENDER_STOP_TIMEOUT)
+
+        live_reader_states = {name: reader.get_state() for name, reader in self.readers.items()}
 
         self.readers = {}
-        state = self.load_state()
+        file_reader_states: dict[str, dict[str, Any]] = self.load_state().get("readers", {})
 
         for reader_name, reader_config in new_config.items():
-            reader_state = state.get("readers", {}).get(reader_name, {})
+            reader_state: dict[str, Any]
+            # Prefer the live in-memory position over the periodically saved state file
+            if reader_name in live_reader_states:
+                reader_state, state_source = live_reader_states[reader_name], "live state"
+            else:
+                reader_state, state_source = file_reader_states.get(reader_name, {}), "state file"
 
             # Default to reader's cursor, in case we have no senders
             resume_cursor = reader_state.get("cursor")
+            cursor_source = f"reader cursor from {state_source}"
 
-            # Check sender cursors
-            for sender_name, sender in reader_state.get("senders", {}).items():
+            # Check sender cursors; sorted to match the key order of the state file (written with sort_keys=True)
+            sender_states: dict[str, Any] = reader_state.get("senders", {})
+            for sender_name, sender in sorted(sender_states.items()):
                 sender_cursor = sender["sent"]["cursor"]
                 if sender_cursor is None:
-                    self.log.info(
+                    self.log.warning(
                         "Sender %r for reader %r needs full sync from beginning",
                         sender_name,
                         reader_name,
                     )
                     resume_cursor = None
+                    cursor_source = f"full sync, sender {sender_name!r} has no confirmed delivery ({state_source})"
                     break
 
                 # TODO: pick the OLDEST cursor
                 resume_cursor = sender_cursor
+                cursor_source = f"sender {sender_name!r} sent cursor from {state_source}"
 
-            self.log.info("Reader %r resuming from cursor position: %r", reader_name, resume_cursor)
+            self.log.info(
+                "Reader %r resuming from cursor position: %r (%s)",
+                reader_name,
+                resume_cursor,
+                cursor_source,
+            )
+
             initial_position = reader_config.get("initial_position")
             reader = JournalReader(
                 name=reader_name,
@@ -970,15 +1005,12 @@ class JournalPump(ServiceDaemon, Tagged):
         self.write_running_config()
 
     def shutdown(self) -> None:
+        self.stop_readers(timeout=SENDER_STOP_TIMEOUT)
+
         try:
             self.save_state()
         except Exception:  # pylint: disable=broad-except
             self.log.exception("Saving state at shutdown failed")
-
-        for reader in self.readers.values():
-            reader.request_stop()
-            self.unregister_from_poll(reader)
-            self.stale_readers.add(reader)
 
     def cleanup(self) -> None:
         self.shutdown()

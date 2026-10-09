@@ -34,10 +34,12 @@ from unittest import mock, TestCase
 
 import botocore.session
 import json
+import logging
 import os
 import pytest
 import responses
 import signal
+import time
 
 # NOTE: make sure to use google-re >= 1.1 if this is enabled.
 if os.environ.get("USE_RE2"):
@@ -1082,6 +1084,179 @@ def test_journalpump_resume_cursor(tmp_path: Path) -> None:
     assert pump.readers["with_sender"].cursor == "sender_cursor"
 
 
+def _pump_with_saved_sender_cursor(tmp_path: Path, cursor: str) -> JournalPump:
+    statefile_path = tmp_path / "journalpump_state.json"
+    config = {
+        "json_state_file_path": str(statefile_path),
+        "readers": {
+            "a": {
+                "senders": {
+                    "fake_syslog": {"output_type": "rsyslog", "rsyslog_server": "127.0.0.1", "rsyslog_port": 514},
+                },
+            },
+        },
+    }
+    state = {
+        "readers": {"a": {"cursor": cursor, "senders": {"fake_syslog": {"sent": {"cursor": cursor}}}}},
+        "start_time": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+    }
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    statefile_path.write_text(json.dumps(state), encoding="utf-8")
+    return JournalPump(journalpump_path)
+
+
+def _force_readers_reload(pump: JournalPump) -> None:
+    # Readers are only rebuilt when their config changes
+    config = {**pump.config, "readers": {**pump.config["readers"], "reload_trigger": {"senders": {}}}}
+    pump.config_path.write_text(json.dumps(config), encoding="utf-8")
+    pump.reload_config()
+
+
+def test_reload_resumes_from_in_memory_position(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    # Last periodic save, taken before the most recent delivery
+    pump = _pump_with_saved_sender_cursor(tmp_path, "stale")
+    try:
+        reader = pump.readers["a"]
+        reader.initialize_senders()
+        reader.cursor = "live"
+        sender = reader.senders["fake_syslog"]
+        sender.mark_sent(messages=[b"x"], cursor="live")
+
+        # A batch still in flight when the reload starts completes while senders are joined
+        real_join = sender.join
+
+        def join_after_inflight_batch(timeout: float | None = None) -> None:
+            sender.mark_sent(messages=[b"y"], cursor="in_flight")
+            real_join(timeout)
+
+        sender.join = join_after_inflight_batch  # type: ignore[method-assign]
+
+        # The real thread may exit right after request_stop(), which would skip the patched join
+        with caplog.at_level(logging.INFO), mock.patch.object(sender, "is_alive", return_value=True):
+            _force_readers_reload(pump)
+
+        # Snapshot must be taken after the join, so the in-flight batch is not redelivered
+        assert pump.readers["a"].cursor == "in_flight"
+        assert "sender 'fake_syslog' sent cursor from live state" in caplog.text
+    finally:
+        pump.cleanup()
+
+
+def test_reload_sender_without_confirmed_delivery_does_not_rewind(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    pump = _pump_with_saved_sender_cursor(tmp_path, "c1")
+    try:
+        assert pump.readers["a"].cursor == "c1"
+        # Sender is up but has not delivered anything yet
+        pump.readers["a"].initialize_senders()
+
+        with caplog.at_level(logging.INFO):
+            _force_readers_reload(pump)
+
+        # None would mean starting over from the head of the journal
+        assert pump.readers["a"].cursor == "c1"
+        assert "full sync" not in caplog.text
+        assert "(sender 'fake_syslog' sent cursor from live state)" in caplog.text
+    finally:
+        pump.cleanup()
+
+
+def _recording_sender(events: list[tuple[str, str]], name: str) -> mock.Mock:
+    sender = mock.Mock()
+    sender.is_alive.return_value = True
+    sender.request_stop.side_effect = lambda: events.append(("stop", name))
+    sender.join.side_effect = lambda timeout=None: events.append(("join", name))
+    sender.get_state.return_value = {"sent": {"cursor": f"{name}_cursor"}}
+    return sender
+
+
+def test_reload_stops_all_senders_before_joining_any(tmp_path: Path) -> None:
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps({"readers": {"a": {"senders": {}}, "b": {"senders": {}}}}), encoding="utf-8")
+
+    pump = JournalPump(journalpump_path)
+    try:
+        events: list[tuple[str, str]] = []
+        pump.readers["a"].senders = {"s": _recording_sender(events, "a")}
+        pump.readers["b"].senders = {"s": _recording_sender(events, "b")}
+
+        _force_readers_reload(pump)
+
+        # Stopping and joining one reader at a time would serialize their shutdowns
+        assert events == [("stop", "a"), ("stop", "b"), ("join", "a"), ("join", "b")]
+    finally:
+        pump.cleanup()
+
+
+def test_shutdown_saves_state_after_joining_senders(tmp_path: Path) -> None:
+    journalpump_path = tmp_path / "journalpump.json"
+    statefile_path = tmp_path / "journalpump_state.json"
+    journalpump_path.write_text(
+        json.dumps({"json_state_file_path": str(statefile_path), "readers": {"a": {"senders": {}}}}), encoding="utf-8"
+    )
+
+    pump = JournalPump(journalpump_path)
+    events: list[tuple[str, str]] = []
+    sender = _recording_sender(events, "a")
+    sender.get_state.return_value = {"sent": {"cursor": "before_join"}}
+
+    def finish_inflight_batch(timeout: float | None = None) -> None:
+        events.append(("join", "a"))
+        sender.get_state.return_value = {"sent": {"cursor": "in_flight"}}
+
+    sender.join.side_effect = finish_inflight_batch
+    pump.readers["a"].senders = {"s": sender}
+
+    pump.cleanup()
+
+    assert events == [("stop", "a"), ("join", "a")]
+    # A batch delivered while senders are joined must be in the saved state, or it is redelivered on restart
+    with open(statefile_path, encoding="utf-8") as fp:
+        assert json.load(fp)["readers"]["a"]["senders"]["s"]["sent"]["cursor"] == "in_flight"
+
+
+def test_stop_readers_shares_one_join_deadline(tmp_path: Path, mocker: MockerFixture) -> None:
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps({"readers": {"a": {"senders": {}}, "b": {"senders": {}}}}), encoding="utf-8")
+
+    pump = JournalPump(journalpump_path)
+    try:
+        now = [100.0]
+        mocker.patch("journalpump.journalpump.time").monotonic.side_effect = lambda: now[0]
+        timeouts: list[float] = []
+
+        def hang_until_timeout(timeout: float) -> None:
+            timeouts.append(timeout)
+            now[0] += timeout
+
+        for reader in pump.readers.values():
+            sender = mock.Mock()
+            sender.is_alive.return_value = True
+            sender.join.side_effect = hang_until_timeout
+            reader.senders = {"s": sender}
+
+        pump.stop_readers(timeout=30.0)
+
+        # A hung sender in the first reader must not give the next reader a fresh budget
+        assert timeouts == [30.0, 0.0]
+    finally:
+        pump.cleanup()
+
+
+def test_join_senders_skips_dead_senders() -> None:
+    reader = JournalReader(name="foo", config={}, field_filters={}, geoip=None, stats=mock.Mock(), searches=[])
+    dead, alive = mock.Mock(), mock.Mock()
+    dead.is_alive.return_value = False
+    alive.is_alive.return_value = True
+    reader.senders = {"dead": dead, "alive": alive}
+
+    reader.join_senders(deadline=time.monotonic() + 5.0)
+
+    dead.join.assert_not_called()
+    alive.join.assert_called_once()
+    assert 0.0 < alive.join.call_args.kwargs["timeout"] <= 5.0
+
+
 def test_journalpump_sighup_applies_new_readers(tmp_path: Path) -> None:
     journalpump_path = tmp_path / "journalpump.json"
 
@@ -1577,6 +1752,41 @@ def test_single_sender_init_fail() -> None:
     }  # pylint: disable=protected-access
     assert journal_reader.get_write_limit_bytes() == _5_MB
     assert journal_reader.get_write_limit_message_count() == 50000
+
+
+def test_sender_retried_after_init_failure_resumes_from_current_cursor(mocker: MockerFixture) -> None:
+    sent_cursors: dict[str, str | None] = {}
+    flaky_available = False
+
+    class RecordingSender(WorkingSender):
+        def __init__(self, *, name: str, sent_cursor: str | None, **kwargs: object) -> None:
+            if name == "flaky" and not flaky_available:
+                raise SenderInitializationError
+            super().__init__(**kwargs)
+            sent_cursors[name] = sent_cursor
+
+    mocker.patch.dict(senders.output_type_to_sender_class, {"file": RecordingSender})
+    journal_reader = JournalReader(
+        name="foo",
+        config={"senders": {"healthy": {"output_type": "file"}, "flaky": {"output_type": "file"}}},
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        searches=[],
+        seek_to="c1",
+    )
+
+    journal_reader.initialize_senders()
+    assert sent_cursors == {"healthy": "c1"}
+
+    # The healthy sender keeps the reader moving while the flaky one is down
+    journal_reader.cursor = "c2"
+    flaky_available = True
+    journal_reader.initialize_senders()
+
+    # Resuming from "c1" would redeliver everything the reader consumed in the meantime
+    assert sent_cursors == {"healthy": "c1", "flaky": "c2"}
+    assert journal_reader._failed_senders == 0  # pylint: disable=protected-access
 
 
 @pytest.mark.parametrize(

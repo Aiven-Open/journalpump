@@ -111,6 +111,7 @@ class LogSender(Thread, Tagged):
         extra_field_values: dict[str, Any] | None = None,
         tags: dict[str, str] | None = None,
         msg_buffer_max_length: int = 50000,
+        sent_cursor: str | None = None,
     ) -> None:
         # Set as daemon, so that an exception in the main thread will not cause the
         # program to hang indefinitely. It's preferable to exit (and get restarted by systemd).
@@ -130,7 +131,7 @@ class LogSender(Thread, Tagged):
         self.max_batch_size = MAX_KAFKA_MESSAGE_SIZE
         self.batch_message_overhead = KAFKA_COMPRESSED_MESSAGE_OVERHEAD
         self.running = True
-        self._sent_cursor: str | None = None
+        self._sent_cursor: str | None = sent_cursor
         self._sent_count = 0
         self._sent_bytes = 0
         self._connected = False
