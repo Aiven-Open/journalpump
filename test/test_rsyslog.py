@@ -22,20 +22,37 @@ class _StubSocket:
 
 
 def _make_client(
-    *, max_msg: int, octet_counted_framing: bool = False, escape_newlines: bool = False
+    *,
+    max_msg: int,
+    octet_counted_framing: bool | None = None,
+    escape_newlines: bool | None = None,
+    rfc: str = "RFC5424",
+    log_format: str | None = None,
 ) -> tuple[SyslogTcpClient, _StubSocket]:
     with mock.patch.object(SyslogTcpClient, "_connect"):
         client = SyslogTcpClient(
             server="127.0.0.1",
             port=1,
-            rfc="RFC5424",
+            rfc=rfc,
             max_msg=max_msg,
+            log_format=log_format,
             octet_counted_framing=octet_counted_framing,
             escape_newlines=escape_newlines,
         )
     sock = _StubSocket()
     client.socket = sock  # type: ignore[assignment]
     return client, sock
+
+
+def _log(client: SyslogTcpClient, **overrides: str) -> None:
+    fields = {
+        "timestamp": "2024-01-01T00:00:00.000000Z",
+        "hostname": "host",
+        "program": "app",
+        "msg": "hello",
+        **overrides,
+    }
+    client.log(facility=1, severity=6, **fields)
 
 
 def _parse_octet_counted_frames(stream: bytes) -> list[bytes]:
@@ -180,30 +197,94 @@ class TestOctetCountedFraming:
         assert len(frames) == 1
         assert len(frames[0]) <= max_msg
 
+    @pytest.mark.parametrize("escape_newlines", [None, True, False])
+    def test_overrides_escape_newlines(self, escape_newlines: bool | None) -> None:
+        client, sock = _make_client(max_msg=4096, octet_counted_framing=True, escape_newlines=escape_newlines)
+        assert client.escape_newlines is False
+
+        _log(client, msg="line1\nline2 C:\\tmp")
+        frames = _parse_octet_counted_frames(bytes(sock.sent))
+        assert len(frames) == 1
+        body = frames[0]
+        assert b"line1\nline2 C:\\tmp" in body
+        assert b"\\n" not in body
+        assert b"\\\\" not in body
+
 
 class TestEscapeNewlines:
-    """escape_newlines=True escapes embedded CR/LF in the message before framing."""
+    """escape_newlines (on unless explicitly disabled) escapes embedded CR/LF before framing."""
 
-    def _log_multiline(self, *, escape_newlines: bool) -> bytes:
-        client, sock = _make_client(max_msg=4096, escape_newlines=escape_newlines)
-        client.log(
-            facility=1,
-            severity=6,
-            timestamp="2024-01-01T00:00:00.000000Z",
-            hostname="host",
-            program="app",
-            msg="line1\nline2\r\nline3",
-        )
-        return bytes(sock.sent)
+    FORGED = "<13>1 2024-01-01T00:00:00Z victim sshd - - forged"
+    MULTILINE = "line1\nline2\r\nline3\rline4"
 
     def test_disabled_keeps_raw_newlines(self) -> None:
-        sent = self._log_multiline(escape_newlines=False)
-        assert sent == b"<14>1 2024-01-01T00:00:00.000000Z host app - - line1\nline2\r\nline3\n"
+        client, sock = _make_client(max_msg=4096, escape_newlines=False)
+        _log(client, msg=self.MULTILINE)
+        assert bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - - line1\nline2\r\nline3\rline4\n"
 
-    def test_enabled_escapes_newlines(self) -> None:
-        sent = self._log_multiline(escape_newlines=True)
-        assert sent == b"<14>1 2024-01-01T00:00:00.000000Z host app - - line1\\nline2\\r\\nline3\n"
+    @pytest.mark.parametrize("escape_newlines", [None, True])
+    def test_enabled_escapes_newlines(self, escape_newlines: bool | None) -> None:
+        client, sock = _make_client(max_msg=4096, escape_newlines=escape_newlines)
+        _log(client, msg=self.MULTILINE)
+        assert bytes(sock.sent) == (b"<14>1 2024-01-01T00:00:00.000000Z host app - - line1\\nline2\\r\\nline3\\rline4\n")
 
-    def test_enabled_single_trailing_real_newline(self) -> None:
-        sent = self._log_multiline(escape_newlines=True)
-        assert sent.count(b"\n") == 1
+    def test_enabled_escapes_backslashes(self) -> None:
+        client, sock = _make_client(max_msg=4096)
+        _log(client, msg="literal\\n real\n path C:\\tmp\\")
+        assert (
+            bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - - literal\\\\n real\\n path C:\\\\tmp\\\\\n"
+        )
+
+    def test_disabled_keeps_raw_backslashes(self) -> None:
+        client, sock = _make_client(max_msg=4096, escape_newlines=False)
+        _log(client, msg="literal\\n")
+        assert bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - - literal\\n\n"
+
+    def test_literal_backslash_n_cannot_forge_record_after_decoding(self) -> None:
+        client, sock = _make_client(max_msg=4096)
+        _log(client, msg=f"ok\\n{self.FORGED}")
+        assert bytes(sock.sent).count(b"\n") == 1
+        assert bytes(sock.sent).decode("unicode_escape").count("\n") == 1
+
+    @pytest.mark.parametrize(
+        "field,prefix",
+        [
+            ("hostname", "h"),
+            ("program", "app"),
+            ("pid", "1"),
+            ("msgid", "id"),
+        ],
+    )
+    def test_newline_in_header_field_cannot_forge_record(self, field: str, prefix: str) -> None:
+        client, sock = _make_client(max_msg=4096)
+        _log(client, **{field: f"{prefix}\n{self.FORGED}"})
+        assert bytes(sock.sent).count(b"\n") == 1
+
+    @pytest.mark.parametrize(
+        "rfc,log_format,expected",
+        [
+            ("RFC3164", None, b"<14>Jan 01 00:00:00 h\\nX a\\rY[1\\nZ]: m\\nF\n"),
+            (
+                "CUSTOM",
+                "%timestamp:::date-rfc3339% %HOSTNAME% %app-name% %procid% %msgid% %structured-data% %msg%",
+                b'2024-01-01T00:00:00.000000Z h\\nX a\\rY 1\\nZ i\\nD x@1 a="b\\]" m\\nF\n',
+            ),
+        ],
+    )
+    def test_other_formats_escape_message_and_header_fields(self, rfc: str, log_format: str | None, expected: bytes) -> None:
+        client, sock = _make_client(max_msg=4096, rfc=rfc, log_format=log_format)
+        _log(
+            client,
+            hostname="h\nX",
+            program="a\rY",
+            pid="1\nZ",
+            msgid="i\nD",
+            sd='x@1 a="b\\]"',
+            msg="m\nF",
+        )
+        assert bytes(sock.sent) == expected
+
+    def test_sd_not_escaped(self) -> None:
+        client, sock = _make_client(max_msg=4096)
+        _log(client, msgid="id", sd='x@1 a="b\\]"')
+        assert bytes(sock.sent) == b'<14>1 2024-01-01T00:00:00.000000Z host app - id [x@1 a="b\\]"] hello\n'

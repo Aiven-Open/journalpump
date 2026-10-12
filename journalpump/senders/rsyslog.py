@@ -22,6 +22,14 @@ class RsyslogSender(LogSender):
         self.default_facility = 1
         self.default_severity = 6
 
+        octet_counted_framing = config.get("octet_counted_framing")
+        escape_newlines = config.get("escape_newlines")
+        if octet_counted_framing is True and escape_newlines is True:
+            self.log.warning(
+                "octet_counted_framing overrides escape_newlines for %s; set escape_newlines to false to silence",
+                self.name,
+            )
+
     def _init_rsyslog_client(self) -> None:
         self.log.info("Initializing Rsyslog Client %s", self.name)
         self.mark_disconnected()

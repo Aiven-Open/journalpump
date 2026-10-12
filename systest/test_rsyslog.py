@@ -121,6 +121,7 @@ def _run_pump_test(
     expected_message_count: int,
     expected_info_line_ending: str | None = None,
     expected_subsequent_message: str | None = None,
+    expected_separate_lines: list[str] | None = None,
 ) -> None:
     journalpump = None
     threads = []
@@ -184,6 +185,15 @@ def _run_pump_test(
             "Subsequent message not found — connection likely desynced after oversize octet-counted frame"
         )
     assert found == expected_message_count, "Expected messages not found in syslog"
+    if expected_separate_lines is not None:
+        # The entry was split by the receiver: each part must sit on its own line of the log file.
+        assert info_line is not None, "Info message not found in syslog"
+        assert "\\n" not in info_line, f"Newline unexpectedly escaped: {info_line!r}"
+        for part_template in expected_separate_lines:
+            part = part_template.format(identifier=identifier)
+            assert any(part in line and "Info message" not in line for line in lines), (
+                f"{part!r} not found on a separate line: {lines!r}"
+            )
     if expected_info_line_ending is not None:
         assert info_line is not None, "Info message not found in syslog"
         assert info_line.endswith(expected_info_line_ending), (
@@ -192,7 +202,10 @@ def _run_pump_test(
 
 
 @pytest.mark.parametrize(
-    "messages_to_send,sender_config,expected_message_count,expected_info_line_ending,expected_subsequent_message",
+    (
+        "messages_to_send,sender_config,expected_message_count,expected_info_line_ending,expected_subsequent_message,"
+        "expected_separate_lines"
+    ),
     [
         (
             [
@@ -207,11 +220,13 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_CRIT,
                 },
             ],
-            {},  # config not specified, octet_counted_framing is False by default
+            {},  # config not specified, octet_counted_framing is False and escape_newlines is True by default
             4,
             None,
             None,
+            None,
         ),
+        # Default config: a multi-line entry must reach rsyslog as a single escaped record.
         (
             [
                 {
@@ -219,10 +234,25 @@ def _run_pump_test(
                     "PRIORITY": journal.LOG_INFO,
                 },
             ],
-            {"octet_counted_framing": False},
+            {},
+            1,
+            "example\\nstack\\ntrace {%} -\n",
+            None,
+            None,
+        ),
+        # Opt-out: the receiver splits a multi-line entry into separate lines.
+        (
+            [
+                {
+                    "text": "Info message for {identifier}\nexample-{identifier}\nstack-{identifier}\ntrace-{identifier}",
+                    "PRIORITY": journal.LOG_INFO,
+                },
+            ],
+            {"escape_newlines": False},
             1,
             None,
             None,
+            ["example-{identifier}", "stack-{identifier}", "trace-{identifier}"],
         ),
         (
             [
@@ -235,17 +265,6 @@ def _run_pump_test(
             1,
             "example#012stack#012trace {%} -\n",
             None,
-        ),
-        (
-            [
-                {
-                    "text": "Info message for {identifier}\nexample\nstack\ntrace",
-                    "PRIORITY": journal.LOG_INFO,
-                },
-            ],
-            {"escape_newlines": True},
-            1,
-            "example\\nstack\\ntrace {%} -\n",
             None,
         ),
         # Verify that an oversize octet-counted frame is truncated without desyncing the stream.
@@ -265,6 +284,7 @@ def _run_pump_test(
             2,
             None,
             "Critical message",
+            None,
         ),
     ],
 )
@@ -275,6 +295,28 @@ def test_rsyslogd_tcp_sender(
     expected_message_count: int,
     expected_info_line_ending: str | None,
     expected_subsequent_message: str | None,
+    expected_separate_lines: list[str] | None,
+) -> None:
+    _run_tcp_scenario(
+        tmp_path=tmp_path,
+        messages_to_send=messages_to_send,
+        sender_config=sender_config,
+        expected_message_count=expected_message_count,
+        expected_info_line_ending=expected_info_line_ending,
+        expected_subsequent_message=expected_subsequent_message,
+        expected_separate_lines=expected_separate_lines,
+    )
+
+
+def _run_tcp_scenario(
+    *,
+    tmp_path: Path,
+    messages_to_send: list[dict[str, Any]],
+    sender_config: dict[str, Any],
+    expected_message_count: int,
+    expected_info_line_ending: str | None = None,
+    expected_subsequent_message: str | None = None,
+    expected_separate_lines: list[str] | None = None,
 ) -> None:
     workdir = tmp_path
     logfile = tmp_path / "test.log"
@@ -310,6 +352,7 @@ def test_rsyslogd_tcp_sender(
             expected_message_count=expected_message_count,
             expected_info_line_ending=expected_info_line_ending,
             expected_subsequent_message=expected_subsequent_message,
+            expected_separate_lines=expected_separate_lines,
         )
     finally:
         rsyslogd.stop()

@@ -7,9 +7,9 @@ import json
 import pytest
 
 
-def _make_sender() -> RsyslogSender:
+def _make_sender(**config: Any) -> RsyslogSender:
     return RsyslogSender(
-        config={"rsyslog_server": "127.0.0.1", "rsyslog_port": 514},
+        config={"rsyslog_server": "127.0.0.1", "rsyslog_port": 514, **config},
         name="test-rsyslog",
         reader=mock.Mock(),
         stats=mock.Mock(),
@@ -119,3 +119,28 @@ class TestRsyslogSenderMissingTimestamp:
 
         call_kwargs = sender.rsyslog_client.log.call_args.kwargs
         assert call_kwargs["severity"] == expected_severity
+
+
+class TestRsyslogSenderFramingConfig:
+    @pytest.mark.parametrize(
+        "octet_counted_framing,escape_newlines,expect_warning",
+        [
+            (True, True, True),
+            (True, None, False),
+            (True, False, False),
+            (False, True, False),
+            (None, True, False),
+        ],
+    )
+    def test_conflict_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        octet_counted_framing: bool | None,
+        escape_newlines: bool | None,
+        expect_warning: bool,
+    ) -> None:
+        config = {"octet_counted_framing": octet_counted_framing, "escape_newlines": escape_newlines}
+        with caplog.at_level("WARNING"):
+            _make_sender(**{k: v for k, v in config.items() if v is not None})
+        warned = any("overrides escape_newlines" in record.getMessage() for record in caplog.records)
+        assert warned is expect_warning
