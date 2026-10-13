@@ -102,3 +102,12 @@ def default_json_serialization(obj: object) -> str | None:
     if isinstance(obj, datetime.datetime):
         return obj.isoformat()
     return None
+
+
+# Backslash is escaped too, so a literal "\n" in the input stays distinguishable from an escaped LF.
+_NEWLINE_ESCAPES = str.maketrans({"\\": "\\\\", "\r": "\\r", "\n": "\\n"})
+
+
+def escape_linebreaks(value: str) -> str:
+    """Replace backslash, CR and LF with their two-character escape sequences, leaving everything else untouched."""
+    return value.translate(_NEWLINE_ESCAPES)

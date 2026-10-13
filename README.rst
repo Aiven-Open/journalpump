@@ -618,7 +618,19 @@ For example the rfc3164 log format would be defined as `<%pri%>%timestamp% %HOST
 
 By default, log messages are sent using non-transparent framing and are terminated by newline.
 Set it to ``true`` if the server supports octet-counted framing and messages are multi-line.
+Octet-counted framing takes precedence over ``escape_newlines`` (see below).
 (see `RFC 6587 for Syslog over TCP message transfer <https://datatracker.ietf.org/doc/html/rfc6587#section-3.4.1>`_)
+
+``escape_newlines`` (default ``true``)
+
+Escape carriage returns and line feeds in the message, hostname, app-name, procid and msgid as ``\r`` and ``\n``.
+The timestamp and ``structured_data`` are sent as they are (``structured_data`` must be valid RFC 5424).
+Backslashes are escaped as ``\\``, so a literal ``\n`` in the original text is sent as ``\\n``
+and can be told apart from an escaped line feed.
+This prevents a log message from being split into multiple syslog records, or forging new ones,
+when non-transparent framing is used. Set it to ``false`` to send newlines and backslashes as they are.
+Ignored when ``octet_counted_framing`` is enabled; a warning is logged at startup if both are explicitly
+set to ``true``.
 
 ``max_message_size`` (default ``2048``)
 
