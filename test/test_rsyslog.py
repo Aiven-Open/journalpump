@@ -2,7 +2,7 @@
 #
 # This file is under the Apache License, Version 2.0.
 # See the file `LICENSE` for details.
-from journalpump.rsyslog import SyslogTcpClient
+from journalpump.rsyslog import _sanitize_header_field, APP_NAME_MAX, NILVALUE, SyslogTcpClient
 from unittest import mock
 
 import pytest
@@ -247,31 +247,19 @@ class TestEscapeNewlines:
         assert bytes(sock.sent).decode("unicode_escape").count("\n") == 1
 
     @pytest.mark.parametrize(
-        "field,prefix",
-        [
-            ("hostname", "h"),
-            ("program", "app"),
-            ("pid", "1"),
-            ("msgid", "id"),
-        ],
-    )
-    def test_newline_in_header_field_cannot_forge_record(self, field: str, prefix: str) -> None:
-        client, sock = _make_client(max_msg=4096)
-        _log(client, **{field: f"{prefix}\n{self.FORGED}"})
-        assert bytes(sock.sent).count(b"\n") == 1
-
-    @pytest.mark.parametrize(
         "rfc,log_format,expected",
         [
-            ("RFC3164", None, b"<14>Jan 01 00:00:00 h\\nX a\\rY[1\\nZ]: m\\nF\n"),
+            ("RFC3164", None, b"<14>Jan 01 00:00:00 h_X a_Y[1_Z]: m\\nF\n"),
             (
                 "CUSTOM",
                 "%timestamp:::date-rfc3339% %HOSTNAME% %app-name% %procid% %msgid% %structured-data% %msg%",
-                b'2024-01-01T00:00:00.000000Z h\\nX a\\rY 1\\nZ i\\nD x@1 a="b\\]" m\\nF\n',
+                b'2024-01-01T00:00:00.000000Z h_X a_Y 1_Z i_D x@1 a="b\\]" m\\nF\n',
             ),
         ],
     )
-    def test_other_formats_escape_message_and_header_fields(self, rfc: str, log_format: str | None, expected: bytes) -> None:
+    def test_other_formats_escape_message_and_sanitize_header_fields(
+        self, rfc: str, log_format: str | None, expected: bytes
+    ) -> None:
         client, sock = _make_client(max_msg=4096, rfc=rfc, log_format=log_format)
         _log(
             client,
@@ -288,3 +276,30 @@ class TestEscapeNewlines:
         client, sock = _make_client(max_msg=4096)
         _log(client, msgid="id", sd='x@1 a="b\\]"')
         assert bytes(sock.sent) == b'<14>1 2024-01-01T00:00:00.000000Z host app - id [x@1 a="b\\]"] hello\n'
+
+
+class TestSanitizeHeaderFields:
+    @pytest.mark.parametrize(
+        "value,max_bytes,expected",
+        [
+            ("a b\tc\nd\re", 255, "a_b_c_d_e"),
+            ("a\x00b\u2028c", 255, "a_b_c"),
+            ("\u30d7\u30ed\u30b0\u30e9\u30e0", 255, "\u30d7\u30ed\u30b0\u30e9\u30e0"),
+            ("", 255, NILVALUE),
+            (None, 255, NILVALUE),
+            ("A" * 1000, APP_NAME_MAX, "A" * APP_NAME_MAX),
+            # 2-byte characters: the half-cut one is dropped
+            ("\u043f" * 100, 5, "\u043f\u043f"),
+            ("\u043f", 1, NILVALUE),
+        ],
+        ids=["whitespace", "control", "non_ascii", "empty", "none", "over_long", "multibyte_cut", "cut_to_empty"],
+    )
+    def test_sanitize(self, value: str | None, max_bytes: int, expected: str) -> None:
+        assert _sanitize_header_field(value, max_bytes) == expected
+
+    # Octet-counted framing forces escape_newlines off, so it takes the same path as False
+    @pytest.mark.parametrize("escape_newlines", [None, False])
+    def test_header_fields_sanitized_regardless_of_escape_newlines(self, escape_newlines: bool | None) -> None:
+        client, sock = _make_client(max_msg=4096, escape_newlines=escape_newlines)
+        _log(client, hostname="h\nX", program="a\r" + "x" * 100, pid="1\nZ", msgid="i\x00D")
+        assert bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z h_X a_" + b"x" * 46 + b" 1_Z i_D hello\n"
