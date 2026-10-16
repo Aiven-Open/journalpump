@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from . import geohash, statsd
+from .cursor import parse_seqnum, pick_resume_cursor
 from .daemon import ServiceDaemon
 from .senders import get_sender_class
 from .senders.base import LogSender, MAX_KAFKA_MESSAGE_SIZE, Tagged
@@ -107,17 +108,6 @@ class PumpReader(journal.Reader):
 
         return output
 
-    @staticmethod
-    def _parse_seqnum_from_cursor(cursor: str) -> int | None:
-        # cursor format: s=...;i=<hex_seqnum>;b=...;m=...;t=...;x=...
-        for part in cursor.split(";"):
-            if part.startswith("i="):
-                try:
-                    return int(part.removeprefix("i="), 16)
-                except ValueError:
-                    return None
-        return None
-
     def get_next(self, skip: int = 1) -> JournalObject | None:
         # pylint: disable=no-member, protected-access
         """Private get_next implementation that doesn't store the cursor since we don't want it"""
@@ -126,7 +116,7 @@ class PumpReader(journal.Reader):
             if entry:
                 entry["__REALTIME_TIMESTAMP"] = self._get_realtime()
                 cursor = self._get_cursor()
-                seqnum = self._parse_seqnum_from_cursor(cursor)
+                seqnum = parse_seqnum(cursor)
                 if seqnum is not None:
                     entry["__SEQNUM"] = seqnum
                 return JournalObject(cursor=cursor, entry=self.convert_entry(entry))
@@ -413,6 +403,21 @@ class JournalReader(Tagged):
 
         return jobject
 
+    def _seek_to_cursor(self, reader: PumpReader, cursor: str) -> bool:
+        """Seek to the cursor; False if journald rejects it"""
+        try:
+            reader.seek_cursor(cursor)  # pylint: disable=no-member
+        except ValueError as ex:
+            self.log.warning(
+                "Reader %r cannot seek to cursor %r, using initial position %r instead: %s",
+                self.name,
+                cursor,
+                "head" if self.initial_position is None else self.initial_position,
+                ex,
+            )
+            return False
+        return True
+
     def get_reader(self, seek_to: str | None = None) -> PumpReader | None:
         """Return an initialized reader or None"""
         if self.journald_reader:
@@ -452,8 +457,9 @@ class JournalReader(Tagged):
             )
             return None
 
+        if seek_to and not self._seek_to_cursor(self.journald_reader, seek_to):
+            seek_to = self.cursor = None
         if seek_to:
-            self.journald_reader.seek_cursor(seek_to)  # pylint: disable=no-member
             # Now the cursor points to the last read item, step over it so that we
             # do not read the same item twice
             self.read_next()
@@ -913,33 +919,25 @@ class JournalPump(ServiceDaemon, Tagged):
             else:
                 reader_state, state_source = file_reader_states.get(reader_name, {}), "state file"
 
-            # Default to reader's cursor, in case we have no senders
-            resume_cursor = reader_state.get("cursor")
-            cursor_source = f"reader cursor from {state_source}"
-
-            # Check sender cursors; sorted to match the key order of the state file (written with sort_keys=True)
+            configured_senders = reader_config.get("senders", {})
             sender_states: dict[str, Any] = reader_state.get("senders", {})
-            for sender_name, sender in sorted(sender_states.items()):
-                sender_cursor = sender["sent"]["cursor"]
-                if sender_cursor is None:
-                    self.log.warning(
-                        "Sender %r for reader %r needs full sync from beginning",
-                        sender_name,
-                        reader_name,
-                    )
-                    resume_cursor = None
-                    cursor_source = f"full sync, sender {sender_name!r} has no confirmed delivery ({state_source})"
-                    break
-
-                # TODO: pick the OLDEST cursor
-                resume_cursor = sender_cursor
-                cursor_source = f"sender {sender_name!r} sent cursor from {state_source}"
-
+            sender_cursors = [
+                (sender_name, sender["sent"]["cursor"])
+                for sender_name, sender in sorted(sender_states.items())
+                if sender_name in configured_senders
+            ]
+            choice = pick_resume_cursor(
+                sender_cursors, reader_state.get("cursor"), reader_name=reader_name, state_source=state_source
+            )
+            for warning in choice.warnings:
+                self.log.warning("%s", warning)
+            resume_cursor = choice.cursor
             self.log.info(
-                "Reader %r resuming from cursor position: %r (%s)",
+                "Reader %r resuming from cursor position: %r (%s); sender cursors considered: %r",
                 reader_name,
                 resume_cursor,
-                cursor_source,
+                choice.reason,
+                dict(sender_cursors),
             )
 
             initial_position = reader_config.get("initial_position")
