@@ -123,15 +123,36 @@ class AWSCloudWatchSender(LogSender):
         return length
 
     def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
+        oldest_accepted_ms = int(time.time() * 1000.0) - MAX_EVENT_AGE_MS
+        sent_messages: list[bytes] = []
+        log_events: list[dict[str, Any]] = []
+        for msg in messages:
+            timestamp_ms = _event_timestamp_ms(msg)
+            if timestamp_ms < oldest_accepted_ms:
+                continue
+            sent_messages.append(msg)
+            log_events.append({"timestamp": timestamp_ms, "message": msg.decode("utf8")})
+
+        skipped_count = len(messages) - len(log_events)
+        if skipped_count:
+            self.log.info(
+                "Skipping %d events older than %d days, CloudWatch does not accept them",
+                skipped_count,
+                MAX_EVENT_AGE_MS // (24 * 60 * 60 * 1000),
+            )
+            self.stats.increase(
+                "journal.aws_cloudwatch.skipped_events",
+                inc_value=skipped_count,
+                tags=self.make_tags({"app": "journalpump"}),
+            )
+        if not log_events:
+            self._sent_cursor = cursor
+            return True
+
         if not self._connected:
             self._init_log_group()
 
-        log_events: list[dict[str, Any]] = []
-        for msg in messages:
-            raw_message = msg.decode("utf8")
-            message = json.loads(raw_message)
-            timestamp = message.get("REALTIME_TIMESTAMP") or time.time()
-            log_events.append({"timestamp": int(timestamp * 1000.0), "message": raw_message})
+        log_events.sort(key=lambda event: event["timestamp"])
         kwargs: dict[str, Any] = {
             "logGroupName": self.log_group,
             "logStreamName": self.log_stream,
@@ -157,7 +178,14 @@ class AWSCloudWatchSender(LogSender):
             self._init_log_group()
         else:
             if 200 <= response["ResponseMetadata"]["HTTPStatusCode"] < 300:
-                self.mark_sent(messages=messages, cursor=cursor)
-                self._next_sequence_token = response["nextSequenceToken"]
+                rejected = response.get("rejectedLogEventsInfo")
+                if rejected:
+                    self.log.warning("CloudWatch rejected some events in a batch of %d: %r", len(log_events), rejected)
+                    self.stats.increase(
+                        "journal.aws_cloudwatch.partially_rejected_batches",
+                        tags=self.make_tags({"app": "journalpump"}),
+                    )
+                self.mark_sent(messages=sent_messages, cursor=cursor)
+                self._next_sequence_token = response.get("nextSequenceToken")
                 return True
         return False
