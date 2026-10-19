@@ -627,14 +627,20 @@ Octet-counted framing takes precedence over ``escape_newlines`` (see below).
 
 ``escape_newlines`` (default ``true``)
 
-Escape carriage returns and line feeds in the message, hostname, app-name, procid and msgid as ``\r`` and ``\n``.
-The timestamp and ``structured_data`` are sent as they are (``structured_data`` must be valid RFC 5424).
+Escape carriage returns and line feeds in the message as ``\r`` and ``\n``.
+Header fields are handled separately and always (see below). The timestamp and ``structured_data`` are sent as they are
+(``structured_data`` must be valid RFC 5424).
 Backslashes are escaped as ``\\``, so a literal ``\n`` in the original text is sent as ``\\n``
 and can be told apart from an escaped line feed.
 This prevents a log message from being split into multiple syslog records, or forging new ones,
 when non-transparent framing is used. Set it to ``false`` to send newlines and backslashes as they are.
 Ignored when ``octet_counted_framing`` is enabled; a warning is logged at startup if both are explicitly
 set to ``true``.
+
+The hostname, app-name, procid and msgid fields are always sanitized, whatever the format, framing or
+``escape_newlines`` setting, since any local process can set them. Whitespace and control characters
+are replaced with ``_``, values are truncated to the RFC 5424 limits (255, 48, 128 and 32 bytes) without
+splitting a UTF-8 character, and empty values are sent as ``-``. Printable non-ASCII characters are kept.
 
 ``max_message_size`` (default ``2048``)
 

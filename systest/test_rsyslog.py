@@ -37,6 +37,11 @@ $template RemoteLogs,"{logfile}"
 & ~
 """
 
+# A program name that tries to forge a second record: a newline would end the real record and the rest
+# would look like a new one. The sender must turn the newlines and spaces into "_" (at most 48 bytes kept).
+FORGED_PROGRAM_NAME = "app\n<13>1 victim\nforged-{identifier}"
+SANITIZED_PROGRAM_NAME = "app_<13>1_victim_forged-{identifier}"
+
 log = logging.getLogger(__name__)
 
 
@@ -113,16 +118,8 @@ class _TestRsyslogd:
             self.process = None
 
 
-def _run_pump_test(
-    *,
-    config_path: Path,
-    logfile: Path,
-    messages_to_send: list[dict[str, Any]],
-    expected_message_count: int,
-    expected_info_line_ending: str | None = None,
-    expected_subsequent_message: str | None = None,
-    expected_separate_lines: list[str] | None = None,
-) -> None:
+def _send_through_pump(*, config_path: Path, messages_to_send: list[dict[str, Any]]) -> str:
+    """Run journalpump, send the messages to the journal and return the identifier used in them."""
     journalpump = None
     threads = []
     try:
@@ -136,8 +133,11 @@ def _run_pump_test(
         identifier = "".join(random.sample(string.ascii_uppercase + string.digits, k=8))
         for msg in messages_to_send:
             msg_text = msg["text"].format(identifier=identifier)
-            kwargs = dict(msg)
-            kwargs.pop("text")
+            kwargs = {
+                key: value.format(identifier=identifier) if isinstance(value, str) else value
+                for key, value in msg.items()
+                if key != "text"
+            }
             log.info("Sending: %s", msg_text)
             journal.send(msg_text, **kwargs)
         # Wait for everything to trickle thru
@@ -158,8 +158,19 @@ def _run_pump_test(
                 break
             sleep(1)
             retry += 1
+    return identifier
 
-    # Check the results
+
+def _assert_syslog_results(
+    *,
+    logfile: Path,
+    identifier: str,
+    expected_message_count: int,
+    expected_info_line_ending: str | None = None,
+    expected_subsequent_message: str | None = None,
+    expected_separate_lines: list[str] | None = None,
+    expected_sanitized_program_name: str | None = None,
+) -> None:
     found = 0
     info_line = None
     subsequent_message_found = False
@@ -194,6 +205,9 @@ def _run_pump_test(
             assert any(part in line and "Info message" not in line for line in lines), (
                 f"{part!r} not found on a separate line: {lines!r}"
             )
+    if expected_sanitized_program_name is not None:
+        sanitized = expected_sanitized_program_name.format(identifier=identifier)
+        assert any(sanitized in line for line in lines), f"Header field was not sanitized: {lines!r}"
     if expected_info_line_ending is not None:
         assert info_line is not None, "Info message not found in syslog"
         assert info_line.endswith(expected_info_line_ending), (
@@ -308,6 +322,31 @@ def test_rsyslogd_tcp_sender(
     )
 
 
+@pytest.mark.parametrize(
+    "sender_config",
+    [
+        {"escape_newlines": False},
+        {"octet_counted_framing": True},
+    ],
+    ids=["non_transparent", "octet_counted"],
+)
+def test_rsyslogd_forged_program_name(tmp_path: Path, sender_config: dict[str, Any]) -> None:
+    """A newline in the program name must not let the receiver see a second, forged record."""
+    _run_tcp_scenario(
+        tmp_path=tmp_path,
+        messages_to_send=[
+            {
+                "text": "Info message for {identifier}",
+                "PRIORITY": journal.LOG_INFO,
+                "SYSLOG_IDENTIFIER": FORGED_PROGRAM_NAME,
+            },
+        ],
+        sender_config=sender_config,
+        expected_message_count=1,
+        expected_sanitized_program_name=SANITIZED_PROGRAM_NAME,
+    )
+
+
 def _run_tcp_scenario(
     *,
     tmp_path: Path,
@@ -317,6 +356,7 @@ def _run_tcp_scenario(
     expected_info_line_ending: str | None = None,
     expected_subsequent_message: str | None = None,
     expected_separate_lines: list[str] | None = None,
+    expected_sanitized_program_name: str | None = None,
 ) -> None:
     workdir = tmp_path
     logfile = tmp_path / "test.log"
@@ -345,14 +385,15 @@ def _run_tcp_scenario(
     rsyslogd = _TestRsyslogd(workdir=workdir, logfile=logfile, port=5140)
     try:
         rsyslogd.start()
-        _run_pump_test(
-            config_path=config_path,
+        identifier = _send_through_pump(config_path=config_path, messages_to_send=messages_to_send)
+        _assert_syslog_results(
             logfile=logfile,
-            messages_to_send=messages_to_send,
+            identifier=identifier,
             expected_message_count=expected_message_count,
             expected_info_line_ending=expected_info_line_ending,
             expected_subsequent_message=expected_subsequent_message,
             expected_separate_lines=expected_separate_lines,
+            expected_sanitized_program_name=expected_sanitized_program_name,
         )
     finally:
         rsyslogd.stop()
