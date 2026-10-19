@@ -186,12 +186,13 @@ class LogSender(Thread, Tagged):
             },
         }
 
-    def mark_connected(self) -> None:
+    def mark_connected(self, *, reset_backoff: bool = True) -> None:
         if not self._connected:
             self._connected_changed = time.monotonic()
         self._connected = True
         self._errors = []
-        self._backoff_attempt = 0
+        if reset_backoff:
+            self._backoff_attempt = 0
 
     def mark_disconnected(self, error: object = None) -> None:
         if self._connected:
