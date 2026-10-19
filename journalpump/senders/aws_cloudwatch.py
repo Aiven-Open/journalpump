@@ -97,7 +97,7 @@ class AWSCloudWatchSender(LogSender):
                     found_stream_metadata = [stream for stream in streams if stream["logStreamName"] == self.log_stream]
                     if found_stream_metadata:
                         self._next_sequence_token = found_stream_metadata[0].get("uploadSequenceToken")
-                        self.mark_connected()
+                        self.mark_connected(reset_backoff=False)
                         return
         except exceptions.ClientError as err:
             self.stats.unexpected_exception(ex=err, where="sender", tags=self.make_tags({"app": "journalpump"}))

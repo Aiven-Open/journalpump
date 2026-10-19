@@ -215,3 +215,23 @@ class TestInvalidBatch:
 
         assert sender._sent_cursor == "c2"  # pylint: disable=protected-access
         assert sender.get_state()["health"] == {"status": "connected", "elapsed": mock.ANY, "errors": []}
+
+
+class TestBackoff:
+    def test_backoff_grows_across_failed_sends_and_resets_after_success(self) -> None:
+        sender, logs = _make_sender()
+        sender.mark_connected()
+        message = _message(NOW - HOUR)
+
+        with mock.patch("time.time", return_value=NOW), Stubber(logs) as stubber:
+            for _ in range(2):
+                stubber.add_client_error("put_log_events", service_error_code="ThrottlingException", http_status_code=400)
+                _add_init_responses(stubber)
+            assert sender.send_messages(messages=[message[0]], cursor="c1") is False
+            assert sender.send_messages(messages=[message[0]], cursor="c1") is False
+            assert sender._backoff_attempt == 2  # pylint: disable=protected-access
+
+            stubber.add_response("put_log_events", _put_response())
+            assert sender.send_messages(messages=[message[0]], cursor="c1") is True
+            assert sender._backoff_attempt == 0  # pylint: disable=protected-access
+            stubber.assert_no_pending_responses()
