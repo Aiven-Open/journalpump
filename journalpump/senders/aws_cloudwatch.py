@@ -1,11 +1,22 @@
 from .base import LogSender, SenderInitializationError
 from botocore import exceptions, session
+from collections.abc import Sequence
 from typing import Any
 
 import json
 import time
 
 MAX_INIT_TRIES = 3
+
+# Limits PutLogEvents enforces per request
+MAX_BATCH_EVENTS = 10_000
+MAX_BATCH_SPAN_MS = 24 * 60 * 60 * 1000
+MAX_EVENT_AGE_MS = 14 * 24 * 60 * 60 * 1000
+
+
+def _event_timestamp_ms(message: bytes) -> int:
+    timestamp = json.loads(message).get("REALTIME_TIMESTAMP") or time.time()
+    return int(timestamp * 1000.0)
 
 
 class AWSCloudWatchSender(LogSender):
@@ -99,6 +110,17 @@ class AWSCloudWatchSender(LogSender):
             self._backoff()
         self.mark_disconnected()
         self.log.error("Failed to init sender. AWS CloudWatch logs could not update sequence token.")
+
+    def next_batch_length(self, messages: Sequence[tuple[bytes, str | None]]) -> int:
+        length = min(super().next_batch_length(messages), MAX_BATCH_EVENTS)
+        oldest = newest = _event_timestamp_ms(messages[0][0])
+        for index in range(1, length):
+            timestamp = _event_timestamp_ms(messages[index][0])
+            if max(newest, timestamp) - min(oldest, timestamp) >= MAX_BATCH_SPAN_MS:
+                return index
+            oldest = min(oldest, timestamp)
+            newest = max(newest, timestamp)
+        return length
 
     def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
         if not self._connected:
