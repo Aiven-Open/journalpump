@@ -131,7 +131,11 @@ Example::
 
 Location of a JSON state file which describes the state of the
 journalpump process.  If omitted, journalpump does not persist
-reader and sender cursors.
+reader and sender cursors.  When journalpump starts or reloads its
+configuration, each reader resumes from the oldest cursor confirmed by its senders,
+so faster senders may receive some messages again.  If the sender cursors
+cannot be ordered (for example they are from different journal sequences
+and different boots), the reader starts from its initial position instead.
 
 ``write_running_config`` (default unset / false)
 
