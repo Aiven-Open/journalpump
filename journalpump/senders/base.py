@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from journalpump.statsd import StatsClient
 from threading import Lock, Thread
 from typing import Any, TYPE_CHECKING
@@ -251,6 +252,18 @@ class LogSender(Thread, Tagged):
                 time.sleep(0.1)
         self.log.info("Stopping")
 
+    def next_batch_length(self, messages: Sequence[tuple[bytes, str | None]]) -> int:
+        """Return how many messages from the head of `messages` go into the next batch, at least one."""
+        batch_size = len(messages[0][0]) + self.batch_message_overhead
+        index = 1
+        while index < len(messages):
+            item_size = len(messages[index][0]) + self.batch_message_overhead
+            if batch_size + item_size >= self.max_batch_size:
+                break
+            batch_size += item_size
+            index += 1
+        return index
+
     def get_and_send_messages(self) -> None:
         start_time = time.monotonic()
         msg_count = None
@@ -260,15 +273,7 @@ class LogSender(Thread, Tagged):
             self.log.debug("Got %d items from msg_buffer", msg_count)
 
             while self.running and messages:
-                batch_size = len(messages[0][0]) + self.batch_message_overhead
-                index = 1
-                while index < len(messages):
-                    item_size = len(messages[index][0]) + self.batch_message_overhead
-                    if batch_size + item_size >= self.max_batch_size:
-                        break
-                    batch_size += item_size
-                    index += 1
-
+                index = self.next_batch_length(messages)
                 messages_batch = messages[:index]
                 message_bodies = [m[0] for m in messages_batch]
                 if self.send_messages(messages=message_bodies, cursor=messages_batch[-1][1]):
