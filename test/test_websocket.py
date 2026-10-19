@@ -95,7 +95,7 @@ class WebsocketMockServer(threading.Thread):
         self.running = True
         try:
             self.loop.run_until_complete(self.run_websocket_server())
-        except websockets.exceptions.InvalidMessage as ex:
+        except websockets.exceptions.InvalidHandshake as ex:
             self.log.info("WS server got InvalidMessage exception: %s", ex)
         except asyncio.CancelledError:
             self.log.info("WS client task cancelled; ignoring and exiting")

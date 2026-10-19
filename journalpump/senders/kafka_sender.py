@@ -4,18 +4,22 @@ from kafka.admin import NewTopic
 from types import ModuleType
 from typing import Any
 
+import importlib
 import inspect
 import logging
 import socket
 
+# Optional compression libs: use importlib so these type-check the same way
+# whether the module is installed, typed, or absent.
 snappy: ModuleType | None
 try:
-    import snappy
+    snappy = importlib.import_module("snappy")
 except ImportError:
     snappy = None
 
+zstd: ModuleType | None
 try:
-    import zstandard as zstd
+    zstd = importlib.import_module("zstandard")
 except ImportError:
     zstd = None
 
