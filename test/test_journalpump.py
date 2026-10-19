@@ -1829,7 +1829,8 @@ def test_os_sender() -> None:
     assert opensearch_sender.send_messages(messages=[b'{"timestamp": "2019-10-07 14:00:00"}'], cursor=None)
 
 
-def test_awscloudwatch_sender() -> None:
+@mock.patch("time.time", return_value=1590581737.308352 + 60)
+def test_awscloudwatch_sender(_mock_time: mock.Mock) -> None:
     botocore_session = botocore.session.get_session()
     logs = botocore_session.create_client("logs", region_name="us-east-1")
     sender = AWSCloudWatchSender(
@@ -1947,7 +1948,8 @@ def test_awscloudwatch_sender() -> None:
         stubber.assert_no_pending_responses()
 
 
-def test_awscloudwatch_sender_init() -> None:
+@mock.patch("time.time", return_value=1590581737.308352 + 60)
+def test_awscloudwatch_sender_init(_mock_time: mock.Mock) -> None:
     botocore_session = botocore.session.get_session()
     logs = botocore_session.create_client("logs", region_name="us-east-1")
     sender = AWSCloudWatchSender(
