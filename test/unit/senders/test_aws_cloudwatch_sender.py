@@ -155,3 +155,63 @@ class TestSendMessages:
             assert sender.send_messages(messages=[message[0]], cursor="c1") is True
 
         assert sender._sent_cursor == "c1"  # pylint: disable=protected-access
+
+
+def _add_init_responses(stubber: Stubber) -> None:
+    stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+    stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+    stubber.add_response(
+        "describe_log_streams",
+        {"logStreams": [{"logStreamName": "stream"}]},
+        {"logGroupName": "group"},
+    )
+
+
+def _add_invalid_parameter_error(stubber: Stubber) -> None:
+    stubber.add_client_error(
+        "put_log_events",
+        service_error_code="InvalidParameterException",
+        service_message="The batch of log events in a single PutLogEvents request cannot span more than 24 hours.",
+        http_status_code=400,
+    )
+
+
+class TestInvalidBatch:
+    def test_invalid_parameter_drops_batch(self) -> None:
+        sender, logs = _make_sender()
+        sender.mark_connected()
+        sender._backoff_attempt = 3  # pylint: disable=protected-access
+        message = _message(NOW - HOUR)
+
+        with mock.patch("time.time", return_value=NOW), Stubber(logs) as stubber:
+            _add_invalid_parameter_error(stubber)
+            assert sender.send_messages(messages=[message[0]], cursor="c1") is True
+            stubber.assert_no_pending_responses()
+
+        assert sender._sent_cursor == "c1"  # pylint: disable=protected-access
+        sender.stats.increase.assert_any_call(  # type: ignore[attr-defined]
+            "journal.aws_cloudwatch.dropped_events", inc_value=1, tags=mock.ANY
+        )
+        health = sender.get_state()["health"]
+        assert health["status"] == "disconnected"
+        assert len(health["errors"]) == 1
+        assert health["errors"][0].startswith("Dropped a batch CloudWatch rejected as invalid: The batch of log events")
+        assert sender._backoff_attempt == 3  # pylint: disable=protected-access
+
+    def test_sender_reconnects_after_dropped_batch(self) -> None:
+        sender, logs = _make_sender()
+        sender.mark_connected()
+        dropped = _message(NOW - 2 * HOUR)
+        message = _message(NOW - HOUR)
+
+        with mock.patch("time.time", return_value=NOW), Stubber(logs) as stubber:
+            _add_invalid_parameter_error(stubber)
+            assert sender.send_messages(messages=[dropped[0]], cursor="c1") is True
+
+            _add_init_responses(stubber)
+            stubber.add_response("put_log_events", _put_response(), _put_args(message))
+            assert sender.send_messages(messages=[message[0]], cursor="c2") is True
+            stubber.assert_no_pending_responses()
+
+        assert sender._sent_cursor == "c2"  # pylint: disable=protected-access
+        assert sender.get_state()["health"] == {"status": "connected", "elapsed": mock.ANY, "errors": []}

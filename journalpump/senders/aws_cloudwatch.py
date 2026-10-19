@@ -165,6 +165,16 @@ class AWSCloudWatchSender(LogSender):
         except exceptions.ClientError as err:
             err_code = err.response["Error"]["Code"]
             err_msg = err.response["Error"]["Message"]
+            if err_code == "InvalidParameterException":
+                self.log.error("CloudWatch rejected a batch of %d events, dropping it: %r", len(log_events), err_msg)
+                self.stats.increase(
+                    "journal.aws_cloudwatch.dropped_events",
+                    inc_value=len(log_events),
+                    tags=self.make_tags({"app": "journalpump"}),
+                )
+                self._sent_cursor = cursor
+                self.mark_disconnected(f"Dropped a batch CloudWatch rejected as invalid: {err_msg}")
+                return True
             self.mark_disconnected()
             self.log.error("Error sending events %r: %r", err_code, err_msg)
             self.stats.unexpected_exception(ex=err, where="sender", tags=self.make_tags({"app": "journalpump"}))
