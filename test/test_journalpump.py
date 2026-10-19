@@ -1,6 +1,8 @@
 from .data import GCP_PRIVATE_KEY
+from .util import make_cursor
 from botocore.stub import Stubber
 from collections import OrderedDict
+from collections.abc import Mapping
 from datetime import datetime, UTC
 from journalpump import senders
 from journalpump.journalpump import (
@@ -1041,6 +1043,7 @@ class TestJournalObjectHandler(TestCase):
 def test_journalpump_resume_cursor(tmp_path: Path) -> None:
     journalpump_path = tmp_path / "journalpump.json"
     statefile_path = tmp_path / "journalpump_state.json"
+    sender_cursor = make_cursor(i=2)
 
     config = {
         "json_state_file_path": str(statefile_path),
@@ -1065,7 +1068,7 @@ def test_journalpump_resume_cursor(tmp_path: Path) -> None:
             },
             "with_sender": {
                 "cursor": "reader_cursor",
-                "senders": {"fake_syslog": {"sent": {"cursor": "sender_cursor"}}},
+                "senders": {"fake_syslog": {"sent": {"cursor": sender_cursor}}},
             },
         },
         "start_time": datetime.now(UTC).replace(tzinfo=None).isoformat(),
@@ -1081,7 +1084,7 @@ def test_journalpump_resume_cursor(tmp_path: Path) -> None:
 
     # Check that readers are initialized with the right cursors
     assert pump.readers["without_senders"].cursor == "reader_cursor"
-    assert pump.readers["with_sender"].cursor == "sender_cursor"
+    assert pump.readers["with_sender"].cursor == sender_cursor
 
 
 def _pump_with_saved_sender_cursor(tmp_path: Path, cursor: str) -> JournalPump:
@@ -1115,19 +1118,20 @@ def _force_readers_reload(pump: JournalPump) -> None:
 
 def test_reload_resumes_from_in_memory_position(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     # Last periodic save, taken before the most recent delivery
-    pump = _pump_with_saved_sender_cursor(tmp_path, "stale")
+    saved_cursor, live_cursor, in_flight_cursor = make_cursor(i=1), make_cursor(i=2), make_cursor(i=3)
+    pump = _pump_with_saved_sender_cursor(tmp_path, saved_cursor)
     try:
         reader = pump.readers["a"]
         reader.initialize_senders()
-        reader.cursor = "live"
+        reader.cursor = live_cursor
         sender = reader.senders["fake_syslog"]
-        sender.mark_sent(messages=[b"x"], cursor="live")
+        sender.mark_sent(messages=[b"x"], cursor=live_cursor)
 
         # A batch still in flight when the reload starts completes while senders are joined
         real_join = sender.join
 
         def join_after_inflight_batch(timeout: float | None = None) -> None:
-            sender.mark_sent(messages=[b"y"], cursor="in_flight")
+            sender.mark_sent(messages=[b"y"], cursor=in_flight_cursor)
             real_join(timeout)
 
         sender.join = join_after_inflight_batch  # type: ignore[method-assign]
@@ -1137,16 +1141,17 @@ def test_reload_resumes_from_in_memory_position(tmp_path: Path, caplog: pytest.L
             _force_readers_reload(pump)
 
         # Snapshot must be taken after the join, so the in-flight batch is not redelivered
-        assert pump.readers["a"].cursor == "in_flight"
+        assert pump.readers["a"].cursor == in_flight_cursor
         assert "sender 'fake_syslog' sent cursor from live state" in caplog.text
     finally:
         pump.cleanup()
 
 
 def test_reload_sender_without_confirmed_delivery_does_not_rewind(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    pump = _pump_with_saved_sender_cursor(tmp_path, "c1")
+    cursor = make_cursor(i=1)
+    pump = _pump_with_saved_sender_cursor(tmp_path, cursor)
     try:
-        assert pump.readers["a"].cursor == "c1"
+        assert pump.readers["a"].cursor == cursor
         # Sender is up but has not delivered anything yet
         pump.readers["a"].initialize_senders()
 
@@ -1154,9 +1159,140 @@ def test_reload_sender_without_confirmed_delivery_does_not_rewind(tmp_path: Path
             _force_readers_reload(pump)
 
         # None would mean starting over from the head of the journal
-        assert pump.readers["a"].cursor == "c1"
+        assert pump.readers["a"].cursor == cursor
         assert "full sync" not in caplog.text
         assert "(sender 'fake_syslog' sent cursor from live state)" in caplog.text
+    finally:
+        pump.cleanup()
+
+
+def _pump_with_sender_cursors(tmp_path: Path, saved: Mapping[str, str | None], configured: list[str]) -> JournalPump:
+    statefile_path = tmp_path / "journalpump_state.json"
+    config = {
+        "json_state_file_path": str(statefile_path),
+        "readers": {
+            "a": {
+                "senders": {
+                    name: {"output_type": "rsyslog", "rsyslog_server": "127.0.0.1", "rsyslog_port": 514}
+                    for name in configured
+                }
+            }
+        },
+    }
+    state = {
+        "readers": {"a": {"cursor": "reader_cursor", "senders": {n: {"sent": {"cursor": c}} for n, c in saved.items()}}},
+        "start_time": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+    }
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    statefile_path.write_text(json.dumps(state), encoding="utf-8")
+    return JournalPump(journalpump_path)
+
+
+@pytest.mark.parametrize("slow_name,fast_name", [("a_slow", "z_fast"), ("z_slow", "a_fast")])
+def test_configure_readers_resumes_from_oldest_sender_cursor(tmp_path: Path, slow_name: str, fast_name: str) -> None:
+    slow, fast = make_cursor(i=1), make_cursor(i=2)
+
+    pump = _pump_with_sender_cursors(tmp_path, {slow_name: slow, fast_name: fast}, [slow_name, fast_name])
+
+    try:
+        assert pump.readers["a"].cursor == slow
+    finally:
+        pump.cleanup()
+
+
+@pytest.mark.parametrize("none_name", ["a_none", "z_none"])
+def test_configure_readers_none_cursor_means_full_sync(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, none_name: str
+) -> None:
+    saved = {none_name: None, "m_ok": make_cursor(i=2)}
+
+    with caplog.at_level(logging.INFO):
+        pump = _pump_with_sender_cursors(tmp_path, saved, [none_name, "m_ok"])
+
+    try:
+        assert pump.readers["a"].cursor is None
+        assert f"Sender '{none_name}' for reader 'a' needs full sync from beginning" in caplog.text
+        assert (
+            f"Reader 'a' resuming from cursor position: None "
+            f"(full sync, sender '{none_name}' has no confirmed delivery (state file))"
+        ) in caplog.text
+    finally:
+        pump.cleanup()
+
+
+def test_configure_readers_ignores_senders_missing_from_config(tmp_path: Path) -> None:
+    saved = {"removed": make_cursor(i=1), "kept": make_cursor(i=5)}
+
+    pump = _pump_with_sender_cursors(tmp_path, saved, ["kept"])
+
+    try:
+        assert pump.readers["a"].cursor == saved["kept"]
+    finally:
+        pump.cleanup()
+
+
+@pytest.mark.parametrize(
+    "saved",
+    [
+        {"a_valid": make_cursor(i=1), "z_opaque": "opaque"},
+        {"z_valid": make_cursor(i=1), "a_opaque": "opaque"},
+        {"only_opaque": "opaque"},
+    ],
+)
+def test_configure_readers_unparseable_cursor_uses_initial_position(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, saved: dict[str, str]
+) -> None:
+    with caplog.at_level(logging.INFO):
+        pump = _pump_with_sender_cursors(tmp_path, saved, list(saved))
+
+    try:
+        assert pump.readers["a"].cursor is None
+        assert "for reader 'a' has unparseable cursor 'opaque', needs full sync from beginning" in caplog.text
+        assert "has unparseable cursor (state file)" in caplog.text
+    finally:
+        pump.cleanup()
+
+
+def test_reload_disconnected_sender_behind_holds_reader_back(tmp_path: Path) -> None:
+    saved_cursor, slow_cursor, fast_cursor = make_cursor(i=1), make_cursor(i=3), make_cursor(i=7)
+    pump = _pump_with_sender_cursors(tmp_path, {"a_slow": saved_cursor, "z_fast": saved_cursor}, ["a_slow", "z_fast"])
+
+    try:
+        reader = pump.readers["a"]
+        reader.initialize_senders()
+        reader.senders["a_slow"].mark_sent(messages=[b"x"], cursor=slow_cursor)
+        reader.senders["z_fast"].mark_sent(messages=[b"x"], cursor=fast_cursor)
+        reader.senders["a_slow"].mark_disconnected("down")
+
+        with mock.patch.object(reader.senders["a_slow"], "is_alive", return_value=False):
+            _force_readers_reload(pump)
+
+        assert pump.readers["a"].cursor == slow_cursor
+    finally:
+        pump.cleanup()
+
+
+def test_reload_failed_init_sender_does_not_change_resume_cursor(tmp_path: Path, mocker: MockerFixture) -> None:
+    class FlakyRsyslogSender(RsyslogSender):
+        def __init__(self, *, name: str, **kwargs: Any) -> None:
+            if name == "flaky":
+                raise SenderInitializationError
+            super().__init__(name=name, **kwargs)
+
+    mocker.patch.dict(senders.output_type_to_sender_class, {"rsyslog": FlakyRsyslogSender})
+    saved_cursor, sent_cursor = make_cursor(i=2), make_cursor(i=7)
+    pump = _pump_with_sender_cursors(tmp_path, {"healthy": saved_cursor}, ["flaky", "healthy"])
+
+    try:
+        reader = pump.readers["a"]
+        reader.initialize_senders()
+        reader.senders["healthy"].mark_sent(messages=[b"x"], cursor=sent_cursor)
+
+        _force_readers_reload(pump)
+
+        assert set(reader.senders) == {"healthy"}
+        assert pump.readers["a"].cursor == sent_cursor
     finally:
         pump.cleanup()
 
@@ -1989,3 +2125,65 @@ def test_tail_initialization_reraises_unexpected_oserror(mocker: MockerFixture) 
 
     with pytest.raises(OSError, match="input/output error"):
         journal_reader.create_journald_reader_if_missing()
+
+
+def test_invalid_seek_cursor_falls_back_to_initial_position(mocker: MockerFixture, caplog: LogCaptureFixture) -> None:
+    calls = []
+    journal_reader = JournalReader(
+        name="foo",
+        config={"senders": {}},
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        seek_to="opaque",
+        initial_position="tail",
+        searches=[],
+    )
+
+    mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
+    mocker.patch.object(PumpReader, "seek_tail", side_effect=lambda: calls.append("seek_tail"))
+    mocker.patch.object(PumpReader, "get_previous", side_effect=lambda: calls.append("get_previous"))
+    mocker.patch.object(JournalReader, "read_next", side_effect=lambda: calls.append("read_next"))
+
+    with caplog.at_level(logging.WARNING):
+        journal_reader.create_journald_reader_if_missing()
+
+    assert journal_reader.journald_reader is not None
+    assert calls == ["seek_tail", "get_previous", "read_next"]
+    assert journal_reader.cursor is None
+    assert "Reader 'foo' cannot seek to cursor 'opaque', using initial position 'tail' instead" in caplog.text
+
+
+def test_invalid_seek_cursor_logs_head_when_no_initial_position(mocker: MockerFixture, caplog: LogCaptureFixture) -> None:
+    journal_reader = JournalReader(
+        name="foo",
+        config={"senders": {}},
+        field_filters={},
+        geoip=None,
+        stats=mock.Mock(),
+        seek_to="opaque",
+        initial_position=None,
+        searches=[],
+    )
+
+    mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
+    mocker.patch.object(JournalReader, "read_next")
+
+    with caplog.at_level(logging.WARNING):
+        journal_reader.create_journald_reader_if_missing()
+
+    assert "using initial position 'head' instead" in caplog.text
+
+
+def test_configure_readers_unorderable_cursors_means_full_sync(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    saved = {"a": make_cursor(i=1), "b": make_cursor(s=2, i=2, b=2)}
+    with caplog.at_level(logging.INFO):
+        pump = _pump_with_sender_cursors(tmp_path, saved, list(saved))
+
+    try:
+        assert pump.readers["a"].cursor is None
+        assert "cannot be ordered" in caplog.text
+        assert "full sync, sender cursors cannot be ordered (state file)" in caplog.text
+        assert saved["a"] in caplog.text and saved["b"] in caplog.text
+    finally:
+        pump.cleanup()

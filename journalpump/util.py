@@ -96,6 +96,13 @@ def get_requests_session(*, timeout: float = 60) -> Session:
     return request_session
 
 
+def parse_hex(value: str) -> int | None:
+    try:
+        return int(value, 16)
+    except ValueError:
+        return None
+
+
 def default_json_serialization(obj: object) -> str | None:
     if isinstance(obj, bytes):
         return obj.decode("utf8")
