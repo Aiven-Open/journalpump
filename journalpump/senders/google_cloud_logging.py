@@ -48,8 +48,9 @@ class GoogleCloudLoggingSender(LogSender):
         self.log_id = config["google_cloud_logging_log_id"]
         self.resource_labels = config.get("google_cloud_logging_resource_labels", None)
         if google_service_account:
-            # google-auth ships py.typed but this factory has no annotations.
-            credentials = Credentials.from_service_account_info(google_service_account)  # type: ignore[no-untyped-call]
+            # google-auth factories lack annotations in some versions; see
+            # untyped_calls_exclude in mypy.ini.
+            credentials = Credentials.from_service_account_info(google_service_account)
             self.project_id = credentials.project_id
         else:
             credentials, _ = get_application_default()
