@@ -103,8 +103,30 @@ def test_pick_resume_cursor_no_confirmed_delivery() -> None:
     assert _pick([("a", cursor), ("b", None), ("c", cursor)]) == ResumeChoice(
         cursor=None,
         reason="full sync, sender 'b' has no confirmed delivery (state file)",
-        warnings=("Sender 'b' for reader 'r' needs full sync from beginning",),
+        warnings=("Sender 'b' for reader 'r' needs full sync from initial position",),
     )
+
+
+def test_pick_resume_cursor_nothing_read_yet_starts_quietly() -> None:
+    choice = pick_resume_cursor([("a", None), ("b", None)], None, reader_name="r", state_source="state file")
+
+    assert choice == ResumeChoice(cursor=None, reason="no position yet, starting from initial position (state file)")
+
+
+@pytest.mark.parametrize(
+    "sender_cursors,reader_cursor",
+    [
+        ([("a", None)], "reader_cursor"),
+        ([("a", make_cursor()), ("b", None)], None),
+    ],
+)
+def test_pick_resume_cursor_full_sync_warns_when_position_known(
+    sender_cursors: list[tuple[str, str | None]], reader_cursor: str | None
+) -> None:
+    choice = pick_resume_cursor(sender_cursors, reader_cursor, reader_name="r", state_source="state file")
+
+    assert choice.cursor is None
+    assert choice.warnings
 
 
 def test_pick_resume_cursor_unparseable_cursor() -> None:
@@ -113,7 +135,7 @@ def test_pick_resume_cursor_unparseable_cursor() -> None:
     assert _pick([("a", cursor), ("b", "opaque"), ("c", cursor)]) == ResumeChoice(
         cursor=None,
         reason="full sync, sender 'b' has unparseable cursor (state file)",
-        warnings=("Sender 'b' for reader 'r' has unparseable cursor 'opaque', needs full sync from beginning",),
+        warnings=("Sender 'b' for reader 'r' has unparseable cursor 'opaque', needs full sync from initial position",),
     )
 
 
@@ -135,7 +157,7 @@ def test_pick_resume_cursor_different_sequences_unorderable_means_full_sync() ->
     assert choice.warnings == (
         (
             f"Sender cursors for reader 'r' cannot be ordered against each other: 'a' ({first!r}), 'b' ({second!r}), "
-            "needs full sync from beginning"
+            "needs full sync from initial position"
         ),
     )
 

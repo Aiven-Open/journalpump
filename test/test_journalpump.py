@@ -1212,7 +1212,7 @@ def test_configure_readers_none_cursor_means_full_sync(
 
     try:
         assert pump.readers["a"].cursor is None
-        assert f"Sender '{none_name}' for reader 'a' needs full sync from beginning" in caplog.text
+        assert f"Sender '{none_name}' for reader 'a' needs full sync from initial position" in caplog.text
         assert (
             f"Reader 'a' resuming from cursor position: None "
             f"(full sync, sender '{none_name}' has no confirmed delivery (state file))"
@@ -1248,7 +1248,7 @@ def test_configure_readers_unparseable_cursor_uses_initial_position(
 
     try:
         assert pump.readers["a"].cursor is None
-        assert "for reader 'a' has unparseable cursor 'opaque', needs full sync from beginning" in caplog.text
+        assert "for reader 'a' has unparseable cursor 'opaque', needs full sync from initial position" in caplog.text
         assert "has unparseable cursor (state file)" in caplog.text
     finally:
         pump.cleanup()

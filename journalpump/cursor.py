@@ -113,19 +113,23 @@ def pick_resume_cursor(
     reader_name: str,
     state_source: str,
 ) -> ResumeChoice:
+    # A reader that never read an entry has no position to lose, e.g. its filters have not matched anything yet
+    if sender_cursors and reader_cursor is None and all(cursor is None for _, cursor in sender_cursors):
+        return ResumeChoice(cursor=None, reason=f"no position yet, starting from initial position ({state_source})")
+
     cursors: list[tuple[str, JournalCursor]] = []
     for sender_name, sender_cursor in sender_cursors:
         if sender_cursor is None:
             return ResumeChoice(
                 cursor=None,
                 reason=f"full sync, sender {sender_name!r} has no confirmed delivery ({state_source})",
-                warnings=(f"Sender {sender_name!r} for reader {reader_name!r} needs full sync from beginning",),
+                warnings=(f"Sender {sender_name!r} for reader {reader_name!r} needs full sync from initial position",),
             )
         cursor = JournalCursor(sender_cursor)
         if not cursor.is_parseable:
             warning = (
                 f"Sender {sender_name!r} for reader {reader_name!r} has unparseable cursor {sender_cursor!r}, "
-                "needs full sync from beginning"
+                "needs full sync from initial position"
             )
             return ResumeChoice(
                 cursor=None,
@@ -151,7 +155,7 @@ def pick_resume_cursor(
     unordered = ", ".join(f"{name!r} ({cursor.raw!r})" for name, cursor in candidates or cursors)
     warning = (
         f"Sender cursors for reader {reader_name!r} cannot be ordered against each other: {unordered}, "
-        "needs full sync from beginning"
+        "needs full sync from initial position"
     )
     return ResumeChoice(
         cursor=None,
