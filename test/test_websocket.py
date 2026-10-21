@@ -1,4 +1,5 @@
 # Copyright (c) 2021 Aiven, Helsinki, Finland. https://aiven.io/
+from .socks5_stub import Socks5StubServer
 from collections import deque
 from journalpump.journalpump import JournalPump
 from journalpump.senders.websocket import WebsocketSender
@@ -215,3 +216,114 @@ def test_producer_batch(caplog: LogCaptureFixture, tmp_path: Path) -> None:
 
     ws_server.stop()
     pump.shutdown()
+
+
+def test_producer_via_socks5_proxy(caplog: LogCaptureFixture, tmp_path: Path) -> None:
+    caplog.set_level(logging.INFO)
+    ws_server = WebsocketMockServer(
+        port=10111,
+    )
+    ws_server.start()
+    proxy_server = Socks5StubServer()
+    proxy_server.start()
+    pump, sender = setup_pump(
+        tmp_path,
+        {
+            "output_type": "websocket",
+            "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
+            "socks5_proxy": f"socks5://127.0.0.1:{proxy_server.port}",
+            "compression": "none",
+            "max_batch_size": 0,
+        },
+    )
+
+    try:
+        # send some messages, and confirm they come out on the other end
+        messages = [
+            b'{"timestamp": "2019-10-07 14:00:00"}',
+            b'{"timestamp": "2019-10-07 15:00:00"}',
+        ]
+        assert sender.send_messages(messages=messages, cursor=None)
+        assert_msgs_found(ws_server, messages=messages, timeout=5)
+
+        # the websocket traffic must have been routed through the SOCKS5 proxy
+        assert ("127.0.0.1", 10111) in proxy_server.connect_targets
+        assert proxy_server.bytes_relayed > 0
+    finally:
+        ws_server.stop()
+        pump.shutdown()
+        proxy_server.stop()
+
+
+def test_producer_via_socks5_proxy_with_auth(caplog: LogCaptureFixture, tmp_path: Path) -> None:
+    caplog.set_level(logging.INFO)
+    ws_server = WebsocketMockServer(
+        port=10111,
+    )
+    ws_server.start()
+    proxy_server = Socks5StubServer(username="alice", password="secret")
+    proxy_server.start()
+    pump, sender = setup_pump(
+        tmp_path,
+        {
+            "output_type": "websocket",
+            "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
+            "socks5_proxy": f"socks5://alice:secret@127.0.0.1:{proxy_server.port}",
+            "compression": "none",
+            "max_batch_size": 0,
+        },
+    )
+
+    try:
+        # send some messages, and confirm they come out on the other end
+        messages = [
+            b'{"timestamp": "2019-10-07 14:00:00"}',
+            b'{"timestamp": "2019-10-07 15:00:00"}',
+        ]
+        assert sender.send_messages(messages=messages, cursor=None)
+        assert_msgs_found(ws_server, messages=messages, timeout=5)
+
+        # the websocket traffic must have been routed through the authenticated SOCKS5 proxy
+        assert ("127.0.0.1", 10111) in proxy_server.connect_targets
+        assert proxy_server.bytes_relayed > 0
+        assert ("alice", "secret") in proxy_server.auth_attempts
+    finally:
+        ws_server.stop()
+        pump.shutdown()
+        proxy_server.stop()
+
+
+def test_producer_via_socks5_proxy_auth_failure(caplog: LogCaptureFixture, tmp_path: Path) -> None:
+    caplog.set_level(logging.INFO)
+    # no websocket server is needed: authentication fails during the SOCKS5 handshake,
+    # so the websocket connection is never even attempted
+    proxy_server = Socks5StubServer(username="alice", password="secret")
+    proxy_server.start()
+    pump, sender = setup_pump(
+        tmp_path,
+        {
+            "output_type": "websocket",
+            "websocket_uri": "ws://127.0.0.1:10111/pump-pump",
+            "socks5_proxy": f"socks5://alice:wrong-password@127.0.0.1:{proxy_server.port}",
+            "compression": "none",
+            "max_batch_size": 0,
+        },
+    )
+
+    try:
+        # trigger the websocket connection attempt; send_messages() is not usable here,
+        # it waits up to 20 seconds for the connection before reporting failure
+        sender._init_websocket()  # pylint: disable=protected-access
+
+        # the proxy handshake fails immediately; poll for the error instead of sleeping
+        give_up_at = time.monotonic() + 5
+        while "SOCKS5 proxy connection error" not in caplog.text and time.monotonic() < give_up_at:
+            time.sleep(0.1)
+
+        assert "SOCKS5 proxy connection error" in caplog.text
+        assert ("alice", "wrong-password") in proxy_server.auth_attempts
+        # the SOCKS5 CONNECT request is never sent, so no target is recorded
+        assert not proxy_server.connect_targets
+    finally:
+        pump.shutdown()
+        proxy_server.stop()

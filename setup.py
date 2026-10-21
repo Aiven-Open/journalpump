@@ -13,7 +13,7 @@ setup(
         "kafka-python<2.4.0",
         "requests",
         "websockets>=14.0",
-        "aiohttp-socks",
+        "python-socks>=2.4.2",
         "python-snappy",
         "botocore",
         "google-api-python-client",

@@ -1,10 +1,10 @@
 from .base import LogSender, MAX_KAFKA_MESSAGE_SIZE
-from aiohttp_socks import ProxyConnectionError, ProxyError, ProxyTimeoutError
-from aiohttp_socks.utils import Proxy
 from concurrent.futures import CancelledError, TimeoutError as ConnectionTimeoutError
 from journalpump import __version__
 from journalpump.types import StrEnum
 from journalpump.util import ExponentialBackoff
+from python_socks import ProxyConnectionError, ProxyError, ProxyTimeoutError
+from python_socks.async_.asyncio import Proxy
 from threading import Thread
 from typing import Any
 from urllib.parse import urlparse
