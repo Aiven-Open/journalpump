@@ -1109,6 +1109,20 @@ def _pump_with_saved_sender_cursor(tmp_path: Path, cursor: str) -> JournalPump:
     return JournalPump(journalpump_path)
 
 
+def test_reload_keeps_readers_when_only_other_config_changes(tmp_path: Path) -> None:
+    config = {"readers": {"a": {"searches": [{"name": "untagged", "fields": {"MESSAGE": "x"}}], "senders": {}}}}
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    reader = pump.readers["a"]
+
+    journalpump_path.write_text(json.dumps({**config, "unit_log_levels": {}}), encoding="utf-8")
+    pump.reload_config()
+
+    assert pump.config["unit_log_levels"] == {}
+    assert pump.readers["a"] is reader
+
+
 def _force_readers_reload(pump: JournalPump) -> None:
     # Readers are only rebuilt when their config changes
     config = {**pump.config, "readers": {**pump.config["readers"], "reload_trigger": {"senders": {}}}}
