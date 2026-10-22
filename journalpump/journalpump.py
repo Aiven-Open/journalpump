@@ -521,22 +521,22 @@ class JournalReader(Tagged):
         Pre-generate regex objects and tag value conversion methods for searches
         """
         # Example:
-        # {"name": "service_stop", "tags": {"foo": "bar"}, "search": {"MESSAGE": "Stopped target (?P<target>.+)\\."}}
+        # {"name": "service_stop", "tags": {"foo": "bar"}, "fields": {"MESSAGE": "Stopped target (?P<target>.+)\\."}}
         re_op = re.compile("(?P<func>[a-z_]+)\\((?P<args>[a-z0-9_,]+)\\)")
         funcs = {
             "ip_to_geohash": self.ip_to_geohash,
         }
         for search in searches:
-            search.setdefault("tags", {})
-            search.setdefault("fields", {})
             output = copy.deepcopy(search)
+            output.setdefault("tags", {})
+            output.setdefault("fields", {})
             message_pattern = output["fields"].pop("MESSAGE", None)
             for name, pattern in sorted(output["fields"].items()):
                 output["fields"][name] = re.compile(pattern)
             if message_pattern:
                 output["fields"]["MESSAGE"] = re.compile(message_pattern)
 
-            for tag, value in search["tags"].items():
+            for tag, value in output["tags"].items():
                 if "(" in value or ")" in value:
                     # Tag uses a method conversion call, e.g. "ip_to_geohash(ip_address,5)"
                     match = re_op.search(value)
@@ -911,7 +911,8 @@ class JournalPump(ServiceDaemon, Tagged):
         self.readers = {}
         file_reader_states: dict[str, dict[str, Any]] = self.load_state().get("readers", {})
 
-        for reader_name, reader_config in new_config.items():
+        # Readers get their own copy so nothing they do can alter the loaded config
+        for reader_name, reader_config in copy.deepcopy(new_config).items():
             reader_state: dict[str, Any]
             # Prefer the live in-memory position over the periodically saved state file
             if reader_name in live_reader_states:
