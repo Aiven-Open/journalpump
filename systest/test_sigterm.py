@@ -42,7 +42,7 @@ def test_sigterm_after_first_iteration_exits_cleanly(tmp_path: Path) -> None:
             encoding="utf-8",
         )
         journalpump_process.start(config_path, env={"PYTHONPATH": pythonpath})
-        journalpump_process._wait_notification("WATCHDOG=1", timeout=5)
+        journalpump_process.wait_notification("WATCHDOG=1", timeout=5)
         returncode = journalpump_process.stop()
         stderr = ""
         if journalpump_process._journalpump is not None and journalpump_process._journalpump.stderr is not None:

@@ -81,6 +81,8 @@ class ServiceDaemon:
             self.reload_config()
         except Exception:  # pylint: disable=broad-except
             self.log.exception("Reloading configuration failed")
+            # Without it, a Type=notify unit stays in the reloading state after RELOADING=1.
+            daemon.notify("READY=1\nSTATUS=Reloading configuration failed, see the logs")
 
     def sigterm(self, signum: int, frame: FrameType | None) -> None:  # pylint: disable=unused-argument
         self.log.info(
@@ -105,13 +107,15 @@ class ServiceDaemon:
         if file_ctime != self.config_file_ctime:
             daemon.notify("RELOADING=1")
             self.log.info("%soading configuration", "Rel" if self.config_file_ctime else "L")
-            self.config_file_ctime = file_ctime
             with self.config_path.open(encoding="utf-8") as fp:
                 self.config = json.load(fp)
             self.log_level = self.config.get("log_level", logging.INFO)
             self.configure_logging()
             self.handle_new_config()
-            daemon.notify("READY=1")
+            # Recorded only once applied, so that the next SIGHUP retries a reload that failed.
+            self.config_file_ctime = file_ctime
+            # The empty STATUS= clears a failure reported by an earlier reload.
+            daemon.notify("READY=1\nSTATUS=")
 
     def handle_new_config(self) -> None:
         """Override in subclass"""

@@ -1424,6 +1424,64 @@ def test_reload_if_requested_survives_broken_config(tmp_path: Path) -> None:
     assert set(pump.readers) == {"r"}
 
 
+def test_failed_reload_is_retried_on_the_next_sighup(tmp_path: Path) -> None:
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps({"readers": {"before_reload": {"senders": {}}}}), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    journalpump_path.write_text(json.dumps({"readers": {"after_reload": {"senders": {}}}}), encoding="utf-8")
+
+    with mock.patch.object(pump, "configure_readers", side_effect=OSError("transient failure")):
+        os.kill(os.getpid(), signal.SIGHUP)
+        pump.reload_if_requested()
+    assert set(pump.readers) == {"before_reload"}
+
+    # The config file has not changed since the failed attempt, and the retry must still apply it.
+    os.kill(os.getpid(), signal.SIGHUP)
+    pump.reload_if_requested()
+    assert set(pump.readers) == {"after_reload"}
+
+
+def test_failed_reload_tells_systemd_the_reload_is_over(tmp_path: Path, mocker: MockerFixture) -> None:
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps({"readers": {"r": {"senders": {}}}}), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    journalpump_path.write_text("{", encoding="utf-8")
+    notify = mocker.patch("journalpump.daemon.daemon.notify")
+
+    os.kill(os.getpid(), signal.SIGHUP)
+    pump.reload_if_requested()
+
+    assert notify.call_args_list == [
+        mock.call("RELOADING=1"),
+        mock.call("READY=1\nSTATUS=Reloading configuration failed, see the logs"),
+    ]
+
+
+def test_successful_reload_clears_the_failure_status(tmp_path: Path, mocker: MockerFixture) -> None:
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps({"readers": {"r": {"senders": {}}}}), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    journalpump_path.write_text(json.dumps({"readers": {"r2": {"senders": {}}}}), encoding="utf-8")
+    notify = mocker.patch("journalpump.daemon.daemon.notify")
+
+    os.kill(os.getpid(), signal.SIGHUP)
+    pump.reload_if_requested()
+
+    assert notify.call_args_list == [mock.call("RELOADING=1"), mock.call("READY=1\nSTATUS=")]
+
+
+def test_applied_config_is_not_applied_again_for_an_unchanged_file(tmp_path: Path, mocker: MockerFixture) -> None:
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps({"readers": {"r": {"senders": {}}}}), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    handle_new_config = mocker.patch.object(pump, "handle_new_config")
+
+    os.kill(os.getpid(), signal.SIGHUP)
+    pump.reload_if_requested()
+
+    handle_new_config.assert_not_called()
+
+
 def test_journalpump_sigterm_at_end_of_iteration(tmp_path: Path) -> None:
     journalpump_path = tmp_path / "journalpump.json"
 

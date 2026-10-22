@@ -64,7 +64,7 @@ class JournalpumpProcess:
         self._notify_reader_thread.join(timeout=2)
         shutil.rmtree(self.runtime_directory, ignore_errors=True)
 
-    def _wait_notification(self, notification: str, *, timeout: float) -> None:
+    def wait_notification(self, notification: str, *, timeout: float) -> None:
         start_time = time.monotonic()
         elapsed_time = 0.0
         while elapsed_time < timeout:
@@ -94,14 +94,17 @@ class JournalpumpProcess:
             stderr=subprocess.PIPE,
             text=True,
         )
-        self._wait_notification("READY=1", timeout=10)
+        self.wait_notification("READY=1", timeout=10)
 
     def reload(self) -> None:
         if self._journalpump is None or self._journalpump.pid is None:
             raise RuntimeError("journalpump is not running")
         os.kill(self._journalpump.pid, signal.SIGHUP)
-        self._wait_notification("RELOADING=1", timeout=3)
-        self._wait_notification("READY=1", timeout=3)
+        self.wait_notification("RELOADING=1", timeout=3)
+        self.wait_notification("READY=1", timeout=3)
+
+    def is_running(self) -> bool:
+        return self._journalpump is not None and self._journalpump.poll() is None
 
     def stop(self) -> int | None:
         if self._journalpump is None:

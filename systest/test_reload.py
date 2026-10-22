@@ -29,6 +29,17 @@ def test_sighup_with_changed_readers_keeps_process_alive(tmp_path: Path) -> None
         journalpump_process.reload()
 
 
+def test_failed_reload_still_reports_ready(tmp_path: Path) -> None:
+    config_path = tmp_path / "journalpump.json"
+    with JournalpumpProcess() as journalpump_process:
+        config_path.write_text(json.dumps({"readers": {"r": {"senders": {}}}}), encoding="utf-8")
+        journalpump_process.start(config_path)
+        config_path.write_text("{", encoding="utf-8")
+        journalpump_process.reload()
+        journalpump_process.wait_notification("STATUS=Reloading configuration failed, see the logs", timeout=1)
+        assert journalpump_process.is_running()
+
+
 def test_start_resumes_from_oldest_sender_cursor(tmp_path: Path) -> None:
     config_path = tmp_path / "journalpump.json"
     state_path = tmp_path / "journalpump_state.json"
