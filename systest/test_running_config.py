@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import json
+import pytest
 import stat
 
 
@@ -111,3 +112,22 @@ def test_process_does_not_chmod_existing_running_config_directory(tmp_path: Path
         journalpump_process.start(config_path)
         _assert_private_running_config(running_config, config)
         assert stat.S_IMODE(running_dir.stat().st_mode) == 0o755
+
+
+@pytest.mark.parametrize(
+    "search",
+    [
+        pytest.param({"name": "untagged", "fields": {"MESSAGE": "(?P<msg>.*)"}}, id="without-tags"),
+        pytest.param({"name": "match_all"}, id="without-tags-and-fields"),
+    ],
+)
+def test_process_writes_running_config_without_search_defaults(tmp_path: Path, search: dict[str, Any]) -> None:
+    config_path = tmp_path / "journalpump.json"
+    config: dict[str, Any] = {
+        "write_running_config": True,
+        "readers": {"reader": {"searches": [search], "senders": {}}},
+    }
+    with JournalpumpProcess() as journalpump_process:
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        journalpump_process.start(config_path)
+        _assert_private_running_config(journalpump_process.runtime_directory / "running_config.json", config)
