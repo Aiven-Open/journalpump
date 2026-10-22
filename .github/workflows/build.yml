@@ -43,12 +43,16 @@ jobs:
               fi
             done
           }
-          if ! apt_get update || ! apt_get install -y libsystemd-dev libsnappy-dev; then
+          # Only downloads run under the timeout. Installing can legitimately take
+          # longer (a systemd upgrade regenerates the initramfs), and killing dpkg
+          # midway leaves it interrupted, which breaks every apt-get after it.
+          if ! apt_get update || ! apt_get install -y --download-only libsystemd-dev libsnappy-dev; then
             echo "Azure Ubuntu mirror failed or timed out; pinning to archive.ubuntu.com"
             pin_archive
             apt_get update
-            apt_get install -y libsystemd-dev libsnappy-dev
+            apt_get install -y --download-only libsystemd-dev libsnappy-dev
           fi
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-download libsystemd-dev libsnappy-dev
 
       - id: prepare-python
         uses: actions/setup-python@v7
@@ -97,12 +101,16 @@ jobs:
               fi
             done
           }
-          if ! apt_get update || ! apt_get install -y libsystemd-dev libsnappy-dev; then
+          # Only downloads run under the timeout. Installing can legitimately take
+          # longer (a systemd upgrade regenerates the initramfs), and killing dpkg
+          # midway leaves it interrupted, which breaks every apt-get after it.
+          if ! apt_get update || ! apt_get install -y --download-only libsystemd-dev libsnappy-dev; then
             echo "Azure Ubuntu mirror failed or timed out; pinning to archive.ubuntu.com"
             pin_archive
             apt_get update
-            apt_get install -y libsystemd-dev libsnappy-dev
+            apt_get install -y --download-only libsystemd-dev libsnappy-dev
           fi
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-download libsystemd-dev libsnappy-dev
 
       - id: prepare-python
         uses: actions/setup-python@v7
