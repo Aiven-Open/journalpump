@@ -1,0 +1,48 @@
+name: Install apt packages
+description: Install apt packages, preferring the Azure Ubuntu mirror and falling back to archive.ubuntu.com
+
+inputs:
+  packages:
+    description: Space-separated list of packages to install
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        APT_PACKAGES: ${{ inputs.packages }}
+      run: |
+        read -ra packages <<< "$APT_PACKAGES"
+        if [ "${#packages[@]}" -eq 0 ]; then
+          echo "No packages given to install"
+          exit 1
+        fi
+        # Prefer azure.archive.ubuntu.com (fast from these VMs). Apt already
+        # lists archive.ubuntu.com as a fallback, but failover is per-file and
+        # a TCP stall never counts as failure, so it can hang for hours.
+        # https://github.com/actions/runner-images/issues/12949
+        apt_get() {
+          sudo DEBIAN_FRONTEND=noninteractive timeout -k 5 45 apt-get \
+            -o Acquire::Retries=1 \
+            -o Acquire::http::Timeout=15 \
+            -o Acquire::https::Timeout=15 \
+            "$@"
+        }
+        pin_archive() {
+          for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$f" ]; then
+              sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' "$f"
+            fi
+          done
+        }
+        # Only downloads run under the timeout. Installing can legitimately take
+        # longer (a systemd upgrade regenerates the initramfs), and killing dpkg
+        # midway leaves it interrupted, which breaks every apt-get after it.
+        if ! apt_get update || ! apt_get install -y --download-only "${packages[@]}"; then
+          echo "Azure Ubuntu mirror failed or timed out; pinning to archive.ubuntu.com"
+          pin_archive
+          apt_get update
+          apt_get install -y --download-only "${packages[@]}"
+        fi
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-download "${packages[@]}"
