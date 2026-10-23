@@ -1116,11 +1116,115 @@ def test_reload_keeps_readers_when_only_other_config_changes(tmp_path: Path) -> 
     pump = JournalPump(journalpump_path)
     reader = pump.readers["a"]
 
-    journalpump_path.write_text(json.dumps({**config, "unit_log_levels": {}}), encoding="utf-8")
+    state_path = str(tmp_path / "state.json")
+    journalpump_path.write_text(json.dumps({**config, "json_state_file_path": state_path}), encoding="utf-8")
     pump.reload_config()
 
-    assert pump.config["unit_log_levels"] == {}
+    assert pump.config["json_state_file_path"] == state_path
     assert pump.readers["a"] is reader
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        pytest.param(
+            "unit_log_levels", {"host": [{"service_glob": "a.service", "log_level": "ERROR"}]}, id="unit-log-levels"
+        ),
+        pytest.param("field_filters", {"message_only": {"fields": ["MESSAGE"]}}, id="field-filters"),
+        pytest.param("tags", {"env": "test"}, id="tags"),
+        pytest.param("statsd", {"host": "127.0.0.1", "port": 8125}, id="statsd"),
+        pytest.param("msg_buffer_max_length", 10, id="msg-buffer-max-length"),
+        pytest.param("msg_buffer_max_bytes", 1024, id="msg-buffer-max-bytes"),
+    ],
+)
+def test_reload_rebuilds_readers_when_a_setting_they_use_changes(tmp_path: Path, setting: str, value: Any) -> None:
+    config: dict[str, Any] = {"readers": {"a": {"senders": {}}}}
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    reader = pump.readers["a"]
+
+    journalpump_path.write_text(json.dumps({**config, setting: value}), encoding="utf-8")
+    pump.reload_config()
+
+    assert pump.readers["a"] is not reader
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        pytest.param("tags", {}, id="empty-tags"),
+        pytest.param("field_filters", {}, id="empty-field-filters"),
+        pytest.param("unit_log_levels", {}, id="empty-unit-log-levels"),
+        pytest.param("statsd", {}, id="empty-statsd"),
+        pytest.param("statsd", None, id="null-statsd"),
+    ],
+)
+def test_reload_keeps_readers_when_a_setting_they_use_is_set_to_empty(tmp_path: Path, setting: str, value: Any) -> None:
+    config: dict[str, Any] = {"readers": {"a": {"senders": {}}}}
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    reader = pump.readers["a"]
+
+    journalpump_path.write_text(json.dumps({**config, setting: value}), encoding="utf-8")
+    pump.reload_config()
+
+    assert pump.readers["a"] is reader
+
+
+def test_reload_gives_unchanged_readers_the_reopened_geoip_database(tmp_path: Path, mocker: MockerFixture) -> None:
+    mocker.patch("geoip2.database.Reader", side_effect=lambda path: mock.Mock(name=path))
+    config: dict[str, Any] = {"readers": {"a": {"senders": {}}}, "geoip_database": str(tmp_path / "GeoLite2-City.mmdb")}
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    reader = pump.readers["a"]
+    old_geoip = reader.geoip
+
+    config["json_state_file_path"] = str(tmp_path / "state.json")
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump.reload_config()
+
+    assert pump.readers["a"] is reader
+    assert reader.geoip is pump.geoip
+    assert reader.geoip is not old_geoip
+
+
+def test_reload_keeps_readers_when_the_geoip_database_moves(tmp_path: Path, mocker: MockerFixture) -> None:
+    mocker.patch("geoip2.database.Reader", side_effect=lambda path: mock.Mock(name=path))
+    config: dict[str, Any] = {"readers": {"a": {"senders": {}}}, "geoip_database": str(tmp_path / "old.mmdb")}
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    reader = pump.readers["a"]
+    old_geoip = reader.geoip
+
+    config["geoip_database"] = str(tmp_path / "new.mmdb")
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump.reload_config()
+
+    assert pump.readers["a"] is reader
+    assert reader.geoip is pump.geoip
+    assert reader.geoip is not old_geoip
+
+
+def test_reload_gives_readers_the_new_unit_log_levels(tmp_path: Path) -> None:
+    config: dict[str, Any] = {
+        "readers": {"a": {"senders": {}}},
+        "unit_log_levels": {"host": [{"service_glob": "journalpump.service", "log_level": "NOTICE"}]},
+    }
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+
+    config["unit_log_levels"]["host"].append({"service_glob": "a.service", "log_level": "ERROR"})
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump.reload_config()
+
+    unit_log_levels = pump.readers["a"].unit_log_levels
+    assert unit_log_levels is not None
+    assert unit_log_levels["host"].levels == (("journalpump.service", "NOTICE"), ("a.service", "ERROR"))
 
 
 def _force_readers_reload(pump: JournalPump) -> None:
