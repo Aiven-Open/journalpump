@@ -907,6 +907,18 @@ class JournalPump(ServiceDaemon, Tagged):
         for reader in readers:
             reader.join_senders(deadline=deadline)
 
+    def _check_sender_references(self) -> None:
+        known = {
+            "field_filter": self.config.get("field_filters") or {},
+            "unit_log_level": self.config.get("unit_log_levels") or {},
+        }
+        for reader_name, reader_config in self.config.get("readers", {}).items():
+            for sender_name, sender_config in reader_config.get("senders", {}).items():
+                for key, names in known.items():
+                    name = sender_config.get(key)
+                    if name and name not in names:
+                        raise ValueError(f"Sender {sender_name!r} of reader {reader_name!r} uses unknown {key} {name!r}")
+
     def configure_readers(self) -> None:
         new_config = self.config.get("readers", {})
         # A missing setting and an empty one mean the same, so switching between them needs no rebuild
@@ -999,6 +1011,8 @@ class JournalPump(ServiceDaemon, Tagged):
 
     def handle_new_config(self) -> None:
         """Called by ServiceDaemon when config has changed"""
+        # Checked before anything is replaced, so that a rejected config leaves the running setup alone
+        self._check_sender_references()
         stats = self.config.get("statsd") or {}
         self.stats = statsd.StatsClient(
             host=stats.get("host"), port=stats.get("port"), tags=stats.get("tags"), prefix=stats.get("prefix", "")
