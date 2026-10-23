@@ -37,6 +37,17 @@ _5_MB = 5 * 1024 * 1024
 CHUNK_SIZE = 5000
 TRUNCATED_MESSAGE_PREVIEW_SIZE = 1024
 SENDER_STOP_TIMEOUT = 30.0  # seconds to wait for in-flight sender batches when stopping readers
+# Top-level settings that readers and their senders take when they are built. Readers keep them
+# until they are rebuilt, so a change to any of these needs a rebuild just like the readers section.
+READER_SETTINGS = (
+    "field_filters",
+    "geoip_database",
+    "msg_buffer_max_bytes",
+    "msg_buffer_max_length",
+    "statsd",
+    "tags",
+    "unit_log_levels",
+)
 
 
 def _convert_uuid(s: bytes) -> str:
@@ -897,11 +908,23 @@ class JournalPump(ServiceDaemon, Tagged):
         for reader in readers:
             reader.join_senders(deadline=deadline)
 
+    def _check_sender_references(self, readers_config: dict[str, Any]) -> None:
+        for reader_name, reader_config in readers_config.items():
+            for sender_name, sender_config in reader_config.get("senders", {}).items():
+                for key, known in (("field_filter", self.field_filters), ("unit_log_level", self.unit_log_levels)):
+                    name = sender_config.get(key)
+                    if name and name not in known:
+                        raise ValueError(f"Sender {sender_name!r} of reader {reader_name!r} uses unknown {key} {name!r}")
+
     def configure_readers(self) -> None:
         new_config = self.config.get("readers", {})
-        if self.readers_active_config == new_config:
-            # No changes in readers, no reconfig required
+        reader_inputs = copy.deepcopy({"readers": new_config, **{key: self.config.get(key) for key in READER_SETTINGS}})
+        if self.readers_active_config == reader_inputs:
+            # Nothing readers are built from has changed, no reconfig required
             return
+
+        # Checked before the old readers stop, so that a bad config leaves them running
+        self._check_sender_references(new_config)
 
         # replace old readers with new ones
         self.stop_readers(timeout=SENDER_STOP_TIMEOUT)
@@ -958,7 +981,7 @@ class JournalPump(ServiceDaemon, Tagged):
             )
             self.readers[reader_name] = reader
 
-        self.readers_active_config = new_config
+        self.readers_active_config = reader_inputs
 
     def write_running_config(self) -> None:
         if not self.config.get("write_running_config"):
@@ -997,6 +1020,8 @@ class JournalPump(ServiceDaemon, Tagged):
             except ImportError as ex:
                 raise ValueError("geoip_database configured but geoip2 module not available") from ex
             self.geoip = GeoIPReader(geoip_db_path)
+        else:
+            self.geoip = None
 
         self.configure_field_filters()
         self.configure_unit_log_levels()
