@@ -1150,6 +1150,21 @@ def test_reload_rebuilds_readers_when_a_setting_they_use_changes(tmp_path: Path,
     assert pump.readers["a"] is not reader
 
 
+def test_reload_drops_the_geoip_database_once_it_is_removed(tmp_path: Path, mocker: MockerFixture) -> None:
+    geoip_reader = mocker.patch("geoip2.database.Reader")
+    config: dict[str, Any] = {"readers": {"a": {"senders": {}}}, "geoip_database": str(tmp_path / "GeoLite2-City.mmdb")}
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    assert pump.readers["a"].geoip is geoip_reader.return_value
+
+    del config["geoip_database"]
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump.reload_config()
+
+    assert pump.readers["a"].geoip is None
+
+
 def test_reload_gives_readers_the_new_unit_log_levels(tmp_path: Path) -> None:
     config: dict[str, Any] = {
         "readers": {"a": {"senders": {}}},

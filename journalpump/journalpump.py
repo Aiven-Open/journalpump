@@ -1009,6 +1009,8 @@ class JournalPump(ServiceDaemon, Tagged):
             except ImportError as ex:
                 raise ValueError("geoip_database configured but geoip2 module not available") from ex
             self.geoip = GeoIPReader(geoip_db_path)
+        else:
+            self.geoip = None
 
         self.configure_field_filters()
         self.configure_unit_log_levels()
