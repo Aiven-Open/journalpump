@@ -1165,6 +1165,47 @@ def test_reload_drops_the_geoip_database_once_it_is_removed(tmp_path: Path, mock
     assert pump.readers["a"].geoip is None
 
 
+_SENDER_REFERENCES = [
+    pytest.param("field_filter", "field_filters", {"fields": ["MESSAGE"]}, id="field-filter"),
+    pytest.param(
+        "unit_log_level", "unit_log_levels", [{"service_glob": "a.service", "log_level": "ERROR"}], id="unit-log-level"
+    ),
+]
+
+
+@pytest.mark.parametrize(("sender_key", "setting", "entry"), _SENDER_REFERENCES)
+def test_reload_keeps_readers_running_when_a_sender_refers_to_a_removed_entry(
+    tmp_path: Path, sender_key: str, setting: str, entry: Any
+) -> None:
+    sender = {"output_type": "rsyslog", "rsyslog_server": "127.0.0.1", "rsyslog_port": 514, sender_key: "x"}
+    config: dict[str, Any] = {"readers": {"a": {"senders": {"s": sender}}}, setting: {"x": entry}}
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    reader = pump.readers["a"]
+
+    del config[setting]
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    os.kill(os.getpid(), signal.SIGHUP)
+    pump.reload_if_requested()
+
+    assert pump.readers["a"] is reader
+    assert reader not in pump.stale_readers
+
+
+@pytest.mark.parametrize(("sender_key", "setting", "entry"), _SENDER_REFERENCES)
+def test_start_rejects_a_sender_that_refers_to_a_missing_entry(
+    tmp_path: Path, sender_key: str, setting: str, entry: Any
+) -> None:
+    sender = {"output_type": "rsyslog", "rsyslog_server": "127.0.0.1", "rsyslog_port": 514, sender_key: "x"}
+    config = {"readers": {"a": {"senders": {"s": sender}}}, setting: {"other": entry}}
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=f"Sender 's' of reader 'a' uses unknown {sender_key} 'x'"):
+        JournalPump(journalpump_path)
+
+
 def test_reload_gives_readers_the_new_unit_log_levels(tmp_path: Path) -> None:
     config: dict[str, Any] = {
         "readers": {"a": {"senders": {}}},

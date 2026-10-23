@@ -908,12 +908,23 @@ class JournalPump(ServiceDaemon, Tagged):
         for reader in readers:
             reader.join_senders(deadline=deadline)
 
+    def _check_sender_references(self, readers_config: dict[str, Any]) -> None:
+        for reader_name, reader_config in readers_config.items():
+            for sender_name, sender_config in reader_config.get("senders", {}).items():
+                for key, known in (("field_filter", self.field_filters), ("unit_log_level", self.unit_log_levels)):
+                    name = sender_config.get(key)
+                    if name and name not in known:
+                        raise ValueError(f"Sender {sender_name!r} of reader {reader_name!r} uses unknown {key} {name!r}")
+
     def configure_readers(self) -> None:
         new_config = self.config.get("readers", {})
         reader_inputs = copy.deepcopy({"readers": new_config, **{key: self.config.get(key) for key in READER_SETTINGS}})
         if self.readers_active_config == reader_inputs:
             # Nothing readers are built from has changed, no reconfig required
             return
+
+        # Checked before the old readers stop, so that a bad config leaves them running
+        self._check_sender_references(new_config)
 
         # replace old readers with new ones
         self.stop_readers(timeout=SENDER_STOP_TIMEOUT)
