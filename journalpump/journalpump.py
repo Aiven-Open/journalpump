@@ -37,6 +37,16 @@ _5_MB = 5 * 1024 * 1024
 CHUNK_SIZE = 5000
 TRUNCATED_MESSAGE_PREVIEW_SIZE = 1024
 SENDER_STOP_TIMEOUT = 30.0  # seconds to wait for in-flight sender batches when stopping readers
+# Top-level settings that readers and their senders take when they are built. Readers keep them
+# until they are rebuilt, so a change to any of these needs a rebuild just like the readers section.
+READER_SETTINGS = (
+    "field_filters",
+    "msg_buffer_max_bytes",
+    "msg_buffer_max_length",
+    "statsd",
+    "tags",
+    "unit_log_levels",
+)
 
 
 def _convert_uuid(s: bytes) -> str:
@@ -897,10 +907,28 @@ class JournalPump(ServiceDaemon, Tagged):
         for reader in readers:
             reader.join_senders(deadline=deadline)
 
+    def _check_sender_references(self) -> None:
+        known = {
+            "field_filter": self.config.get("field_filters") or {},
+            "unit_log_level": self.config.get("unit_log_levels") or {},
+        }
+        for reader_name, reader_config in self.config.get("readers", {}).items():
+            for sender_name, sender_config in reader_config.get("senders", {}).items():
+                for key, names in known.items():
+                    name = sender_config.get(key)
+                    if name and name not in names:
+                        raise ValueError(f"Sender {sender_name!r} of reader {reader_name!r} uses unknown {key} {name!r}")
+
     def configure_readers(self) -> None:
         new_config = self.config.get("readers", {})
-        if self.readers_active_config == new_config:
-            # No changes in readers, no reconfig required
+        # A missing setting and an empty one mean the same, so switching between them needs no rebuild
+        reader_settings = {key: self.config[key] for key in READER_SETTINGS if self.config.get(key) not in (None, {})}
+        reader_inputs = copy.deepcopy({"readers": new_config, **reader_settings})
+        if self.readers_active_config == reader_inputs:
+            # Nothing readers are built from has changed, no reconfig required. Readers take the GeoIP
+            # database without a rebuild, as it is reopened on every reload and may have moved or changed.
+            for reader in self.readers.values():
+                reader.geoip = self.geoip
             return
 
         # replace old readers with new ones
@@ -958,7 +986,7 @@ class JournalPump(ServiceDaemon, Tagged):
             )
             self.readers[reader_name] = reader
 
-        self.readers_active_config = new_config
+        self.readers_active_config = reader_inputs
 
     def write_running_config(self) -> None:
         if not self.config.get("write_running_config"):
@@ -983,6 +1011,8 @@ class JournalPump(ServiceDaemon, Tagged):
 
     def handle_new_config(self) -> None:
         """Called by ServiceDaemon when config has changed"""
+        # Checked before anything is replaced, so that a rejected config leaves the running setup alone
+        self._check_sender_references()
         stats = self.config.get("statsd") or {}
         self.stats = statsd.StatsClient(
             host=stats.get("host"), port=stats.get("port"), tags=stats.get("tags"), prefix=stats.get("prefix", "")
@@ -997,6 +1027,8 @@ class JournalPump(ServiceDaemon, Tagged):
             except ImportError as ex:
                 raise ValueError("geoip_database configured but geoip2 module not available") from ex
             self.geoip = GeoIPReader(geoip_db_path)
+        else:
+            self.geoip = None
 
         self.configure_field_filters()
         self.configure_unit_log_levels()
