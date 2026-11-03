@@ -106,6 +106,35 @@ class TestSendMessages:
         )
         assert sender._sent_count == 1  # pylint: disable=protected-access
 
+    def test_skipped_events_are_counted_once_when_a_mixed_batch_is_retried(self) -> None:
+        sender, logs = _make_sender()
+        sender.mark_connected()
+        old = _message(NOW - 15 * DAY, "old")
+        recent = _message(NOW - HOUR, "recent")
+        stats_increase: Any = sender.stats.increase
+
+        def skipped_increments() -> list[int]:
+            return [
+                call.kwargs["inc_value"]
+                for call in stats_increase.call_args_list
+                if call.args[0] == "journal.aws_cloudwatch.skipped_events"
+            ]
+
+        with mock.patch("time.time", return_value=NOW), Stubber(logs) as stubber:
+            for _ in range(2):
+                stubber.add_client_error("put_log_events", service_error_code="ThrottlingException", http_status_code=400)
+                _add_init_responses(stubber)
+            stubber.add_response("put_log_events", _put_response(), _put_args(recent))
+
+            assert sender.send_messages(messages=[old[0], recent[0]], cursor="c2") is False
+            assert skipped_increments() == []
+            assert sender.send_messages(messages=[old[0], recent[0]], cursor="c2") is False
+            assert skipped_increments() == []
+            assert sender.send_messages(messages=[old[0], recent[0]], cursor="c2") is True
+            stubber.assert_no_pending_responses()
+
+        assert skipped_increments() == [1]
+
     def test_batch_of_only_old_events_is_confirmed_without_a_request(self) -> None:
         sender, logs = _make_sender()
         sender.mark_connected()
@@ -199,6 +228,21 @@ class TestInvalidBatch:
         assert len(health["errors"]) == 1
         assert health["errors"][0].startswith("Dropped a batch CloudWatch rejected as invalid: The batch of log events")
         assert sender._backoff_attempt == 3  # pylint: disable=protected-access
+
+    def test_dropped_mixed_batch_reports_skipped_events(self) -> None:
+        sender, logs = _make_sender()
+        sender.mark_connected()
+        old = _message(NOW - 15 * DAY, "old")
+        recent = _message(NOW - HOUR, "recent")
+
+        with mock.patch("time.time", return_value=NOW), Stubber(logs) as stubber:
+            _add_invalid_parameter_error(stubber)
+            assert sender.send_messages(messages=[old[0], recent[0]], cursor="c2") is True
+            stubber.assert_no_pending_responses()
+
+        sender.stats.increase.assert_any_call(  # type: ignore[attr-defined]
+            "journal.aws_cloudwatch.skipped_events", inc_value=1, tags=mock.ANY
+        )
 
     def test_sender_reconnects_after_dropped_batch(self) -> None:
         sender, logs = _make_sender()

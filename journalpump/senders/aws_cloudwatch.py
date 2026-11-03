@@ -122,6 +122,20 @@ class AWSCloudWatchSender(LogSender):
             newest = max(newest, timestamp)
         return length
 
+    def _report_skipped(self, skipped_count: int) -> None:
+        if not skipped_count:
+            return
+        self.log.info(
+            "Skipping %d events older than %d days, CloudWatch does not accept them",
+            skipped_count,
+            MAX_EVENT_AGE_MS // (24 * 60 * 60 * 1000),
+        )
+        self.stats.increase(
+            "journal.aws_cloudwatch.skipped_events",
+            inc_value=skipped_count,
+            tags=self.make_tags({"app": "journalpump"}),
+        )
+
     def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
         oldest_accepted_ms = int(time.time() * 1000.0) - MAX_EVENT_AGE_MS
         sent_messages: list[bytes] = []
@@ -134,18 +148,8 @@ class AWSCloudWatchSender(LogSender):
             log_events.append({"timestamp": timestamp_ms, "message": msg.decode("utf8")})
 
         skipped_count = len(messages) - len(log_events)
-        if skipped_count:
-            self.log.info(
-                "Skipping %d events older than %d days, CloudWatch does not accept them",
-                skipped_count,
-                MAX_EVENT_AGE_MS // (24 * 60 * 60 * 1000),
-            )
-            self.stats.increase(
-                "journal.aws_cloudwatch.skipped_events",
-                inc_value=skipped_count,
-                tags=self.make_tags({"app": "journalpump"}),
-            )
         if not log_events:
+            self._report_skipped(skipped_count)
             self._sent_cursor = cursor
             return True
 
@@ -172,6 +176,7 @@ class AWSCloudWatchSender(LogSender):
                     inc_value=len(log_events),
                     tags=self.make_tags({"app": "journalpump"}),
                 )
+                self._report_skipped(skipped_count)
                 self._sent_cursor = cursor
                 self.mark_disconnected(f"Dropped a batch CloudWatch rejected as invalid: {err_msg}")
                 return True
@@ -195,6 +200,7 @@ class AWSCloudWatchSender(LogSender):
                         "journal.aws_cloudwatch.partially_rejected_batches",
                         tags=self.make_tags({"app": "journalpump"}),
                     )
+                self._report_skipped(skipped_count)
                 self.mark_sent(messages=sent_messages, cursor=cursor)
                 self._next_sequence_token = response.get("nextSequenceToken")
                 return True
