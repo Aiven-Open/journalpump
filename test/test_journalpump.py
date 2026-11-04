@@ -1964,10 +1964,10 @@ def test_awscloudwatch_sender_init(_mock_time: mock.Mock) -> None:
         aws_cloudwatch_logs=logs,
     )
 
-    # Test that AWSCloudWatchSender correctly raises SenderInitializationError after
-    # aws_cloudwatch.MAX_INIT_TRIES attempts
+    # Test that _init_log_group raises SenderInitializationError after
+    # aws_cloudwatch.MAX_INIT_TRIES attempts, and that send_messages keeps the batch instead of raising
     with Stubber(logs) as stubber:
-        for _ in range(MAX_INIT_TRIES):
+        for _ in range(MAX_INIT_TRIES * 2):
             stubber.add_client_error(
                 "create_log_group",
                 service_error_code="AccessDeniedException",
@@ -1975,7 +1975,8 @@ def test_awscloudwatch_sender_init(_mock_time: mock.Mock) -> None:
             )
 
         with pytest.raises(SenderInitializationError):
-            sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
+            sender._init_log_group()  # pylint: disable=protected-access
+        assert not sender.send_messages(messages=[b'{"REALTIME_TIMESTAMP": 1590581737.308352}'], cursor=None)
         stubber.assert_no_pending_responses()
 
     # Test that AWSCloudWatchSender initializes correctly when init is retried
