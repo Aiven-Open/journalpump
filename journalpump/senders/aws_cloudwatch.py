@@ -77,7 +77,10 @@ class AWSCloudWatchSender(LogSender):
                         "Access denied exception when trying to create log group and stream in AWS Cloudwatch."
                     )
                     if not attempts_left:
-                        raise SenderInitializationError from err
+                        raise SenderInitializationError(
+                            f"AWS CloudWatch access denied: {err.response['Error']['Code']}: "
+                            f"{err.response['Error'].get('Message', '')}"
+                        ) from err
                     self._backoff()
                     continue
                 # If we get some other aws exception, log it and raise if too many attempts.
@@ -136,7 +139,25 @@ class AWSCloudWatchSender(LogSender):
             tags=self.make_tags({"app": "journalpump"}),
         )
 
+    def _reconnect(self, *, backoff_attempt_at_start: int) -> bool:
+        """Run _init_log_group, returning False instead of raising so the caller keeps its batch.
+
+        _init_log_group backs off on its own retry paths. If it raised without backing off during this send attempt
+        (and the caller has not either), back off here so a failing reconnect does not spin.
+        """
+        try:
+            self._init_log_group()
+        except Exception as ex:  # pylint: disable=broad-except
+            self.mark_disconnected(ex)
+            self.log.exception("Failed to reconnect to AWS CloudWatch")
+            self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
+            if self._backoff_attempt == backoff_attempt_at_start:
+                self._backoff()
+            return False
+        return True
+
     def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
+        backoff_attempt_at_start = self._backoff_attempt
         oldest_accepted_ms = int(time.time() * 1000.0) - MAX_EVENT_AGE_MS
         sent_messages: list[bytes] = []
         log_events: list[dict[str, Any]] = []
@@ -153,8 +174,8 @@ class AWSCloudWatchSender(LogSender):
             self._sent_cursor = cursor
             return True
 
-        if not self._connected:
-            self._init_log_group()
+        if not self._connected and not self._reconnect(backoff_attempt_at_start=backoff_attempt_at_start):
+            return False
 
         log_events.sort(key=lambda event: event["timestamp"])
         kwargs: dict[str, Any] = {
@@ -184,15 +205,16 @@ class AWSCloudWatchSender(LogSender):
             self.log.error("Error sending events %r: %r", err_code, err_msg)
             self.stats.unexpected_exception(ex=err, where="sender", tags=self.make_tags({"app": "journalpump"}))
             self._backoff()
-            self._init_log_group()
+            self._reconnect(backoff_attempt_at_start=backoff_attempt_at_start)
         except Exception as ex:  # pylint: disable=broad-except
             self.mark_disconnected(ex)
             self.log.exception("Unexpected exception during send to AWS CloudWatch")
             self.stats.unexpected_exception(ex=ex, where="sender", tags=self.make_tags({"app": "journalpump"}))
             self._backoff()
-            self._init_log_group()
+            self._reconnect(backoff_attempt_at_start=backoff_attempt_at_start)
         else:
-            if 200 <= response["ResponseMetadata"]["HTTPStatusCode"] < 300:
+            status_code = response["ResponseMetadata"]["HTTPStatusCode"]
+            if 200 <= status_code < 300:
                 rejected = response.get("rejectedLogEventsInfo")
                 if rejected:
                     self.log.warning("CloudWatch rejected some events in a batch of %d: %r", len(log_events), rejected)
@@ -204,4 +226,7 @@ class AWSCloudWatchSender(LogSender):
                 self.mark_sent(messages=sent_messages, cursor=cursor)
                 self._next_sequence_token = response.get("nextSequenceToken")
                 return True
+            self.mark_disconnected(f"CloudWatch put_log_events returned HTTP status {status_code}")
+            self.log.error("CloudWatch put_log_events returned HTTP status %d", status_code)
+            self._backoff()
         return False
