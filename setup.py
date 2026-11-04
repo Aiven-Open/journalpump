@@ -19,7 +19,7 @@ setup(
         "google-api-python-client",
         "google-auth",
         "geoip2",
-        'google-re2<1.1.20251105; python_version < "3.14"',
+        'google-re2<=1.1.20251105; python_version < "3.15"',
     ],
     dependency_links=[],
     package_data={},
