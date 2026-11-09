@@ -468,6 +468,63 @@ class TestReconnectFailure:
         assert sender._sent_cursor == third[1]  # pylint: disable=protected-access
         assert sender._backoff_attempt == 0  # pylint: disable=protected-access
 
+    @pytest.mark.parametrize(
+        ("error_code", "error_message"),
+        [
+            ("ServiceUnavailableException", "try again"),
+            ("AccessDeniedException", "not authorized to describe log streams"),
+        ],
+    )
+    def test_failed_sequence_token_lookup_still_sends_batch(self, error_code: str, error_message: str) -> None:
+        sender, logs = _make_sender()
+        message = _message(NOW - HOUR)
+
+        with mock.patch("time.time", return_value=NOW), Stubber(logs) as stubber:
+            stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+            stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+            stubber.add_client_error(
+                "describe_log_streams",
+                service_error_code=error_code,
+                service_message=error_message,
+                http_status_code=400,
+                expected_params={"logGroupName": "group"},
+            )
+            # No sequenceToken, the lookup that would have provided one failed
+            stubber.add_response("put_log_events", _put_response(), _put_args(message))
+            assert sender.send_messages(messages=[message[0]], cursor="c1") is True
+            stubber.assert_no_pending_responses()
+
+        assert sender._sent_cursor == "c1"  # pylint: disable=protected-access
+        assert sender._sent_count == 1  # pylint: disable=protected-access
+        assert sender.get_state()["health"]["status"] == "connected"
+        assert sender._backoff_attempt == 0  # pylint: disable=protected-access
+
+    def test_stream_missing_from_listing_still_sends_batch(self) -> None:
+        sender, logs = _make_sender()
+        message = _message(NOW - HOUR)
+
+        with mock.patch("time.time", return_value=NOW), Stubber(logs) as stubber:
+            stubber.add_response("create_log_group", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+            stubber.add_response("create_log_stream", {"ResponseMetadata": {"HTTPStatusCode": 200}})
+            stubber.add_response(
+                "describe_log_streams",
+                {"logStreams": [{"logStreamName": "other-1"}], "nextToken": "page-2"},
+                {"logGroupName": "group"},
+            )
+            stubber.add_response(
+                "describe_log_streams",
+                {"logStreams": [{"logStreamName": "other-2"}]},
+                {"logGroupName": "group", "nextToken": "page-2"},
+            )
+            stubber.add_response("put_log_events", _put_response(), _put_args(message))
+            assert sender.send_messages(messages=[message[0]], cursor="c1") is True
+            stubber.assert_no_pending_responses()
+
+        assert sender._sent_cursor == "c1"  # pylint: disable=protected-access
+        assert sender._sent_count == 1  # pylint: disable=protected-access
+        assert sender.get_state()["health"]["status"] == "connected"
+        assert sender._backoff_attempt == 0  # pylint: disable=protected-access
+
 
 def _sleeps(sleep: mock.Mock) -> list[float]:
     return [call.args[0] for call in sleep.call_args_list]

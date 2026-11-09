@@ -144,6 +144,10 @@ class AWSCloudWatchSender(LogSender):
 
         _init_log_group backs off on its own retry paths. If it raised without backing off during this send attempt
         (and the caller has not either), back off here so a failing reconnect does not spin.
+
+        _init_log_group can also return without raising while the sender is still disconnected, when the sequence
+        token lookup failed or the stream was not listed. The batch is sent anyway because PutLogEvents no longer
+        needs the token. A failed put backs off and reconnects.
         """
         try:
             self._init_log_group()
