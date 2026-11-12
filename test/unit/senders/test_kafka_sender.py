@@ -1,4 +1,5 @@
 from journalpump.senders.kafka_sender import KafkaSender
+from kafka import errors
 from unittest import mock
 
 import pytest
@@ -364,3 +365,42 @@ class TestValidSecurityProtocols:
         client_config = sender._generate_client_config()
 
         assert client_config["security_protocol"] == protocol
+
+
+class TestInitKafkaTopicCreation:
+    """Tests for topic creation through KafkaAdminClient in _init_kafka"""
+
+    @staticmethod
+    def _make_sender() -> KafkaSender:
+        config = {
+            "kafka_address": "localhost:9092",
+            "kafka_topic": "test-topic",
+            "kafka_topic_config": {"num_partitions": 3, "replication_factor": 2},
+        }
+        return KafkaSender(
+            config=config,
+            name="test-sender",
+            reader=mock.Mock(),
+            stats=mock.Mock(),
+            field_filter=None,
+        )
+
+    @pytest.mark.parametrize("create_error", [None, errors.TopicAlreadyExistsError, RuntimeError])
+    def test_admin_client_is_closed(self, create_error: type[Exception] | None) -> None:
+        """The admin client is closed whether topic creation succeeds, finds the topic, or fails"""
+        sender = self._make_sender()
+        with (
+            mock.patch("journalpump.senders.kafka_sender.KafkaProducer"),
+            mock.patch("journalpump.senders.kafka_sender.KafkaAdminClient") as admin_cls,
+        ):
+            kafka_admin = admin_cls.return_value
+            if create_error is not None:
+                kafka_admin.create_topics.side_effect = create_error()
+            if create_error is RuntimeError:
+                with pytest.raises(RuntimeError):
+                    sender._init_kafka()
+            else:
+                sender._init_kafka()
+
+        kafka_admin.create_topics.assert_called_once()
+        kafka_admin.close.assert_called_once_with()
