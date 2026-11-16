@@ -1,6 +1,6 @@
 # Use pip for build requirements to harmonize between OS versions
 mypy==2.4.0
-pylint==4.0.7
+pylint==4.0.9
 pytest
 pytest-cov==5.0.0
 pytest-mock
