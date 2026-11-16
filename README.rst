@@ -321,6 +321,17 @@ Controls where the readers starts when the journalpump is launched for the first
 * ``tail``: Last entry in the journal
 * ``<integer>``: Seconds from current boot session
 
+``max_entry_age_secs`` (default ``null``)
+
+Skip journal entries whose ``__REALTIME_TIMESTAMP`` is more than this many
+seconds older than the current time, for example when the destination drops
+them anyway. When the reader starts from ``head`` or resumes from a cursor
+older than the limit, it seeks directly to the oldest allowed time instead of
+reading through the older entries. Entries that become too old while the
+reader is behind, e.g. because a sender is down, are skipped one by one.
+The number of skipped entries is reported in the ``journal.skipped_old_entry``
+metric.
+
 ``match_key`` (default ``null``)
 
 If you want to match against a single journald field, this configuration key

@@ -94,7 +94,8 @@ class JournalpumpProcess:
             stderr=subprocess.PIPE,
             text=True,
         )
-        self.wait_notification("READY=1", timeout=10)
+        # Generous so that a slow or loaded machine does not fail the tests, startup normally takes a second or two
+        self.wait_notification("READY=1", timeout=30)
 
     def reload(self) -> None:
         if self._journalpump is None or self._journalpump.pid is None:

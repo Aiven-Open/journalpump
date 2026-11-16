@@ -44,15 +44,16 @@ def wait_for(predicate: Callable[[], bool], timeout: int) -> bool:
 class _Handler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         for line in self.rfile:
-            if m := re.search(rb"reload-dup (\S+)", line):
+            if m := self.server.pattern.search(line):  # type: ignore[attr-defined]
                 self.server.messages.append(m.group(1).decode())  # type: ignore[attr-defined]
 
 
 @contextmanager
-def syslog_collector() -> Iterator[tuple[int, list[str]]]:
-    """TCP syslog receiver recording delivered messages; each sender connects separately"""
+def syslog_collector(prefix: str = "reload-dup") -> Iterator[tuple[int, list[str]]]:
+    """TCP syslog receiver recording the word after `prefix` in delivered messages; each sender connects separately"""
     with socketserver.ThreadingTCPServer(("127.0.0.1", 0), _Handler) as server:
         server.daemon_threads = True
+        server.pattern = re.compile(re.escape(prefix).encode() + rb" (\S+)")  # type: ignore[attr-defined]
         server.messages = []  # type: ignore[attr-defined]
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
