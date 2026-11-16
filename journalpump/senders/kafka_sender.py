@@ -155,6 +155,8 @@ class KafkaSender(LogSender):
                 self.log.info("Kafka topic %r already exists for %s", self.topic, self.name)
             else:
                 self.log.info("Create Kafka topic, address: %r for %s", self.topic, self.name)
+            finally:
+                kafka_admin.close()
 
     def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
         if self.kafka_producer is None:
