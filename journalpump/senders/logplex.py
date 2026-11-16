@@ -17,7 +17,7 @@ class LogplexSender(LogSender):
         self.structured_data = "-"
         self.mark_connected()
 
-    def format_msg(self, msg: bytes) -> str:
+    def format_msg(self, msg: bytes) -> bytes:
         # TODO: figure out a way to optionally get the entry without JSON
         entry = json.loads(msg.decode("utf8"))
         hostname = entry.get("_HOSTNAME", "localhost")
@@ -25,12 +25,12 @@ class LogplexSender(LogSender):
         timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00 ")
         pkt = f"<190>1 {timestamp}{hostname} {self.logplex_token} {pid} {self.msg_id} {self.structured_data}"
         pkt += entry["MESSAGE"]
-        pkt = pkt.encode("utf8")
-        return f"{len(pkt)} {pkt}"
+        payload = pkt.encode("utf8")
+        return str(len(payload)).encode("ascii") + b" " + payload
 
     def send_messages(self, *, messages: list[bytes], cursor: str | None) -> bool:
         auth = ("token", self.logplex_token)
-        msg_data = "".join([self.format_msg(msg) for msg in messages])
+        msg_data = b"".join([self.format_msg(msg) for msg in messages])
         msg_count = len(messages)
         headers = {
             "Content-Type": "application/logplex-1",
