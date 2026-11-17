@@ -220,25 +220,25 @@ class TestEscapeNewlines:
     def test_disabled_keeps_raw_newlines(self) -> None:
         client, sock = _make_client(max_msg=4096, escape_newlines=False)
         _log(client, msg=self.MULTILINE)
-        assert bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - - line1\nline2\r\nline3\rline4\n"
+        assert bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - - - line1\nline2\r\nline3\rline4\n"
 
     @pytest.mark.parametrize("escape_newlines", [None, True])
     def test_enabled_escapes_newlines(self, escape_newlines: bool | None) -> None:
         client, sock = _make_client(max_msg=4096, escape_newlines=escape_newlines)
         _log(client, msg=self.MULTILINE)
-        assert bytes(sock.sent) == (b"<14>1 2024-01-01T00:00:00.000000Z host app - - line1\\nline2\\r\\nline3\\rline4\n")
+        assert bytes(sock.sent) == (b"<14>1 2024-01-01T00:00:00.000000Z host app - - - line1\\nline2\\r\\nline3\\rline4\n")
 
     def test_enabled_escapes_backslashes(self) -> None:
         client, sock = _make_client(max_msg=4096)
         _log(client, msg="literal\\n real\n path C:\\tmp\\")
         assert (
-            bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - - literal\\\\n real\\n path C:\\\\tmp\\\\\n"
+            bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - - - literal\\\\n real\\n path C:\\\\tmp\\\\\n"
         )
 
     def test_disabled_keeps_raw_backslashes(self) -> None:
         client, sock = _make_client(max_msg=4096, escape_newlines=False)
         _log(client, msg="literal\\n")
-        assert bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - - literal\\n\n"
+        assert bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - - - literal\\n\n"
 
     def test_literal_backslash_n_cannot_forge_record_after_decoding(self) -> None:
         client, sock = _make_client(max_msg=4096)
@@ -276,6 +276,11 @@ class TestEscapeNewlines:
         client, sock = _make_client(max_msg=4096)
         _log(client, msgid="id", sd='x@1 a="b\\]"')
         assert bytes(sock.sent) == b'<14>1 2024-01-01T00:00:00.000000Z host app - id [x@1 a="b\\]"] hello\n'
+
+    def test_missing_sd_is_nilvalue(self) -> None:
+        client, sock = _make_client(max_msg=4096)
+        _log(client, msgid="id")
+        assert bytes(sock.sent) == b"<14>1 2024-01-01T00:00:00.000000Z host app - id - hello\n"
 
 
 class TestSanitizeHeaderFields:
@@ -320,7 +325,7 @@ class TestSanitizeHeaderFields:
             max_msg=4096, escape_newlines=escape_newlines, octet_counted_framing=octet_counted_framing
         )
         _log(client, hostname="h\nX", program="a\r" + "x" * 100, pid="1\nZ", msgid="i\x00D")
-        expected = b"<14>1 2024-01-01T00:00:00.000000Z h_X a_" + b"x" * 46 + b" 1_Z i_D hello\n"
+        expected = b"<14>1 2024-01-01T00:00:00.000000Z h_X a_" + b"x" * 46 + b" 1_Z i_D - hello\n"
         if octet_counted_framing:
             # One frame, no extra split caused by the forged newlines
             assert _parse_octet_counted_frames(bytes(sock.sent)) == [expected]
