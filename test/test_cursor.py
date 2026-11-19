@@ -82,6 +82,20 @@ def test_journal_cursor_order(first: str, second: str, forward: bool, backward: 
     assert second_cursor.is_known_before(first_cursor) is (backward and not forward)
 
 
+@pytest.mark.parametrize(
+    "cursor,expected",
+    [
+        (make_cursor(t=9), True),
+        (make_cursor(t=0xA), False),  # same stamp is not older
+        (make_cursor(t=0xB), False),
+        ("s=1;i=1;b=1;m=1", False),  # no realtime stamp
+        ("opaque", False),
+    ],
+)
+def test_journal_cursor_is_realtime_before(cursor: str, expected: bool) -> None:
+    assert JournalCursor(cursor).is_realtime_before(0xA) is expected
+
+
 def _pick(sender_cursors: list[tuple[str, str | None]]) -> ResumeChoice:
     return pick_resume_cursor(sender_cursors, "reader_cursor", reader_name="r", state_source="state file")
 

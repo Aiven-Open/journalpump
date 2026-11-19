@@ -92,6 +92,11 @@ class JournalCursor:
             and mine.monotonic < theirs.monotonic
         )
 
+    def is_realtime_before(self, realtime_usec: int) -> bool:
+        """True if the cursor's realtime stamp is older than realtime_usec, False if it is not or has no stamp"""
+        location = self.location
+        return location is not None and location.realtime is not None and location.realtime < realtime_usec
+
     def is_known_before(self, other: JournalCursor) -> bool:
         # Comparability is symmetric, so once self <= other is known, a False reverse check means "after", not "unknown"
         return self.is_known_not_after(other) and not other.is_known_not_after(self)

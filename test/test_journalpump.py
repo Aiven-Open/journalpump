@@ -2448,3 +2448,186 @@ def test_configure_readers_unorderable_cursors_means_full_sync(tmp_path: Path, c
         assert saved["a"] in caplog.text and saved["b"] in caplog.text
     finally:
         pump.cleanup()
+
+
+def _make_max_entry_age_reader(
+    *, seek_to: str | None = None, initial_position: str | int | None = None, stats: mock.Mock | None = None
+) -> JournalReader:
+    return JournalReader(
+        name="foo",
+        config={"max_entry_age_secs": 3600, "senders": {}},
+        field_filters={},
+        geoip=None,
+        stats=stats or mock.Mock(),
+        seek_to=seek_to,
+        initial_position=initial_position,
+        searches=[],
+    )
+
+
+def _patch_seeks(mocker: MockerFixture, *, landing_cursor: str | None = None) -> list[Any]:
+    """Record the positioning calls; `landing_cursor` is the entry the journal is at after a realtime seek"""
+    calls: list[Any] = []
+
+    def next_cursor() -> str | None:
+        calls.append("next_cursor")
+        return landing_cursor
+
+    mocker.patch.object(PumpReader, "next_cursor", side_effect=next_cursor)
+    mocker.patch.object(PumpReader, "has_persistent_files", return_value=True)
+    mocker.patch.object(PumpReader, "seek_cursor", side_effect=lambda cursor: calls.append(("seek_cursor", cursor)))
+    mocker.patch.object(PumpReader, "seek_realtime", side_effect=lambda realtime: calls.append(("seek_realtime", realtime)))
+    mocker.patch.object(PumpReader, "seek_head", side_effect=lambda: calls.append("seek_head"))
+    mocker.patch.object(PumpReader, "seek_tail", side_effect=lambda: calls.append("seek_tail"))
+    mocker.patch.object(PumpReader, "get_previous", side_effect=lambda: calls.append("get_previous"))
+    mocker.patch.object(JournalReader, "read_next", side_effect=lambda: calls.append("read_next"))
+    return calls
+
+
+@pytest.mark.parametrize("max_entry_age_secs", [0, -1, "3600", 1.5, True])
+def test_max_entry_age_rejects_invalid_values(max_entry_age_secs: Any) -> None:
+    with pytest.raises(ValueError, match="invalid max_entry_age_secs configuration"):
+        JournalReader(
+            name="foo",
+            config={"max_entry_age_secs": max_entry_age_secs},
+            field_filters={},
+            geoip=None,
+            stats=mock.Mock(),
+            searches=[],
+        )
+
+
+@pytest.mark.parametrize("max_entry_age_secs", [0, "3600"])
+def test_max_entry_age_invalid_on_reload_leaves_the_running_readers_alone(tmp_path: Path, max_entry_age_secs: Any) -> None:
+    config: dict[str, Any] = {"readers": {"a": {"senders": {}}, "b": {"senders": {}}}}
+    journalpump_path = tmp_path / "journalpump.json"
+    journalpump_path.write_text(json.dumps(config), encoding="utf-8")
+    pump = JournalPump(journalpump_path)
+    readers = dict(pump.readers)
+
+    # "a" changes validly and is built before "b", whose value is the one that is rejected
+    pump.config = {
+        "readers": {"a": {"max_entry_age_secs": 60, "senders": {}}, "b": {"max_entry_age_secs": max_entry_age_secs}}
+    }
+    with pytest.raises(ValueError, match="invalid max_entry_age_secs configuration"):
+        pump.handle_new_config()
+
+    assert pump.readers == readers
+    assert not pump.stale_readers
+
+
+def test_max_entry_age_seeks_past_resume_cursor_older_than_max_age(mocker: MockerFixture) -> None:
+    mocker.patch("time.time", return_value=10_000.0)
+    old_cursor = make_cursor(i=10, t=5_000 * 1_000_000)
+    landing_cursor = make_cursor(i=50, t=6_500 * 1_000_000)
+    calls = _patch_seeks(mocker, landing_cursor=landing_cursor)
+    journal_reader = _make_max_entry_age_reader(seek_to=old_cursor)
+
+    journal_reader.create_journald_reader_if_missing()
+
+    # Finding out where the seek landed stepped onto that entry, so it is seeked to again to be the next one read
+    assert calls == [
+        ("seek_cursor", old_cursor),
+        ("seek_realtime", 6_400 * 1_000_000),
+        "next_cursor",
+        ("seek_cursor", landing_cursor),
+    ]
+
+
+def test_max_entry_age_keeps_resume_cursor_when_realtime_seek_lands_before_it(mocker: MockerFixture) -> None:
+    """The clock was set back after the landing entry was written, so it is stamped newer than the entries after it"""
+    mocker.patch("time.time", return_value=10_000.0)
+    old_cursor = make_cursor(i=10, t=5_000 * 1_000_000)
+    already_sent_cursor = make_cursor(i=4, t=7_000 * 1_000_000)
+    calls = _patch_seeks(mocker, landing_cursor=already_sent_cursor)
+    journal_reader = _make_max_entry_age_reader(seek_to=old_cursor)
+
+    journal_reader.create_journald_reader_if_missing()
+
+    assert calls[-2:] == [("seek_cursor", old_cursor), "read_next"]
+
+
+def test_max_entry_age_keeps_resume_cursor_when_realtime_seek_lands_on_unordered_entry(mocker: MockerFixture) -> None:
+    """Another sequence and boot cannot be ordered against the cursor, the landing entry may already have been sent"""
+    mocker.patch("time.time", return_value=10_000.0)
+    old_cursor = make_cursor(s=1, i=10, b=1, t=5_000 * 1_000_000)
+    unordered_cursor = make_cursor(s=2, i=50, b=2, t=7_000 * 1_000_000)
+    calls = _patch_seeks(mocker, landing_cursor=unordered_cursor)
+    journal_reader = _make_max_entry_age_reader(seek_to=old_cursor)
+
+    journal_reader.create_journald_reader_if_missing()
+
+    assert calls[-2:] == [("seek_cursor", old_cursor), "read_next"]
+
+
+def test_max_entry_age_realtime_seek_past_journal_end_is_kept(mocker: MockerFixture) -> None:
+    mocker.patch("time.time", return_value=10_000.0)
+    old_cursor = make_cursor(i=10, t=5_000 * 1_000_000)
+    calls = _patch_seeks(mocker, landing_cursor=None)
+    journal_reader = _make_max_entry_age_reader(seek_to=old_cursor)
+
+    journal_reader.create_journald_reader_if_missing()
+
+    assert calls == [("seek_cursor", old_cursor), ("seek_realtime", 6_400 * 1_000_000), "next_cursor"]
+
+
+def test_max_entry_age_resumes_from_recent_cursor(mocker: MockerFixture) -> None:
+    mocker.patch("time.time", return_value=10_000.0)
+    recent_cursor = make_cursor(t=9_000 * 1_000_000)
+    calls = _patch_seeks(mocker)
+    journal_reader = _make_max_entry_age_reader(seek_to=recent_cursor)
+
+    journal_reader.create_journald_reader_if_missing()
+
+    assert calls == [("seek_cursor", recent_cursor), "read_next"]
+
+
+@pytest.mark.parametrize("initial_position", [None, "head"])
+def test_max_entry_age_seeks_past_old_journal_head(mocker: MockerFixture, initial_position: str | None) -> None:
+    mocker.patch("time.time", return_value=10_000.0)
+    calls = _patch_seeks(mocker)
+    journal_reader = _make_max_entry_age_reader(initial_position=initial_position)
+
+    journal_reader.create_journald_reader_if_missing()
+
+    assert calls == [("seek_realtime", 6_400 * 1_000_000)]
+
+
+def test_max_entry_age_keeps_tail_initial_position(mocker: MockerFixture) -> None:
+    calls = _patch_seeks(mocker)
+    journal_reader = _make_max_entry_age_reader(initial_position="tail")
+
+    journal_reader.create_journald_reader_if_missing()
+
+    assert calls == ["seek_tail", "get_previous", "read_next"]
+
+
+@pytest.mark.parametrize(("realtime", "is_sent"), [(6_399.0, False), (6_400.0, True), (9_999.0, True)])
+def test_max_entry_age_skips_old_entries(mocker: MockerFixture, realtime: float, is_sent: bool) -> None:
+    mocker.patch("time.time", return_value=10_000.0)
+    reader = _make_max_entry_age_reader()
+    sender = mock.Mock()
+    sender.field_filter = FieldFilter("filter_a", {"fields": ["MESSAGE"]})
+    sender.extra_field_values = {}
+    sender.msg_buffer = MsgBuffer()
+    sender.unit_log_levels = None
+    reader.senders = {"my_sender": sender}
+    jobject = JournalObject(entry={"MESSAGE": "Hello", "__REALTIME_TIMESTAMP": realtime}, cursor="10")
+
+    result = JournalObjectHandler(jobject, reader, mock.Mock()).process()
+
+    assert result.has_more is True
+    assert bool(sender.msg_buffer.messages) is is_sent
+    assert reader.skipped_old_entries == (0 if is_sent else 1)
+
+
+def test_max_entry_age_reports_skipped_entries(mocker: MockerFixture) -> None:
+    stats = mock.Mock()
+    reader = _make_max_entry_age_reader(stats=stats)
+    reader.skipped_old_entries = 5
+    reader.skipped_old_entries_last_send = 0.0
+
+    reader.report_skipped_old_entries()
+
+    stats.increase.assert_called_once_with("journal.skipped_old_entry", 5, tags=mock.ANY)
+    assert reader.skipped_old_entries == 0

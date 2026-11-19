@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from . import geohash, statsd
-from .cursor import parse_seqnum, pick_resume_cursor
+from .cursor import JournalCursor, parse_seqnum, pick_resume_cursor
 from .daemon import ServiceDaemon
 from .senders import get_sender_class
 from .senders.base import LogSender, MAX_KAFKA_MESSAGE_SIZE, Tagged
@@ -133,6 +133,13 @@ class PumpReader(journal.Reader):
 
         return None
 
+    def next_cursor(self) -> str | None:
+        # pylint: disable=no-member, protected-access
+        """Step to the next entry and return its cursor without reading its fields, or None at the journal end"""
+        if super()._next(1):
+            return cast(str, self._get_cursor())
+        return None
+
 
 class JournalReader(Tagged):
     def __init__(
@@ -186,6 +193,9 @@ class JournalReader(Tagged):
         self.secret_filter_metric_last_send = time.monotonic()
         self._is_ready = True
         self.threshold_for_metric_emit = self._configure_threshold_for_metric_emit(config)
+        self.max_entry_age_secs = self.parse_max_entry_age(config)
+        self.skipped_old_entries = 0
+        self.skipped_old_entries_last_send = time.monotonic()
 
     def invalidate(self) -> None:
         """
@@ -354,6 +364,34 @@ class JournalReader(Tagged):
         self.secret_filter_matches = 0
         self.secret_filter_metric_last_send = now
 
+    def report_skipped_old_entries(self) -> None:
+        now = time.monotonic()
+        if (now - self.skipped_old_entries_last_send) < 10.0:
+            return
+        if not self.skipped_old_entries:
+            return
+        self.log.info(
+            "Skipped %r journal entries older than max_entry_age_secs %rs",
+            self.skipped_old_entries,
+            self.max_entry_age_secs,
+        )
+        if self.stats is not None:
+            self.stats.increase("journal.skipped_old_entry", self.skipped_old_entries, tags=self.make_tags())
+        self.skipped_old_entries = 0
+        self.skipped_old_entries_last_send = now
+
+    def is_within_max_entry_age(self, entry: Mapping[str, Any]) -> bool:
+        """False, and counted as skipped, if the entry is older than max_entry_age_secs"""
+        if self.max_entry_age_secs is None:
+            return True
+        realtime = entry.get("__REALTIME_TIMESTAMP")
+        if not isinstance(realtime, (int, float)):
+            return True
+        if realtime >= time.time() - self.max_entry_age_secs:
+            return True
+        self.skipped_old_entries += 1
+        return False
+
     def inc_line_stats(self, *, journal_lines: int, journal_bytes: int) -> None:
         self.read_bytes += journal_bytes
         self.read_lines += journal_lines
@@ -469,7 +507,18 @@ class JournalReader(Tagged):
 
         if seek_to and not self._seek_to_cursor(self.journald_reader, seek_to):
             seek_to = self.cursor = None
-        if seek_to:
+        min_realtime = self._min_realtime_usec()
+        if min_realtime is not None and self._starts_before(seek_to=seek_to, min_realtime=min_realtime):
+            self.log.info(
+                "Reader %r skipping journal entries older than max_entry_age_secs %rs, seeking to realtime %r",
+                self.name,
+                self.max_entry_age_secs,
+                min_realtime,
+            )
+            self.journald_reader.seek_realtime(min_realtime)
+            if seek_to:
+                self._keep_realtime_seek_after_cursor(self.journald_reader, resume_cursor=seek_to)
+        elif seek_to:
             # Now the cursor points to the last read item, step over it so that we
             # do not read the same item twice
             self.read_next()
@@ -507,6 +556,48 @@ class JournalReader(Tagged):
         self.initialize_senders()
 
         return self.journald_reader
+
+    def _keep_realtime_seek_after_cursor(self, reader: PumpReader, *, resume_cursor: str) -> None:
+        """Go back to the resume cursor unless the realtime seek is known to have landed after it
+
+        Journal order is not realtime order once the clock has been set back: entries written before the resume
+        cursor can be stamped newer than it, and a realtime seek finds those first. Reading on from there would
+        send them again, so the cursor is kept and the old entries after it are skipped one by one instead.
+        The same is done when the landing entry cannot be ordered against the cursor, e.g. it is in another
+        sequence and boot, as it may have been sent already.
+        """
+        landed_cursor = reader.next_cursor()
+        if landed_cursor is None:
+            # Nothing is stamped new enough yet, entries written from now on are the first ones to be read
+            return
+        if not JournalCursor(resume_cursor).is_known_before(JournalCursor(landed_cursor)):
+            self.log.warning(
+                "Reader %r realtime seek landed on %r, not known to be after the resume cursor %r, "
+                "resuming from the cursor instead",
+                self.name,
+                landed_cursor,
+                resume_cursor,
+            )
+            reader.seek_cursor(resume_cursor)  # pylint: disable=no-member
+            # Step over the last read item, as when resuming without max_entry_age_secs
+            self.read_next()
+            return
+        # Finding the landing entry stepped onto it, seek to it again so that it is the next one read
+        reader.seek_cursor(landed_cursor)  # pylint: disable=no-member
+
+    def _min_realtime_usec(self) -> int | None:
+        """Oldest realtime in microseconds an entry may have to be read, or None if age is not limited"""
+        if self.max_entry_age_secs is None:
+            return None
+        return int((time.time() - self.max_entry_age_secs) * 1_000_000)
+
+    def _starts_before(self, *, seek_to: str | None, min_realtime: int) -> bool:
+        """True if the reader would start reading before min_realtime, so it can seek forward instead"""
+        if seek_to:
+            return JournalCursor(seek_to).is_realtime_before(min_realtime)
+        # "tail" starts at the newest entry, and a monotonic position is relative to the boot, not to realtime.
+        # Entries read from there that are too old are still skipped one by one.
+        return self.initial_position in {None, "head"}
 
     def ip_to_geohash(self, tags: dict[str, str], args: list[str]) -> str:
         """ip_to_geohash(ip_tag_name,precision) -> Convert IP address to geohash"""
@@ -598,6 +689,15 @@ class JournalReader(Tagged):
 
     def _configure_threshold_for_metric_emit(self, config: dict[str, Any]) -> int:
         return int(config.get("threshold_for_metric_emit", 10))
+
+    @staticmethod
+    def parse_max_entry_age(config: Mapping[str, Any]) -> int | None:
+        max_entry_age_secs = config.get("max_entry_age_secs")
+        if max_entry_age_secs is None:
+            return None
+        if isinstance(max_entry_age_secs, bool) or not isinstance(max_entry_age_secs, int) or max_entry_age_secs <= 0:
+            raise ValueError("invalid max_entry_age_secs configuration - must be a positive integer")
+        return max_entry_age_secs
 
     def perform_searches(self, jobject: JournalObject) -> dict[str, Any]:
         entry = jobject.entry
@@ -729,6 +829,9 @@ class JournalObjectHandler:
         self.reader = reader
 
     def process(self) -> SingleMessageReadResult:
+        if self.jobject.cursor is not None and not self.reader.is_within_max_entry_age(self.jobject.entry):
+            return SingleMessageReadResult(has_more=True, bytes_read=None)
+
         new_entry: dict[str, Any] = {}
         for key, value in self.jobject.entry.items():
             if isinstance(value, bytes):
@@ -919,6 +1022,13 @@ class JournalPump(ServiceDaemon, Tagged):
                     if name and name not in names:
                         raise ValueError(f"Sender {sender_name!r} of reader {reader_name!r} uses unknown {key} {name!r}")
 
+    def _check_reader_settings(self) -> None:
+        for reader_name, reader_config in self.config.get("readers", {}).items():
+            try:
+                JournalReader.parse_max_entry_age(reader_config)
+            except ValueError as ex:
+                raise ValueError(f"Reader {reader_name!r}: {ex}") from ex
+
     def configure_readers(self) -> None:
         new_config = self.config.get("readers", {})
         # A missing setting and an empty one mean the same, so switching between them needs no rebuild
@@ -1013,6 +1123,7 @@ class JournalPump(ServiceDaemon, Tagged):
         """Called by ServiceDaemon when config has changed"""
         # Checked before anything is replaced, so that a rejected config leaves the running setup alone
         self._check_sender_references()
+        self._check_reader_settings()
         stats = self.config.get("statsd") or {}
         self.stats = statsd.StatsClient(
             host=stats.get("host"), port=stats.get("port"), tags=stats.get("tags"), prefix=stats.get("prefix", "")
@@ -1243,6 +1354,7 @@ class JournalPump(ServiceDaemon, Tagged):
 
                 if reader.secret_filter_metrics:
                     reader.report_secret_filter_metrics()
+                reader.report_skipped_old_entries()
 
             if hits and time.monotonic() - last_stats_time > 60.0:
                 self.log.info("search hits stats: %s", hits)
