@@ -55,8 +55,8 @@ def _rfc_5424_formatter(
     sd: str | None,
 ) -> bytes:
     data = f"<{pri}>1 {rfc3339date} {hostname} {app_id} {proc_id} {msg_id}"
-    if sd is not None:
-        data += f" [{sd}]"
+    # RFC 5424 section 6: STRUCTURED-DATA is mandatory; it is the NILVALUE when there are no elements
+    data += f" [{sd}]" if sd is not None else f" {NILVALUE}"
     data += f" {msg}\n"
     return data.encode("utf-8", "replace")
 
